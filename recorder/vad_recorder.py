@@ -149,7 +149,7 @@ def main():
         # Whisper
         try:
             r = subprocess.run([
-                "whisper-cli", "-m", "../multilang_whisper_large3_turbo.ggml",
+                "whisper-cli", "-m", "models/multilang_whisper_large3_turbo.ggml",
                 "-f", str(wav_path), "--language", "en", "--output-txt", "--no-timestamps"
             ], capture_output=True, text=True, timeout=60, check=True)
             text = r.stdout.strip() or "[empty]"
