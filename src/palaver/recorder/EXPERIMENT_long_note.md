@@ -2,7 +2,7 @@
 
 ## Overview
 
-`vad_recorder_v2_long_note.py` is an experimental variant that dynamically adjusts VAD silence detection based on voice commands.
+`vad_recorder.py` is an experimental variant that dynamically adjusts VAD silence detection based on voice commands.
 
 ## How It Works
 
@@ -29,7 +29,7 @@
 ## Usage
 
 ```bash
-uv run recorder/vad_recorder_v2_long_note.py
+uv run recorder/vad_recorder.py
 ```
 
 ### Workflow for Creating a Long Note
