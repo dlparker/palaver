@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
-palaver/recorder/vad_recorder_v2_long_note.py
-Experimental: Dynamic VAD silence detection based on "start new note" command
+palaver/recorder/vad_recorder.py
+Voice Activity Detection (VAD) recorder with dynamic silence thresholds
 
 Features:
 - Detects "start new note" command in transcription
 - Switches to long silence mode (5 seconds) for extended notes
 - Returns to normal mode after long note completes
+- Supports both live microphone input and WAV file input (for testing)
 """
 
-import sounddevice as sd
+import sys
+import argparse
 import numpy as np
 import torch
 import time
@@ -24,6 +26,9 @@ from multiprocessing import Process, Queue, Event
 from dataclasses import dataclass, asdict
 from typing import Optional, List
 from queue import Empty
+
+# Import audio source abstraction
+from palaver.recorder.audio_sources import create_audio_source, FileAudioSource
 
 # ================== CONFIG ==================
 RECORD_SR = 48000
@@ -323,6 +328,7 @@ in_speech = False
 job_queue = None
 result_queue = None
 collector = None
+input_source_metadata = None  # Store input source info for manifest
 
 def downsample_to_512(chunk):
     """Downsample to exactly 512 samples @ 16 kHz."""
@@ -412,14 +418,44 @@ def save_and_queue_segment(index: int, audio: np.ndarray):
     except:
         print(f"  → Queue full, transcription delayed")
 
-def main():
-    global session_dir, in_speech, job_queue, result_queue, collector
+def main(input_source: Optional[str] = None):
+    """
+    Run the VAD recorder.
+
+    Args:
+        input_source: Either device name (e.g., "hw:1,0") or path to WAV file.
+                     If None, uses DEVICE constant.
+    """
+    global session_dir, in_speech, job_queue, result_queue, collector, input_source_metadata
 
     sid = datetime.now().strftime("%Y%m%d_%H%M%S")
     session_dir = BASE_DIR / sid
     session_dir.mkdir(exist_ok=True)
 
     print(f"\nSession → {session_dir}")
+
+    # Determine audio source
+    if input_source is None:
+        input_source = DEVICE
+
+    # Create audio source (device or file)
+    audio_source = create_audio_source(
+        input_spec=input_source,
+        samplerate=RECORD_SR,
+        blocksize=CHUNK_SIZE,
+        channels=2
+    )
+
+    # Detect if interactive mode (device) or file mode
+    is_file_input = isinstance(audio_source, FileAudioSource)
+
+    # Store metadata for manifest
+    input_source_metadata = {
+        "type": "file" if is_file_input else "device",
+        "source": str(input_source)
+    }
+
+    print(f"Input source: {'FILE' if is_file_input else 'DEVICE'} ({input_source})")
 
     # Initialize queues
     job_queue = Queue(maxsize=JOB_QUEUE_SIZE)
@@ -446,18 +482,20 @@ def main():
     in_speech = False
     vad.reset_states()
 
-    with sd.InputStream(samplerate=RECORD_SR,
-                       device=DEVICE,
-                       channels=2,
-                       dtype='float32',
-                       blocksize=CHUNK_SIZE,
-                       callback=audio_callback,
-                       latency="low"):
-        print("Recording… speak, pause, speak again… press Enter to stop")
-        try:
-            input()
-        except KeyboardInterrupt:
-            pass
+    with audio_source:
+        audio_source.start(audio_callback)
+
+        if is_file_input:
+            print(f"Processing audio file...")
+            # Wait for file playback to complete
+            audio_source.wait_for_completion()
+            print("File processing complete")
+        else:
+            print("Recording… speak, pause, speak again… press Enter to stop")
+            try:
+                input()
+            except KeyboardInterrupt:
+                pass
 
     time.sleep(1.0)  # let final segment finish
 
@@ -501,6 +539,7 @@ def main():
         "samplerate": RECORD_SR,
         "total_segments": total_kept_segments,
         "num_workers": NUM_WORKERS,
+        "input_source": input_source_metadata,  # Record input type
         "segments": [
             {
                 "index": i,
@@ -518,4 +557,38 @@ def main():
     print(f"   • transcript_raw.txt ready for Phase 2")
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        description="VAD-based voice recorder with transcription",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Record from microphone (default device)
+  python vad_recorder.py
+
+  # Record from specific device
+  python vad_recorder.py --input hw:1,0
+
+  # Process a WAV file (for testing)
+  python vad_recorder.py --input tests/audio_samples/note1.wav
+"""
+    )
+    parser.add_argument(
+        "--input",
+        type=str,
+        default=None,
+        help="Input source: device name (e.g., hw:1,0) or path to WAV file. "
+             "Default: uses DEVICE constant from config"
+    )
+
+    args = parser.parse_args()
+
+    try:
+        main(input_source=args.input)
+    except KeyboardInterrupt:
+        print("\n\nInterrupted by user")
+        sys.exit(0)
+    except Exception as e:
+        print(f"\n\nError: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

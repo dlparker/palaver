@@ -10,8 +10,8 @@
 
 ## High-Level Checklist
 
-- [ ] **Phase 1**: Refactor `vad_recorder.py` to support audio file input
-- [ ] **Phase 2**: Create and validate test for `vad_recorder.py` using `tests/audio_samples/note1.wav`
+- [x] **Phase 1**: Refactor `vad_recorder.py` to support audio file input ✅ COMPLETED
+- [~] **Phase 2**: Create and validate test for `vad_recorder.py` using `tests/audio_samples/note1.wav` 🔄 IN PROGRESS (Tasks 2.1-2.2 done)
 - [ ] **Phase 3**: Add comprehensive logging to `recorder_backend_async.py`
 - [ ] **Phase 4**: Refactor `recorder_backend_async.py` to support audio file input and create tests
 - [ ] **Phase 5**: Fix async backend issues and validate with tests
@@ -89,6 +89,11 @@
   - Transcription results (from transcript_raw.txt)
   - Any errors or warnings
 - [ ] Compare against expected behavior
+- [ ] **CRITICAL**: Explicitly verify "start new note" → long note mode (5s silence) workflow:
+  - Does the recorder detect "start new note" command in transcription?
+  - Does it switch to 5-second silence threshold?
+  - Does it properly end the note after 5 seconds of silence?
+  - **NOTE**: This feature was tested with microphone input (2025-12-03) and did NOT work correctly - the note did not end after 5 seconds of silence. If file-based test works, we can use it to debug the microphone version.
 - [ ] **Review Point**: Review results and decide if adjustments needed
 
 ### Task 2.4: Iterate on VAD Parameters (if needed)
@@ -361,6 +366,378 @@
 
 ---
 
+## Progress Report - 2025-12-03 End of Day
+
+### Phase 1: ✅ COMPLETED
+
+**Objective**: Refactor `vad_recorder.py` to support dual input (device OR file)
+
+#### What Was Accomplished
+
+**Task 1.1: Input Abstraction Design** ✅
+- Designed `AudioSource` protocol with context manager support
+- Created separate `DeviceAudioSource` and `FileAudioSource` classes
+- Maintains same callback interface for both sources
+- Design approved and documented in `src/palaver/recorder/audio_sources.py`
+
+**Task 1.2: WAV File Reader Implementation** ✅
+- Implemented `FileAudioSource` class (audio_sources.py:79-189)
+- Features:
+  - Automatic resampling (supports 22050 Hz → 48000 Hz)
+  - Mono → stereo conversion
+  - Real-time playback simulation (sleep between chunks)
+  - Support for 16-bit and 32-bit WAV files
+  - Background thread matches sounddevice model
+- Error handling for missing files and invalid formats
+
+**Task 1.3: Main Recording Loop Modification** ✅
+- Modified `vad_recorder.py` to use audio source abstraction
+- Added `--input` command-line argument
+- Created `create_audio_source()` factory function
+- Backward compatible: microphone still works as before
+- Created `run_vad_recorder.sh` wrapper script using `uv`
+
+**Task 1.4: Session Management Updates** ✅
+- Manifest now includes `input_source` metadata:
+  - `type`: "device" or "file"
+  - `source`: device name or file path
+- Allows distinguishing test sessions from production recordings
+
+**Files Created/Modified**:
+- ✅ `src/palaver/recorder/audio_sources.py` (new, 244 lines)
+- ✅ `src/palaver/recorder/vad_recorder.py` (modified, added file support)
+- ✅ `run_vad_recorder.sh` (new, wrapper script)
+
+**Testing**:
+- ✅ Device input tested and working (no regression)
+- ✅ Import and command-line interface verified
+- ⚠️ Discovered issue: microphone long note mode doesn't terminate correctly (5s silence not detected)
+
+---
+
+### Phase 2: 🔄 IN PROGRESS (Task 2.2 completed)
+
+**Objective**: Create and validate test for `vad_recorder.py` using test audio file
+
+#### What Was Accomplished
+
+**Task 2.1: Examine Test Audio File** ✅
+- Examined `tests/audio_samples/note1.wav`:
+  - 22050 Hz, mono, 16-bit, 9.01 seconds
+  - RMS level 4435 (good signal)
+- Reviewed `piper.sh` to understand content
+- **Discovery**: Original file used `--sentence-silence 1` (insufficient for testing 5s threshold)
+- Documented file properties in `tests/audio_samples/README.md`
+- Created expected behavior document: `tests/audio_samples/note1_expected_behavior.md`
+
+**Task 2.2: Create Initial Test** ✅
+- Created `tests/test_vad_recorder_file.py`
+- Features:
+  - Uses `monkeypatch` to mock stdin (no manual interaction)
+  - Validates manifest, transcript files, segments
+  - Checks for "start a new note" command in transcript
+  - Expects 3-5 segments (ideally 4)
+  - Displays results for manual verification
+- Test successfully ran and passed
+
+**Files Created**:
+- ✅ `tests/test_vad_recorder_file.py` (new, test implementation)
+- ✅ `tests/audio_samples/README.md` (new, documentation)
+- ✅ `tests/audio_samples/note1_expected_behavior.md` (new, expected behavior)
+
+**Issues Discovered**:
+- ⚠️ Microphone input: long note mode doesn't end after 5s silence (observed during device testing)
+- ⚠️ File vs microphone behavior may differ (file has perfect digital silence, microphone has ambient noise)
+
+---
+
+### Critical Discovery: Test Audio Generation Problem
+
+#### The Problem
+
+**Issue**: Piper's `--sentence-silence` parameter applies **uniformly** to all sentences.
+
+**Impact**: Cannot create test files with mixed silence patterns like:
+- Short silence (1s) between body sentences (natural speech)
+- Long silence (6s) at end to trigger note termination
+
+**Why This Matters**:
+- Testing requires precise silence control for VAD thresholds
+- Need different silence durations for different interaction types
+- Pattern needed for creating tests for **many future interaction types** beyond notes
+
+#### The Solution: Test Audio Generation Toolkit
+
+**Design Decision**: Two-stage generation process
+1. Generate speech with Piper (uniform short silences OR no silence)
+2. Manipulate WAV files to add precise silence where needed
+
+**Tools Created**:
+
+1. **`tools/wav_utils.py`** - Core WAV manipulation utility (273 lines)
+   - `append_silence()`: Add silence to end of file
+   - `concatenate_wavs()`: Join multiple WAV files with precise silence control
+   - `read_wav()`, `write_wav()`: Low-level WAV I/O
+   - `create_silence()`: Generate digital silence
+   - Command-line interface and Python API
+
+2. **`tools/generate_note_test.sh`** - Simple test file generator
+   - Generates speech with Piper (1s between sentences)
+   - Appends 6s final silence using wav_utils
+   - One-command creation of properly structured test files
+
+3. **`tools/generate_test_audio_example.py`** - Advanced patterns (172 lines)
+   - Example: Single note workflow
+   - Example: Multi-note workflow
+   - Example: Custom interaction patterns
+   - Templates for creating new test scenarios
+
+4. **`tools/README.md`** - Comprehensive documentation (312 lines)
+   - Usage patterns and examples
+   - Design guidelines for test files
+   - VAD testing guidelines (normal 0.8s vs long 5s thresholds)
+   - Tips for debugging audio files
+   - Future enhancement ideas
+
+**Usage Examples**:
+
+```bash
+# Simple: append silence to existing file
+python tools/wav_utils.py append input.wav output.wav --silence 6.0
+
+# Advanced: concatenate with precise silence control
+python tools/wav_utils.py concat seg1.wav seg2.wav seg3.wav \
+    -o output.wav --silence 1.0 1.0 6.0
+```
+
+```python
+# Python API for programmatic generation
+from tools.wav_utils import concatenate_wavs
+
+concatenate_wavs(
+    input_wavs=["command.wav", "title.wav", "body1.wav", "body2.wav"],
+    output_wav="test.wav",
+    silence_between=[1.0, 1.0, 1.0, 6.0]  # Precise control
+)
+```
+
+**Files Created**:
+- ✅ `tools/wav_utils.py` (273 lines)
+- ✅ `tools/generate_note_test.sh` (bash script)
+- ✅ `tools/generate_test_audio_example.py` (172 lines)
+- ✅ `tools/README.md` (312 lines, comprehensive guide)
+
+**Benefits**:
+- ✅ Precise control over silence duration for VAD testing
+- ✅ Reusable pattern for all future interaction types
+- ✅ Programmatic test generation (can create variations)
+- ✅ Documented and extensible
+
+---
+
+### Understanding Note Body End Detection
+
+**Key Discovery**: Note body end is detected **purely by VAD silence**, NOT by transcription content.
+
+**The Workflow** (documented in `design_docs/note_body_detection_explanation.md`):
+
+1. **Normal mode**: 0.8s silence threshold
+2. **"start new note" detected** in transcription → queue switch to long_note mode
+3. **Next segment**: capture title, apply mode switch
+4. **Long note mode**: 5s silence threshold
+5. **VAD detects 5s+ silence** → segment ends
+6. **Automatic check**: "in long_note mode?" → YES → queue switch back to normal
+7. **Next segment**: normal mode restored
+
+**Critical Code** (vad_recorder.py:373-379):
+```python
+if vad_mode == "long_note":
+    switch_vad_mode("normal")  # Automatic after ANY segment in long mode
+```
+
+**Implications**:
+- ⚠️ **Current Issue**: Switches back to normal after EVERY segment in long note mode
+- ⚠️ Cannot speak multiple body paragraphs with natural pauses
+- ⚠️ File input works (perfect digital silence), microphone may not (ambient noise)
+
+**File Created**:
+- ✅ `design_docs/note_body_detection_explanation.md` (comprehensive workflow explanation)
+
+---
+
+### Updated File Tree
+
+```
+palaver/
+├── src/palaver/recorder/
+│   ├── vad_recorder.py (MODIFIED - dual input support)
+│   ├── audio_sources.py (NEW - input abstraction)
+│   ├── recorder_backend_async.py (unchanged)
+│   └── ...
+├── tests/
+│   ├── test_vad_recorder_file.py (NEW - file input test)
+│   ├── test_recorder.py (existing, still hangs)
+│   └── audio_samples/
+│       ├── note1.wav (test file)
+│       ├── README.md (NEW - documentation)
+│       └── note1_expected_behavior.md (NEW - expected results)
+├── tools/ (NEW DIRECTORY)
+│   ├── wav_utils.py (NEW - WAV manipulation)
+│   ├── generate_note_test.sh (NEW - simple generator)
+│   ├── generate_test_audio_example.py (NEW - advanced patterns)
+│   └── README.md (NEW - comprehensive guide)
+├── design_docs/
+│   ├── recorder_refactoring_plan.md (this file)
+│   └── note_body_detection_explanation.md (NEW - workflow doc)
+└── run_vad_recorder.sh (NEW - uv wrapper)
+```
+
+---
+
+### Phase 1 & 2 Summary Statistics
+
+**Code Written**:
+- 5 new Python files (944 lines total)
+- 2 shell scripts
+- 5 documentation files (1000+ lines)
+
+**Tests Created**:
+- 1 pytest test file (working)
+
+**Tools Created**:
+- Complete test audio generation toolkit
+- Reusable for all future interaction types
+
+**Documentation**:
+- Input abstraction design
+- Audio generation patterns
+- Note detection workflow explained
+- Test file expected behaviors
+
+---
+
+### Next Steps (Phase 2 continuation)
+
+**Remaining Tasks**:
+
+**Task 2.3: Run Test and Analyze Results** - READY
+- Test framework exists
+- Need to verify segment count and transcriptions
+- **Critical**: Verify long note mode activation/deactivation
+- Compare to microphone behavior
+
+**Task 2.4: Iterate on VAD Parameters** - IF NEEDED
+- Adjust thresholds based on test results
+- May need to tune for file vs microphone differences
+
+**Task 2.5: Validate Transcription Pipeline** - READY
+- Test exists, can verify transcription quality
+- Check for "Clerk," prefix filtering needs
+
+**Blockers**: None
+
+**Recommendations for Next Session**:
+1. Generate fresh `note1.wav` using `tools/generate_note_test.sh`
+2. Run `tests/test_vad_recorder_file.py` and analyze results
+3. Verify long note mode workflow (the critical test)
+4. If file test works but microphone doesn't, investigate ambient noise issues
+5. Proceed to Phase 3 (logging in async backend)
+
+---
+
+### Tool Usage Instructions (For Reference)
+
+#### Creating Test Audio Files
+
+**Quick Method** (recommended for note workflow):
+```bash
+./tools/generate_note_test.sh
+```
+
+**Custom Silence Control**:
+```bash
+# Generate base audio with Piper
+echo "Sentence 1. Sentence 2. Sentence 3." | \
+    uv run piper --model models/en_US-lessac-medium.onnx \
+                 --sentence-silence 1 \
+                 --output_file base.wav
+
+# Append 6 seconds of silence to end
+python tools/wav_utils.py append base.wav final.wav --silence 6.0
+```
+
+**Multi-Segment with Precise Control**:
+```python
+from tools.wav_utils import concatenate_wavs
+
+# Each segment generated separately
+segments = ["seg1.wav", "seg2.wav", "seg3.wav", "seg4.wav"]
+
+# Precise silence after each: 1s, 1s, 1s, 6s
+concatenate_wavs(segments, "output.wav", silence_between=[1.0, 1.0, 1.0, 6.0])
+```
+
+**Programmatic Generation** (for test variations):
+```python
+import subprocess
+from pathlib import Path
+from tools.wav_utils import concatenate_wavs
+
+def generate_segment(text: str, output: Path):
+    """Generate single speech segment with Piper"""
+    subprocess.run(
+        ["uv", "run", "piper",
+         "--model", "models/en_US-lessac-medium.onnx",
+         "--sentence-silence", "0",  # No silence (we'll add manually)
+         "--output_file", str(output)],
+        input=text.encode()
+    )
+
+# Generate test scenario
+phrases = ["Command.", "Title.", "Body 1.", "Body 2."]
+temp_dir = Path("temp")
+temp_dir.mkdir(exist_ok=True)
+
+segment_files = []
+for i, phrase in enumerate(phrases):
+    output = temp_dir / f"seg{i}.wav"
+    generate_segment(phrase, output)
+    segment_files.append(output)
+
+# Combine with custom silence pattern
+concatenate_wavs(
+    segment_files,
+    "test.wav",
+    silence_between=[1.0, 1.0, 1.0, 6.0]
+)
+```
+
+**Design Guidelines** (from tools/README.md):
+
+For VAD Testing:
+- **Normal mode (0.8s threshold)**:
+  - 0.5-0.7s silence: should NOT trigger segment end
+  - 1.0-1.5s silence: SHOULD trigger segment end
+  - Avoid testing at exactly 0.8s (flaky)
+
+- **Long note mode (5.0s threshold)**:
+  - 1.0-3.0s silence: should NOT trigger segment end
+  - 6.0-8.0s silence: SHOULD trigger segment end
+  - Avoid testing at exactly 5.0s (flaky)
+
+For "Clerk," Prefix:
+- Add to all segments to work around VAD speech-start quirk
+- Document that filtering is expected in transcription processing
+- Keep consistent in test files
+
+**Reference Documentation**:
+- Full guide: `tools/README.md`
+- Examples: `tools/generate_test_audio_example.py`
+- Note workflow: `design_docs/note_body_detection_explanation.md`
+
+---
+
 ## Revision History
 
 - **2025-12-03**: Initial plan created based on project requirements
+- **2025-12-03 EOD**: Completed Phase 1 and partial Phase 2; discovered and solved test audio generation challenges
