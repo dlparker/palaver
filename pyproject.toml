@@ -1,9 +1,16 @@
 [project]
-name = "listener"
+name = "palaver"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+#dynamic = ["version"]  # if you use version from git/tag, otherwise not needed
+
+description = "A voice controlled toolset for LLM interaction"
+#readme = "README.md"
 requires-python = ">=3.12"
+authors = [
+    { name = "Dennis Parker", email = "dennis@windhavengroup.com" }
+]
+
+
 dependencies = [
     "numpy>=2.3.5",
     "packaging>=25.0",
@@ -15,3 +22,11 @@ dependencies = [
     "torch>=2.9.1",
     "torchaudio>=2.9.1",
 ]
+[dependency-groups]
+dev = [
+    "ipdb>=0.13.13",
+    "pytest>=8.4.2",
+    "pytest-asyncio>=0.25.2",
+    "pytest-cov>=7.0.0",
+]
+
