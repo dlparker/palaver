@@ -173,6 +173,8 @@ class ResultCollector:
         self.transcript_path = session_dir / "transcript_raw.txt"
         self.incremental_path = session_dir / "transcript_incremental.txt"
         self.mode_change_callback = mode_change_callback  # Callback to signal mode change
+        self.waiting_for_title = False  # State: waiting for title after "start new note"
+        self.current_note_title = None  # Store the title when captured
 
         # Initialize files
         self.transcript_path.write_text("# Raw Transcript\n")
@@ -212,19 +214,31 @@ class ResultCollector:
 
         print(f"[Collector] Segment {result.segment_index} transcribed: {result.text[:60]}...")
 
-        # Check for "start new note" command
+        # State machine for note handling
         if result.success and self.mode_change_callback:
             text_lower = result.text.lower()
-            # Look for optional prefix (clerk/clark) followed by "start new note"
-            if "start new note" in text_lower:
-                # Check if preceded by clerk/clark (optional)
-                has_prefix = any(word in text_lower for word in ["clerk", "clark"])
-                if has_prefix or "start new note" in text_lower:
-                    self.mode_change_callback("long_note")
-                    print("\n" + "="*70)
-                    print("🎙️  LONG NOTE MODE ACTIVATED")
-                    print("Silence threshold: 5 seconds (continue speaking...)")
-                    print("="*70 + "\n")
+
+            # State 1: Check for "start new note" command
+            if not self.waiting_for_title and "start new note" in text_lower:
+                # Enter title-waiting state
+                self.waiting_for_title = True
+                print("\n" + "="*70)
+                print("📝 NEW NOTE DETECTED")
+                print("Please speak the title for this note...")
+                print("="*70 + "\n")
+
+            # State 2: Capture the title (next segment after command)
+            elif self.waiting_for_title:
+                self.waiting_for_title = False
+                self.current_note_title = result.text
+
+                # Now switch to long note mode
+                self.mode_change_callback("long_note")
+                print("\n" + "="*70)
+                print(f"📌 TITLE: {result.text}")
+                print("🎙️  LONG NOTE MODE ACTIVATED")
+                print("Silence threshold: 5 seconds (continue speaking...)")
+                print("="*70 + "\n")
 
     def stop(self):
         """Stop collector and write final transcript"""
@@ -270,6 +284,7 @@ model, utils = torch.hub.load('snakers4/silero-vad', 'silero_vad', trust_repo=Tr
 # Global VAD state
 vad = None
 vad_mode = "normal"  # "normal" or "long_note"
+vad_mode_requested = None  # Requested mode change (applied at segment boundary)
 vad_lock = threading.Lock()
 
 def create_vad(mode="normal"):
@@ -284,13 +299,20 @@ def create_vad(mode="normal"):
     )
 
 def switch_vad_mode(new_mode):
-    """Switch VAD to new mode (normal or long_note)"""
-    global vad, vad_mode
-    with vad_lock:
-        if new_mode != vad_mode:
-            vad_mode = new_mode
-            vad = create_vad(new_mode)
-            print(f"\n[VAD] Switched to {new_mode} mode")
+    """Request VAD mode change (will be applied at next segment boundary)"""
+    global vad_mode_requested
+    if new_mode != vad_mode:
+        vad_mode_requested = new_mode
+        print(f"\n[VAD] Mode change queued: {new_mode} (will apply after current segment)")
+
+def apply_vad_mode_change():
+    """Apply queued VAD mode change (call at segment boundaries only)"""
+    global vad, vad_mode, vad_mode_requested
+    if vad_mode_requested and vad_mode_requested != vad_mode:
+        vad_mode = vad_mode_requested
+        vad_mode_requested = None
+        vad = create_vad(vad_mode)
+        print(f"\n[VAD] Mode changed to: {vad_mode}")
 
 vad = create_vad("normal")
 print("VAD ready.")
@@ -323,6 +345,9 @@ def audio_callback(indata, frames, time_info, status):
 
     if window:
         if window.get("start") is not None:
+            # Apply any queued mode change BEFORE starting new segment
+            apply_vad_mode_change()
+
             in_speech = True
             segments.append([])  # new segment starts
             mode_indicator = " [LONG NOTE]" if vad_mode == "long_note" else ""
@@ -339,11 +364,11 @@ def audio_callback(indata, frames, time_info, status):
                     # Trigger save and transcription
                     save_and_queue_segment(len(segments) - 1, seg)
 
-                    # If we just finished a long note, switch back to normal mode
+                    # If we just finished a long note, queue switch back to normal mode
                     if vad_mode == "long_note":
                         switch_vad_mode("normal")
                         print("\n" + "="*70)
-                        print("🎙️  NORMAL MODE RESTORED")
+                        print("🎙️  WILL RESTORE NORMAL MODE after this segment")
                         print("Silence threshold: 0.8 seconds")
                         print("="*70 + "\n")
                 else:
