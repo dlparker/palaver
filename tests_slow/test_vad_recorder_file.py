@@ -22,7 +22,7 @@ class TestVADRecorderFile:
     @pytest.fixture
     def audio_file(self):
         """Path to test audio file"""
-        return Path("tests/audio_samples/note1.wav")
+        return Path(__file__).parent / "audio_samples" / "note1.wav"
 
     @pytest.fixture
     def cleanup_sessions(self):
