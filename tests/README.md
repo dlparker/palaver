@@ -1,13 +1,13 @@
-# Fast Tests - Simulated Mode
+# Tests - Fast & Unit Tests
 
-This directory contains **fast tests** that use simulated mode to test downstream text processing logic without audio recording or transcription overhead.
+This directory contains **fast and unit tests** that use simulated mode and mocking to test logic without audio recording or transcription overhead.
 
 ## Why Fast Tests?
 
 **Problem**: Real transcription tests are slow:
 - Audio file processing: ~30 seconds per test
 - Whisper transcription: ~10-20 seconds per segment
-- Full test suite: ~4-5 minutes
+- Integration test suite: minutes
 
 **Solution**: Simulated mode bypasses audio/VAD/transcription:
 - No audio recording or playback
@@ -15,35 +15,37 @@ This directory contains **fast tests** that use simulated mode to test downstrea
 - No whisper-cli calls
 - Pre-defined transcriptions delivered instantly
 
-**Result**: 100x faster tests (~9 seconds for 10 comprehensive tests)
+**Result**: 100x faster tests (~9 seconds for comprehensive test suite)
 
 ## Test Organization
 
-### `tests_fast/` (This Directory)
+### `tests/` (This Directory)
 Fast unit/integration tests using simulated mode:
 - Command detection and matching
 - State machine workflows
 - Text processing logic
 - Edge cases and error handling
+- Async recorder functionality
 
 **Run time**: ~9 seconds for all tests
 
-### `tests/` (Parent Directory)
-Slow integration tests with real audio:
+### `tests_slow/`
+Integration tests with real audio/transcription:
 - VAD behavior with audio files
 - End-to-end transcription accuracy
 - Audio source abstractions
+- Real whisper-cli integration
 
-**Run time**: ~4-5 minutes for all tests
+**Run time**: Several minutes
 
 ## Running Tests
 
 ```bash
 # Run only fast tests (recommended during development)
-uv run pytest tests_fast/ -v
+uv run pytest tests/ -v
 
 # Run only slow/integration tests
-uv run pytest tests/ -v
+uv run pytest tests_slow/ -v
 
 # Run all tests (both fast and slow)
 uv run pytest
@@ -328,6 +330,8 @@ All of these can be tested rapidly with simulated mode before writing integratio
 
 ## See Also
 
-- `design_docs/simulated_transcription_refactoring.md` - Architecture and design decisions
+- `design_docs/vad_recorder_async_refactoring_plan.md` - Async architecture refactoring
+- `design_docs/simulated_transcription_refactoring.md` - Simulated mode design
 - `CLAUDE.md` - Project documentation and conventions
-- `tests/` - Integration tests with real audio
+- `tests_slow/` - Integration tests with real audio
+- `src/palaver/recorder/async_vad_recorder.py` - Core async recorder implementation

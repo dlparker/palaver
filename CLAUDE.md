@@ -21,22 +21,22 @@ uv run pytest <test>
 
 ### Running Tests
 
-The project has two test suites:
-- **tests_fast/**: Fast tests using simulated mode (seconds)
-- **tests/**: Integration tests with real audio/transcription (minutes)
+The project has three test tiers:
+- **tests/**: Fast/medium tests using simulated mode and mocked components (seconds)
+- **tests_slow/**: Integration tests with real audio/transcription (minutes)
 
 ```bash
-# Run only fast tests (recommended for development)
-uv run pytest tests_fast/ -v
-
-# Run only slow/integration tests
+# Run fast/medium tests (recommended for development)
 uv run pytest tests/ -v
+
+# Run slow/integration tests
+uv run pytest tests_slow/ -v
 
 # Run all tests (both fast and slow)
 uv run pytest
 
 # Run specific test file
-uv run pytest tests/test_vad_recorder_file.py -v -s
+uv run pytest tests/test_simulated_recorder.py -v -s
 
 # Run tests by marker
 uv run pytest -m fast          # Only fast tests
@@ -48,13 +48,24 @@ uv run pytest --cov=palaver --cov-report=html
 
 ### Running the Recorder
 
+The recorder uses an async architecture with a CLI wrapper:
+
 ```bash
 # With microphone (default)
 ./run_vad_recorder.sh
 
+# With specific device
+./run_vad_recorder.sh --input hw:1,0
+
 # With pre-recorded audio file (for testing)
 ./run_vad_recorder.sh --input tests/audio_samples/note1.wav
+
+# Direct invocation
+PYTHONPATH=src uv run python scripts/direct_recorder.py
+PYTHONPATH=src uv run python scripts/direct_recorder.py --input hw:1,0
 ```
+
+**Note**: `vad_recorder.py` is now a compatibility wrapper. Use `scripts/direct_recorder.py` or the shell wrapper for CLI usage.
 
 ### Generating Test Audio
 
@@ -76,19 +87,36 @@ See `tools/README.md` for comprehensive audio generation patterns.
 
 ## Architecture
 
-### Recorder Architecture (VAD-Based)
+### Recorder Architecture (Async/Await with VAD)
 
-The recorder uses Voice Activity Detection (VAD) with **dynamic silence thresholds**:
+The recorder uses an **async/await architecture** with Voice Activity Detection (VAD) and **dynamic silence thresholds**:
 
 - **Normal mode**: 0.8 second silence threshold (typical speech pauses)
 - **Long note mode**: 5 second silence threshold (extended dictation)
 
 **Key Architectural Pattern**: Mode changes are **queued** and applied at segment boundaries, never mid-segment. This prevents race conditions between the audio callback (sync) and transcription processing (async).
 
+**Async Architecture Flow**:
+```
+Sync Audio Thread                    Async Event Loop
+     (fast)                           (main thread)
+       │                                    │
+   Audio Callback                           │
+   • VAD processing          ──────────────>│
+   • Segment detection         asyncio.Queue│
+   • Push events                            │
+                                    Event Processor
+                                    • Save WAV files (executor)
+                                    • Queue transcription
+                                    • Process results
+                                    • Command detection
+```
+
 **Critical Files**:
-- `src/palaver/recorder/vad_recorder.py` - Main recorder (working, uses threads)
-- `src/palaver/recorder/recorder_backend_async.py` - Async version (currently hangs, being debugged)
-- `src/palaver/recorder/audio_sources.py` - Input abstraction (device vs file)
+- `src/palaver/recorder/async_vad_recorder.py` - Core async recorder implementation
+- `src/palaver/recorder/vad_recorder.py` - Sync wrapper for test compatibility
+- `scripts/direct_recorder.py` - CLI entry point
+- `src/palaver/recorder/audio_sources.py` - Input abstraction (device vs file vs simulated)
 
 ### Note Detection State Machine
 
@@ -117,18 +145,18 @@ The first two sources call the same `audio_callback()` with identical data forma
 
 **Implementation**: `src/palaver/recorder/audio_sources.py`
 
-### Transcription Pipeline (Multiprocess)
+### Transcription Pipeline (Multiprocess + Async)
 
-The recorder uses a **multiprocess architecture** for parallel transcription:
+The recorder uses a **multiprocess architecture** for parallel transcription, integrated with the async event loop:
 
-1. Audio callback (thread) → VAD → Segments
-2. Segments saved to WAV files → Job queue
-3. Worker processes (N=2) → whisper-cli transcription
+1. Async event processor → Save WAV files (via executor)
+2. Segments queued → Job queue (multiprocessing.Queue)
+3. Worker processes (N=2) → whisper-cli transcription (subprocess)
 4. Results collected (thread) → Transcript files + command detection
 
-**Rationale**: Transcription is CPU-intensive and blocks; multiprocessing allows recording to continue uninterrupted.
+**Rationale**: Transcription is CPU-intensive and blocks; multiprocessing allows recording to continue uninterrupted while the async event loop remains responsive.
 
-**Critical Pattern**: The `TextProcessor` runs in a separate thread, watching the result queue and triggering mode changes via callback when commands are detected in transcriptions.
+**Critical Pattern**: The `TextProcessor` runs in a separate thread (legacy design), watching the result queue and triggering mode changes via callback when commands are detected in transcriptions. The callback is thread-safe and simply sets a flag that the audio callback checks.
 
 ### Modular Architecture (Refactored)
 
@@ -220,46 +248,51 @@ assert "My Important Title" in transcript
 
 ### Test Organization
 
-- **tests_fast/**: Simulated mode tests (~9 seconds for all)
+- **tests/**: Fast/medium tests using simulated mode (~9 seconds for all)
   - Command detection
   - State machine workflows
   - Multiple notes
   - Edge cases
+  - Unit tests for modular components
 
-- **tests/**: Integration tests with real audio/transcription (~4:41 for all)
+- **tests_slow/**: Integration tests with real audio/transcription
   - VAD behavior with real audio files
   - End-to-end workflows
   - Whisper transcription accuracy
 
 **Best Practice**: Write fast tests first to verify logic, then integration tests to verify audio behavior.
 
-See `tests_fast/README.md` for detailed testing patterns.
+See `tests/README.md` for detailed testing patterns.
 
 ## Current Development State
 
-**Status**: Simulated transcription refactoring COMPLETE (see `design_docs/simulated_transcription_refactoring.md`)
+**Status**: Async/await refactoring COMPLETE (see `design_docs/vad_recorder_async_refactoring_plan.md`)
 
 **Recently Completed**:
-- ✅ Phase 1: Component extraction (transcription.py, text_processor.py, session.py, action_phrases.py)
-- ✅ Phase 2: Simulated mode implementation
-- ✅ Phase 3: Fast test suite (tests_fast/ with 10 comprehensive tests)
-- ✅ Phase 4: Documentation updates
+- ✅ Async/await architecture implementation
+- ✅ Event-driven design with asyncio.Queue
+- ✅ Thread-safe audio callback → async event processor
+- ✅ CLI wrapper for interactive usage (scripts/direct_recorder.py)
+- ✅ Backward compatibility wrapper (vad_recorder.py)
+- ✅ Test suite reorganization (tests/ for fast, tests_slow/ for integration)
+- ✅ All tests passing with async architecture
 
 **Architecture Improvements**:
+- Non-blocking async/await throughout (ready for TUI integration)
+- Clean separation: sync audio thread → asyncio.Queue → async processing
 - Modular design enables isolated testing of text processing
 - Simulated mode runs 100x faster than real transcription
 - ActionPhrase system for flexible command matching
-- Separate test suites for fast iteration (tests_fast/) and integration (tests/)
+- Executor pattern for blocking I/O (file writes)
 
 **Test Coverage**:
-- 43 total tests (10 fast simulated + 33 integration/unit)
-- Fast tests run in ~9 seconds
-- Full test suite runs in ~4:41
+- Fast tests run in ~9 seconds (tests/)
+- Integration tests in tests_slow/
+- 100% backward compatibility maintained
 
 **Known Issues**:
 1. Microphone long note mode doesn't terminate after 5s silence (likely ambient noise)
-2. Async backend (`recorder_backend_async.py`) needs investigation
-3. Current mode switching logic prevents multiple body paragraphs with pauses
+2. Current mode switching logic prevents multiple body paragraphs with pauses
 
 ## Session State & Planning
 
@@ -301,9 +334,59 @@ This is a hard requirement for this codebase.
 
 ## Textual UI (TUI)
 
-The project includes a Textual-based UI (`src/palaver/tui/recorder_tui.py`) for the async recorder backend. Currently non-functional due to async backend hanging issue.
+The project includes a Textual-based UI (`src/palaver/tui/recorder_tui.py`) for the async recorder backend. With the async refactoring complete, the TUI can now integrate with `AsyncVADRecorder`.
 
-**Architecture**: The TUI receives events from the async backend and updates UI components reactively. Event types include: recording state changes, VAD mode changes, speech detection, transcription completion, note commands.
+**Architecture**: The TUI can receive events from the async backend and update UI components reactively. Event types to support: recording state changes, VAD mode changes, speech detection, transcription completion, note commands.
+
+**Integration Path**: The TUI should instantiate `AsyncVADRecorder` and call its async methods from within the Textual app's event loop. The recorder's event queue can be monitored to update UI in real-time.
+
+## Using the Async API
+
+For programmatic usage or UI integration, use `AsyncVADRecorder` directly:
+
+```python
+import asyncio
+from palaver.recorder.async_vad_recorder import AsyncVADRecorder
+
+async def main():
+    # Create recorder
+    recorder = AsyncVADRecorder()
+
+    # Start recording
+    await recorder.start_recording(input_source="hw:1,0")
+
+    # Do other async work while recording...
+    await asyncio.sleep(10)
+
+    # Stop and get session directory
+    session_dir = await recorder.stop_recording()
+    print(f"Session saved to: {session_dir}")
+
+# Run from sync code
+asyncio.run(main())
+```
+
+**For simulated/testing mode**:
+```python
+from palaver.recorder.async_vad_recorder import run_simulated
+
+segments = [
+    ("start a new note", 1.5),
+    ("My Title", 2.0),
+    ("Body content", 3.0),
+]
+
+# Returns Path to session directory
+session_dir = asyncio.run(run_simulated(segments))
+```
+
+**For backward compatibility** (tests):
+```python
+from palaver.recorder.vad_recorder import main
+
+# Synchronous wrapper (uses asyncio.run internally)
+session_dir = main(mode="simulated", simulated_segments=segments)
+```
 
 ## Dependencies
 
@@ -325,8 +408,10 @@ Key external dependencies:
 
 ## Common Pitfalls
 
-1. **Don't modify audio callback to be async** - It runs in audio thread, must be fast and synchronous
+1. **Don't modify audio callback to be async** - It runs in audio thread, must be fast and synchronous. Use `asyncio.run_coroutine_threadsafe()` to communicate with async code.
 2. **Don't apply mode changes mid-segment** - Always queue and apply at boundaries
 3. **Don't test VAD at exact thresholds** - Use clear margins (0.5s or 6s, not 0.8s or 5s)
 4. **Don't forget PYTHONPATH=src for direct script execution** - Required for imports (pytest.ini handles this for tests)
 5. **Don't assume microphone silence works like file silence** - Ambient noise is real
+6. **Don't use blocking I/O in async code** - Use `loop.run_in_executor()` for file operations, subprocess calls, etc.
+7. **Don't call `asyncio.run()` from within an async context** - Use `await` instead. Only use `asyncio.run()` from synchronous code.
