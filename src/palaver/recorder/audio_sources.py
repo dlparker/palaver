@@ -234,6 +234,45 @@ class FileAudioSource(AudioSource):
             self.thread.join(timeout=timeout)
 
 
+class SimulatedAudioSource(AudioSource):
+    """
+    Simulated audio source for fast testing without real audio/VAD.
+
+    This is a minimal placeholder - in simulated mode, we bypass VAD entirely
+    and directly create segments with pre-defined transcriptions.
+
+    The main recorder loop will handle simulated mode differently, so this
+    class just provides the AudioSource interface for consistency.
+    """
+
+    def __init__(self, segment_count: int = 3, realtime: bool = False):
+        """
+        Args:
+            segment_count: Number of segments to simulate
+            realtime: If True, simulate timing delays; if False, run immediately
+        """
+        self.segment_count = segment_count
+        self.realtime = realtime
+        self.running = False
+
+    def start(self, callback: Callable) -> None:
+        """Start simulated audio (no-op)"""
+        self.running = True
+        print(f"[SimulatedAudioSource] Started (simulated mode)")
+
+    def stop(self) -> None:
+        """Stop simulated audio"""
+        self.running = False
+
+    def is_finished(self) -> bool:
+        """Check if simulation has completed"""
+        return not self.running
+
+    def wait_for_completion(self, timeout: Optional[float] = None):
+        """Wait for simulation to complete (immediate in simulated mode)"""
+        pass
+
+
 def create_audio_source(input_spec: str, samplerate: int, blocksize: int,
                        channels: int = 2) -> AudioSource:
     """

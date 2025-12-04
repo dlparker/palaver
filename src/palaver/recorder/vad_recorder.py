@@ -26,9 +26,10 @@ from typing import Optional
 from palaver.recorder.audio_sources import create_audio_source, FileAudioSource
 
 # Import new modular components
-from palaver.recorder.transcription import WhisperTranscriber, TranscriptionJob
+from palaver.recorder.transcription import WhisperTranscriber, SimulatedTranscriber, TranscriptionJob
 from palaver.recorder.text_processor import TextProcessor
 from palaver.recorder.session import Session
+from palaver.recorder.audio_sources import SimulatedAudioSource
 
 # ================== CONFIG ==================
 RECORD_SR = 48000
@@ -184,21 +185,131 @@ def save_and_queue_segment(index: int, audio: np.ndarray):
     # Queue for transcription via transcriber
     transcriber.queue_job(job)
 
-def main(input_source: Optional[str] = None):
+def _run_simulated_mode(session: Session, simulated_segments: list) -> Path:
+    """
+    Run in simulated mode - bypass VAD and use pre-defined transcriptions.
+
+    This mode is for fast testing of downstream text processing without
+    actual audio recording or transcription overhead.
+
+    Args:
+        session: Session object with created session directory
+        simulated_segments: List of (text, duration_sec) tuples
+
+    Returns:
+        Path to session directory
+    """
+    global session_dir, transcriber, text_processor
+
+    session_dir = session.get_path()
+
+    print(f"\n{'='*70}")
+    print("🚀 SIMULATED MODE")
+    print(f"   Segments: {len(simulated_segments)}")
+    print(f"{'='*70}\n")
+
+    # Build transcript map for SimulatedTranscriber
+    transcripts = {i: text for i, (text, _) in enumerate(simulated_segments)}
+
+    # Store metadata
+    session.add_metadata("input_source", {
+        "type": "simulated",
+        "source": "simulated_segments"
+    })
+    session.add_metadata("num_segments", len(simulated_segments))
+
+    # Create simulated transcriber
+    transcriber = SimulatedTranscriber(transcripts=transcripts)
+    transcriber.start()
+
+    # Create text processor (with no-op mode change callback)
+    def simulated_mode_callback(mode: str):
+        print(f"[Simulated] Mode change requested: {mode} (no-op in simulated mode)")
+
+    text_processor = TextProcessor(
+        session_dir=session_dir,
+        result_queue=transcriber.get_result_queue(),
+        mode_change_callback=simulated_mode_callback
+    )
+    text_processor.start()
+
+    # Queue simulated transcription jobs (no actual WAV files)
+    for i, (text, duration_sec) in enumerate(simulated_segments):
+        job = TranscriptionJob(
+            segment_index=i,
+            wav_path=None,  # No actual WAV file in simulated mode
+            session_dir=session_dir,
+            samplerate=RECORD_SR,
+            duration_sec=duration_sec,
+            timestamp=datetime.now(timezone.utc).isoformat()
+        )
+        transcriber.queue_job(job)
+        print(f"Segment {i}: \"{text[:60]}...\" ({duration_sec:.1f}s)")
+
+    print(f"\nProcessing {len(simulated_segments)} simulated segments...")
+
+    # Give text processor time to process all results
+    import time
+    time.sleep(0.5)  # Small delay to ensure all results are processed
+
+    # Stop transcriber and text processor
+    transcriber.stop()
+    text_processor.stop()
+
+    # Write final transcript
+    text_processor.finalize(len(simulated_segments))
+
+    # Write manifest (simulated segments have no actual WAV files)
+    segment_info = [
+        {
+            "index": i,
+            "file": None,  # No WAV file in simulated mode
+            "duration_sec": round(duration_sec, 3)
+        }
+        for i, (_, duration_sec) in enumerate(simulated_segments)
+    ]
+    session.write_manifest(
+        segments=segment_info,
+        total_segments=len(simulated_segments),
+        samplerate=RECORD_SR
+    )
+
+    print(f"\n{'='*70}")
+    print(f"✅ Simulated mode complete → {session_dir}")
+    print(f"   • {len(simulated_segments)} segments processed")
+    print(f"   • Check transcript_incremental.txt for results")
+    print(f"{'='*70}\n")
+
+    return session_dir
+
+
+def main(input_source: Optional[str] = None,
+         mode: str = "auto",
+         simulated_segments: Optional[list] = None):
     """
     Run the VAD recorder.
 
     Args:
         input_source: Either device name (e.g., "hw:1,0") or path to WAV file.
                      If None, uses DEVICE constant.
+        mode: "auto" (detect from input), "microphone", "file", or "simulated"
+        simulated_segments: For simulated mode: list of (text, duration_sec) tuples
     """
     global session_dir, in_speech, transcriber, text_processor
+
+    # Validate simulated mode
+    if mode == "simulated" and simulated_segments is None:
+        raise ValueError("simulated_segments required when mode='simulated'")
 
     # Create session
     session = Session()
     session_dir = session.create()
 
-    # Determine audio source
+    # Handle simulated mode
+    if mode == "simulated":
+        return _run_simulated_mode(session, simulated_segments)
+
+    # Determine audio source (real modes)
     if input_source is None:
         input_source = DEVICE
 
@@ -222,7 +333,7 @@ def main(input_source: Optional[str] = None):
 
     print(f"Input source: {'FILE' if is_file_input else 'DEVICE'} ({input_source})")
 
-    # Create transcriber
+    # Create transcriber (real transcription)
     transcriber = WhisperTranscriber(
         num_workers=NUM_WORKERS,
         model_path=WHISPER_MODEL,
