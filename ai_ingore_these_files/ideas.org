@@ -1,0 +1,8 @@
+
+1. Need a recorder status message emitter, maybe mosquitto?
+2. Need to focus on time marks.
+3. Need to consider VAD attention but unrestricted recording after than, maybe
+   doing both but using VAD only to find terminating silence?
+4. Need to figure out how to recognized corrupted attention word, or maybe
+   need to make it bigger, like "attention clerk", try it with "attention bob"
+   

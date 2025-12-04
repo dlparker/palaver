@@ -41,7 +41,7 @@
 
 2. **Run the test**:
    ```bash
-   PYTHONPATH=src uv run pytest tests/test_vad_recorder_file.py -v -s
+   uv run pytest tests/test_vad_recorder_file.py -v -s
    ```
 
 3. **Analyze results**:
@@ -80,7 +80,7 @@
 ### Running Tests
 ```bash
 # Run file input test
-PYTHONPATH=src uv run pytest tests/test_vad_recorder_file.py -v -s
+uv run pytest tests/test_vad_recorder_file.py -v -s
 
 # Run with microphone
 ./run_vad_recorder.sh
