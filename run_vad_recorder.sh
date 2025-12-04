@@ -1,5 +1,6 @@
 #!/bin/bash
-# Wrapper script to run vad_recorder with uv
+# Wrapper script to run VAD recorder with uv
+# Now uses the async CLI interface
 
 cd "$(dirname "$0")"
-PYTHONPATH=src uv run python src/palaver/recorder/vad_recorder.py "$@"
+PYTHONPATH=src uv run python scripts/direct_recorder.py "$@"
