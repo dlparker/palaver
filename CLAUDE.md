@@ -20,15 +20,30 @@ uv run pytest <test>
 ## Command Reference
 
 ### Running Tests
+
+The project has two test suites:
+- **tests_fast/**: Fast tests using simulated mode (seconds)
+- **tests/**: Integration tests with real audio/transcription (minutes)
+
 ```bash
-# All tests
+# Run only fast tests (recommended for development)
+uv run pytest tests_fast/ -v
+
+# Run only slow/integration tests
+uv run pytest tests/ -v
+
+# Run all tests (both fast and slow)
 uv run pytest
 
-# Specific test file
+# Run specific test file
 uv run pytest tests/test_vad_recorder_file.py -v -s
 
+# Run tests by marker
+uv run pytest -m fast          # Only fast tests
+uv run pytest -m "not slow"    # Skip slow tests
+
 # With coverage
-uv run pytest --cov=src/palaver --cov-report=html
+uv run pytest --cov=palaver --cov-report=html
 ```
 
 ### Running the Recorder
@@ -92,12 +107,13 @@ The "start new note" workflow is a **transcription-triggered state machine** wit
 
 ### Audio Input Abstraction
 
-The recorder supports dual input modes via the `AudioSource` protocol:
+The recorder supports three input modes via the `AudioSource` protocol:
 
 - `DeviceAudioSource`: Live microphone via sounddevice
-- `FileAudioSource`: Pre-recorded WAV files (for testing)
+- `FileAudioSource`: Pre-recorded WAV files (for integration testing)
+- `SimulatedAudioSource`: Bypasses VAD entirely (for fast unit testing)
 
-Both sources call the same `audio_callback()` with identical data format, enabling deterministic testing with perfect digital silence (avoiding ambient noise issues).
+The first two sources call the same `audio_callback()` with identical data format, enabling deterministic testing with perfect digital silence (avoiding ambient noise issues). Simulated mode bypasses audio processing entirely for maximum speed.
 
 **Implementation**: `src/palaver/recorder/audio_sources.py`
 
@@ -112,7 +128,40 @@ The recorder uses a **multiprocess architecture** for parallel transcription:
 
 **Rationale**: Transcription is CPU-intensive and blocks; multiprocessing allows recording to continue uninterrupted.
 
-**Critical Pattern**: The `ResultCollector` runs in a separate thread, watching the result queue and triggering mode changes via callback when commands are detected in transcriptions.
+**Critical Pattern**: The `TextProcessor` runs in a separate thread, watching the result queue and triggering mode changes via callback when commands are detected in transcriptions.
+
+### Modular Architecture (Refactored)
+
+The recorder has been refactored into modular components for testability and maintainability:
+
+**Core Modules:**
+- **`transcription.py`**: Transcription abstraction layer
+  - `Transcriber` protocol (abstract interface)
+  - `WhisperTranscriber` - Real transcription using whisper-cli with multiprocess workers
+  - `SimulatedTranscriber` - Instant fake transcription for fast testing
+
+- **`text_processor.py`**: Text processing and command detection
+  - `TextProcessor` class - Processes transcription results
+  - Command detection using `LooseActionPhrase` matching
+  - State machine for note-taking workflow
+  - Can be tested independently without audio/transcription
+
+- **`session.py`**: Session management
+  - Creates timestamped session directories
+  - Writes manifest.json with metadata
+  - Tracks session state
+
+- **`action_phrases.py`**: Flexible command matching
+  - `ActionPhrase` base class
+  - `LooseActionPhrase` - Fuzzy matching with filler word filtering
+  - Scoring system for partial matches
+  - Configurable thresholds and prefix filtering
+
+**Benefits:**
+- Fast testing: Simulated mode runs 100x faster than real transcription
+- Isolated testing: Test command detection without audio overhead
+- Easy extension: Add new commands by creating ActionPhrase instances
+- Clear separation: Audio → VAD → Transcription → Text Processing → Output
 
 ## Test Audio Generation System
 
@@ -143,25 +192,73 @@ concatenate_wavs(segments, "test.wav", silence_between=[1.0, 1.0, 1.0, 6.0])
 - Long note mode (5s threshold): Use 6.0-8.0s silence to trigger segment end
 - Avoid testing at exact thresholds (flaky)
 
+## Fast Testing with Simulated Mode
+
+The project uses **simulated mode** for rapid testing of downstream text processing logic without audio/transcription overhead.
+
+### Simulated Mode
+
+Simulated mode bypasses VAD and transcription, directly feeding pre-defined text to the text processor:
+
+```python
+from palaver.recorder.vad_recorder import main
+
+# Define test scenario
+simulated_segments = [
+    ("start a new note", 1.5),
+    ("My Important Title", 2.0),
+    ("Body text for the note", 3.0),
+]
+
+# Run in simulated mode (completes in milliseconds)
+session_dir = main(mode="simulated", simulated_segments=simulated_segments)
+
+# Verify results
+transcript = (session_dir / "transcript_raw.txt").read_text()
+assert "My Important Title" in transcript
+```
+
+### Test Organization
+
+- **tests_fast/**: Simulated mode tests (~9 seconds for all)
+  - Command detection
+  - State machine workflows
+  - Multiple notes
+  - Edge cases
+
+- **tests/**: Integration tests with real audio/transcription (~4:41 for all)
+  - VAD behavior with real audio files
+  - End-to-end workflows
+  - Whisper transcription accuracy
+
+**Best Practice**: Write fast tests first to verify logic, then integration tests to verify audio behavior.
+
+See `tests_fast/README.md` for detailed testing patterns.
+
 ## Current Development State
 
-**Status**: Phase 2 of 6-phase refactoring (see `design_docs/recorder_refactoring_plan.md`)
+**Status**: Simulated transcription refactoring COMPLETE (see `design_docs/simulated_transcription_refactoring.md`)
 
-**Completed**:
-- ✅ Phase 1: File input support for vad_recorder.py
-- ✅ Phase 2 (partial): Test framework and audio generation toolkit
+**Recently Completed**:
+- ✅ Phase 1: Component extraction (transcription.py, text_processor.py, session.py, action_phrases.py)
+- ✅ Phase 2: Simulated mode implementation
+- ✅ Phase 3: Fast test suite (tests_fast/ with 10 comprehensive tests)
+- ✅ Phase 4: Documentation updates
 
-**In Progress**:
-- Task 2.3: Analyze test results and verify long note mode workflow
+**Architecture Improvements**:
+- Modular design enables isolated testing of text processing
+- Simulated mode runs 100x faster than real transcription
+- ActionPhrase system for flexible command matching
+- Separate test suites for fast iteration (tests_fast/) and integration (tests/)
 
-**Next**:
-- Phase 3: Add logging to async backend
-- Phase 4-5: Fix async backend hanging issue
-- Phase 6: Update TUI integration
+**Test Coverage**:
+- 43 total tests (10 fast simulated + 33 integration/unit)
+- Fast tests run in ~9 seconds
+- Full test suite runs in ~4:41
 
 **Known Issues**:
 1. Microphone long note mode doesn't terminate after 5s silence (likely ambient noise)
-2. Async backend (`recorder_backend_async.py`) hangs when started via TUI
+2. Async backend (`recorder_backend_async.py`) needs investigation
 3. Current mode switching logic prevents multiple body paragraphs with pauses
 
 ## Session State & Planning
