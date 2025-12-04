@@ -20,13 +20,13 @@ from textual.reactive import reactive
 from rich.text import Text
 from rich.panel import Panel
 
-# Import async backend from recorder directory
-from palaver.recorder.recorder_backend_async import (
-    AsyncRecorderBackend,
-    RecorderEvent,
+# Import async recorder and events
+from palaver.recorder.async_vad_recorder import (
+    AsyncVADRecorder,
+    AudioEvent,
     RecordingStateChanged,
     VADModeChanged,
-    SpeechDetected,
+    SpeechStarted,
     SpeechEnded,
     TranscriptionQueued,
     TranscriptionComplete,
@@ -228,7 +228,7 @@ class RecorderApp(App):
 
     def __init__(self):
         super().__init__()
-        self.backend = AsyncRecorderBackend(event_callback=self.handle_recorder_event)
+        self.backend = AsyncVADRecorder(event_callback=self.handle_recorder_event)
         self.current_segment = -1
 
     def compose(self) -> ComposeResult:
@@ -266,17 +266,17 @@ class RecorderApp(App):
             "bold cyan"
         )
 
-    async def handle_recorder_event(self, event: RecorderEvent):
+    async def handle_recorder_event(self, event: AudioEvent):
         """Handle events from backend (async callback)"""
         # Events come from async tasks, can directly update UI
         self._handle_event_on_ui_thread(event)
 
-    def _handle_event_on_ui_thread(self, event: RecorderEvent):
+    def _handle_event_on_ui_thread(self, event: AudioEvent):
         """Handle event on UI thread"""
         if isinstance(event, RecordingStateChanged):
             self.record_button.set_recording(event.is_recording)
             if event.is_recording:
-                self.status_display.session_path = self.backend.get_session_path()
+                self.status_display.session_path = self.backend.session_dir
                 self.transcript_monitor.clear()
                 self.notification_display.add_notification(
                     "🎙️  Recording started",
@@ -284,24 +284,24 @@ class RecorderApp(App):
                 )
             else:
                 self.notification_display.add_notification(
-                    f"✓ Recording stopped → {self.backend.get_session_path()}",
+                    f"✓ Recording stopped → {self.backend.session_dir}",
                     "bold yellow"
                 )
 
         elif isinstance(event, VADModeChanged):
             self.mode_display.mode = event.mode
             if event.mode == "long_note":
-                self.notification_display.add_notification(
-                    "🎙️  LONG NOTE MODE (5s silence)",
-                    "bold green"
-                )
+                # Mode switched to long_note - but user already knows from NoteTitleCaptured
+                # So this is redundant, skip notification
+                pass
             else:
+                # Switched back to normal - note is complete
                 self.notification_display.add_notification(
-                    "🎙️  Normal mode restored (0.8s)",
+                    f"✓ Note complete, normal mode restored ({event.min_silence_ms}ms)",
                     "bold blue"
                 )
 
-        elif isinstance(event, SpeechDetected):
+        elif isinstance(event, SpeechStarted):
             self.current_segment = event.segment_index
             self.mode_display.vad_active = True
             self.status_display.total_segments = event.segment_index + 1
@@ -345,18 +345,19 @@ class RecorderApp(App):
 
         elif isinstance(event, NoteTitleCaptured):
             self.notification_display.add_notification(
-                f"📌 TITLE: {event.title}",
+                f"📌 TITLE: {event.title} - Long note mode active, continue speaking...",
                 "bold cyan"
             )
 
         elif isinstance(event, QueueStatus):
             self.status_display.queued_jobs = event.queued_jobs
-            self.status_display.completed_transcriptions = event.completed_transcriptions
+            self.status_display.completed = event.completed_transcriptions
 
     def on_button_pressed(self, event: Button.Pressed):
         """Handle button press"""
         if event.button.id == "record-button":
-            self.action_toggle_recording()
+            # Run action in background task
+            self.run_worker(self.action_toggle_recording())
 
     async def action_toggle_recording(self):
         """Toggle recording state (async)"""

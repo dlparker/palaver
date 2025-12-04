@@ -11,6 +11,7 @@ Architecture:
 """
 
 import asyncio
+import sys
 import time
 import wave
 import numpy as np
@@ -81,6 +82,58 @@ class AudioChunk(AudioEvent):
     in_speech: bool
 
 
+@dataclass
+class RecordingStateChanged(AudioEvent):
+    """Recording started or stopped"""
+    is_recording: bool
+
+
+@dataclass
+class VADModeChanged(AudioEvent):
+    """VAD mode changed (normal/long_note)"""
+    mode: str
+    min_silence_ms: int
+
+
+@dataclass
+class TranscriptionQueued(AudioEvent):
+    """Segment queued for transcription"""
+    segment_index: int
+    wav_path: Path
+    duration_sec: float
+
+
+@dataclass
+class TranscriptionComplete(AudioEvent):
+    """Transcription finished"""
+    segment_index: int
+    text: str
+    success: bool
+    processing_time_sec: float
+    error_msg: Optional[str] = None
+
+
+@dataclass
+class NoteCommandDetected(AudioEvent):
+    """'start new note' command detected in transcription"""
+    segment_index: int
+
+
+@dataclass
+class NoteTitleCaptured(AudioEvent):
+    """Note title captured (segment after 'start new note')"""
+    segment_index: int
+    title: str
+
+
+@dataclass
+class QueueStatus(AudioEvent):
+    """Processing queue status update"""
+    queued_jobs: int
+    completed_transcriptions: int
+    total_segments: int
+
+
 # ================== VAD MANAGEMENT ==================
 
 print("Loading Silero VAD...")
@@ -130,9 +183,25 @@ class AsyncVADRecorder:
         await recorder.start_recording()
         # ... recording runs in background ...
         session_dir = await recorder.stop_recording()
+
+    Event Callback:
+        recorder = AsyncVADRecorder(event_callback=my_handler)
+
+        The event_callback will be called with AudioEvent instances for:
+        - RecordingStateChanged: Recording started/stopped
+        - VADModeChanged: Mode switched (normal/long_note)
+        - SpeechStarted/SpeechEnded: Speech segment detected
+        - TranscriptionQueued/TranscriptionComplete: Transcription lifecycle
+        - NoteCommandDetected/NoteTitleCaptured: Note workflow events
+        - QueueStatus: Processing queue updates
+
+        Callback can be sync or async function.
     """
 
-    def __init__(self):
+    def __init__(self, event_callback: Optional[Callable] = None):
+        # Event callback for consumers (TUI, monitoring, etc.)
+        self.event_callback = event_callback
+
         # Event loop and queue
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self.event_queue: Optional[asyncio.Queue] = None
@@ -160,6 +229,59 @@ class AsyncVADRecorder:
         # Transcriber and text processor (will be created in start_recording)
         self.transcriber = None
         self.text_processor = None
+
+    async def _emit_event(self, event: AudioEvent):
+        """
+        Emit event to callback if provided.
+
+        Handles both sync and async callbacks.
+        Safe to call from any context.
+        """
+        if self.event_callback:
+            try:
+                if asyncio.iscoroutinefunction(self.event_callback):
+                    await self.event_callback(event)
+                else:
+                    self.event_callback(event)
+            except Exception as e:
+                # Don't let callback errors crash the recorder
+                print(f"[Recorder] Event callback error: {e}", file=sys.stderr)
+
+    def _emit_event_threadsafe(self, event: AudioEvent):
+        """
+        Emit event from audio thread (thread-safe).
+
+        Called from audio callback which runs in a different thread.
+        Schedules emission in the main event loop.
+        """
+        if self.event_callback and self.loop:
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self._emit_event(event),
+                    self.loop
+                )
+            except Exception as e:
+                print(f"[Recorder] Event emission error: {e}", file=sys.stderr)
+
+    def _emit_event_from_text_processor(self, event: AudioEvent):
+        """
+        Emit event from text processor thread (thread-safe).
+
+        Called from TextProcessor thread when transcription completes or
+        commands are detected. Forwards events to the main event callback.
+
+        Args:
+            event: AudioEvent instance (TranscriptionComplete, NoteCommandDetected, etc.)
+        """
+        if self.event_callback and self.loop:
+            try:
+                # Schedule the event emission in the main event loop
+                asyncio.run_coroutine_threadsafe(
+                    self._emit_event(event),
+                    self.loop
+                )
+            except Exception as e:
+                print(f"[Recorder] Text processor event error: {e}", file=sys.stderr)
 
     async def start_recording(
         self,
@@ -233,12 +355,13 @@ class AsyncVADRecorder:
         )
         self.transcriber.start()
 
-        # Start text processor
+        # Start text processor with event callback
         from palaver.recorder.text_processor import TextProcessor
         self.text_processor = TextProcessor(
             session_dir=self.session_dir,
             result_queue=self.transcriber.get_result_queue(),
-            mode_change_callback=self._handle_mode_change_request
+            mode_change_callback=self._handle_mode_change_request,
+            event_callback=self._emit_event_from_text_processor
         )
         self.text_processor.start()
 
@@ -250,6 +373,12 @@ class AsyncVADRecorder:
 
         self.is_recording = True
         print("Recording started")
+
+        # Emit recording started event
+        await self._emit_event(RecordingStateChanged(
+            timestamp=time.time(),
+            is_recording=True
+        ))
 
     async def stop_recording(self) -> Path:
         """
@@ -319,6 +448,12 @@ class AsyncVADRecorder:
         print(f"   • {total_kept_segments} speech segments created")
         print(f"   • Check transcript_incremental.txt for real-time results")
         print(f"   • transcript_raw.txt ready for Phase 2")
+
+        # Emit recording stopped event
+        await self._emit_event(RecordingStateChanged(
+            timestamp=time.time(),
+            is_recording=False
+        ))
 
         return self.session_dir
 
@@ -452,10 +587,19 @@ class AsyncVADRecorder:
         Called from audio callback (sync).
         """
         if self.vad_mode_requested and self.vad_mode_requested != self.vad_mode:
+            old_mode = self.vad_mode
             self.vad_mode = self.vad_mode_requested
             self.vad_mode_requested = None
             self.vad = create_vad(self.vad_mode)
             print(f"\n[VAD] Mode changed to: {self.vad_mode}")
+
+            # Emit mode changed event (thread-safe)
+            silence_ms = MIN_SILENCE_MS_LONG if self.vad_mode == "long_note" else MIN_SILENCE_MS
+            self._emit_event_threadsafe(VADModeChanged(
+                timestamp=time.time(),
+                mode=self.vad_mode,
+                min_silence_ms=silence_ms
+            ))
 
     def _switch_vad_mode(self, new_mode: str):
         """
@@ -495,11 +639,14 @@ class AsyncVADRecorder:
 
             # Process event
             if isinstance(event, SpeechStarted):
-                # Speech started - just log (already handled in callback)
-                pass
+                # Speech started - emit to callback
+                await self._emit_event(event)
 
             elif isinstance(event, SpeechEnded):
-                # Speech ended - save and queue if kept
+                # Speech ended - emit to callback
+                await self._emit_event(event)
+
+                # Save and queue if kept
                 if event.kept:
                     await self._save_and_queue_segment(
                         event.segment_index,
@@ -545,6 +692,14 @@ class AsyncVADRecorder:
 
         # Queue job (transcriber.queue_job is thread-safe)
         self.transcriber.queue_job(job)
+
+        # Emit transcription queued event
+        await self._emit_event(TranscriptionQueued(
+            timestamp=time.time(),
+            segment_index=index,
+            wav_path=wav_path,
+            duration_sec=len(audio) / RECORD_SR
+        ))
 
     def _save_wav_sync(self, wav_path: Path, audio: np.ndarray):
         """

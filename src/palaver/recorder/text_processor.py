@@ -8,9 +8,11 @@ Handles:
 - Title capture
 - Mode switching callbacks
 - State machine for note workflow
+- Event emission for UI integration
 """
 
 import threading
+import time
 from pathlib import Path
 from typing import Optional, Callable, Dict
 from queue import Empty
@@ -38,7 +40,8 @@ class TextProcessor:
     def __init__(self,
                  session_dir: Path,
                  result_queue: Queue,
-                 mode_change_callback: Optional[Callable[[str], None]] = None):
+                 mode_change_callback: Optional[Callable[[str], None]] = None,
+                 event_callback: Optional[Callable] = None):
         """
         Initialize TextProcessor.
 
@@ -47,10 +50,13 @@ class TextProcessor:
             result_queue: Queue to read TranscriptionResults from
             mode_change_callback: Callback to trigger VAD mode changes
                                  Called with "long_note" or "normal"
+            event_callback: Callback for emitting events to UI/monitoring
+                           Called with AudioEvent instances (thread-safe)
         """
         self.session_dir = session_dir
         self.result_queue = result_queue
         self.mode_change_callback = mode_change_callback
+        self.event_callback = event_callback
 
         # State machine
         self.waiting_for_title = False
@@ -84,6 +90,23 @@ class TextProcessor:
         self.thread = threading.Thread(target=self._collect_loop, daemon=True)
         self.thread.start()
 
+    def _emit_event(self, event):
+        """
+        Emit event to callback if provided.
+
+        Thread-safe event emission. Can be called from text processor thread.
+        The event_callback should handle thread-safety (e.g., using
+        asyncio.run_coroutine_threadsafe for async code).
+
+        Args:
+            event: AudioEvent instance to emit
+        """
+        if self.event_callback:
+            try:
+                self.event_callback(event)
+            except Exception as e:
+                print(f"[TextProcessor] Event callback error: {e}")
+
     def _collect_loop(self):
         """
         Main loop for collecting results from the transcription queue.
@@ -111,15 +134,30 @@ class TextProcessor:
 
         1. Store result
         2. Write incremental update
-        3. Check for commands
-        4. Update state machine
-        5. Trigger callbacks
+        3. Emit TranscriptionComplete event
+        4. Check for commands
+        5. Update state machine
+        6. Trigger callbacks
 
         Args:
             result: TranscriptionResult to process
         """
         self.results[result.segment_index] = result
         self._write_incremental(result)
+
+        # Emit TranscriptionComplete event for UI updates
+        if self.event_callback:
+            # Import here to avoid circular dependency
+            from palaver.recorder.async_vad_recorder import TranscriptionComplete
+            self._emit_event(TranscriptionComplete(
+                timestamp=time.time(),
+                segment_index=result.segment_index,
+                text=result.text,
+                success=result.success,
+                processing_time_sec=result.processing_time_sec,
+                error_msg=result.error_msg
+            ))
+
         self._check_commands(result)
 
     def _write_incremental(self, result: TranscriptionResult):
@@ -165,10 +203,28 @@ class TextProcessor:
             print("Please speak the title for this note...")
             print("="*70 + "\n")
 
+            # Emit NoteCommandDetected event
+            if self.event_callback:
+                from palaver.recorder.async_vad_recorder import NoteCommandDetected
+                self._emit_event(NoteCommandDetected(
+                    timestamp=time.time(),
+                    segment_index=result.segment_index
+                ))
+
         # State 2: Capture the title (next segment after command)
         elif self.waiting_for_title:
             self.waiting_for_title = False
             self.current_note_title = result.text
+
+            # Emit NoteTitleCaptured event BEFORE mode change
+            # This gives immediate UI feedback before the mode actually switches
+            if self.event_callback:
+                from palaver.recorder.async_vad_recorder import NoteTitleCaptured
+                self._emit_event(NoteTitleCaptured(
+                    timestamp=time.time(),
+                    segment_index=result.segment_index,
+                    title=result.text
+                ))
 
             # Switch to long note mode
             self.mode_change_callback("long_note")

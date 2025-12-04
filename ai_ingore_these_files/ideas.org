@@ -1,11 +1,37 @@
 
-1. Need a recorder status message emitter, maybe MQTT?
-2. Need to focus on time marks.
-3. Need to consider VAD attention but unrestricted recording after than, maybe
+1. Need to consider VAD attention but unrestricted recording after than, maybe
    doing both but using VAD only to find terminating silence?
-4. Need to figure out how to recognized corrupted attention word, or maybe
-   need to make it bigger, like "attention clerk", try it with "attention bob"
-5. Find out about audio compression
-6. Build mock transcriber for testing and dev work that runs fast but looks like
-   an audio source.   
+3. Rework command listener.
+   1. Put everything no-matching in "slush"
+   2. Check for "attention to command" using fuxx
+   3. use rest of that segment as a command
+      1. Try to match, if good dispatch
+      2. If bad, try next segment and dont require attention
+      3. If no data for 5 seconds, reset
+      4. If command == "reset"
+4. Need a recorder status message emitter, maybe MQTT?
+5. Need to focus on time marks.
+2. Find out about audio compression
+
+   
+   
+
+
+
+
+
+
+Rapid fuzz
+
+pip install rapidfuzz
+    from rapidfuzz import fuzz
+
+    string1 = "apple"
+    string2 = "aple"
+    similarity_score = fuzz.ratio(string1, string2)
+    print(f"Similarity between '{string1}' and '{string2}': {similarity_score}")      
+   
+
+
+   
    
