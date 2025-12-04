@@ -34,7 +34,7 @@ class TestVADRecorderFile:
         # if sessions_dir.exists():
         #     shutil.rmtree(sessions_dir)
 
-    def test_process_note1_file(self, audio_file, cleanup_sessions, monkeypatch):
+    def test_process_note1_file(self, audio_file, cleanup_sessions, monkeypatch, capsys):
         """
         Test processing note1.wav file through VAD recorder.
 
@@ -144,16 +144,37 @@ class TestVADRecorderFile:
         # Just verify we got some transcription
         assert len(incremental_content) > 100, "Transcript seems too short"
 
+        # Capture console output to verify long note workflow
+        captured = capsys.readouterr()
+        output = captured.out + captured.err
+
+        # STRICT VERIFICATION: Long note mode workflow
+        assert "📝 NEW NOTE DETECTED" in output, \
+            "Command detection message not found in output"
+
+        assert "🎙️  LONG NOTE MODE ACTIVATED" in output, \
+            "Long note mode activation message not found"
+
+        assert "📌 TITLE:" in output, \
+            "Title capture message not found"
+
+        assert "[VAD] Mode changed to: long_note" in output, \
+            "VAD mode change to long_note not found"
+
+        # Verify mode restoration was queued (indicates long note ended properly)
+        assert "[VAD] Mode change queued: normal" in output or \
+               "WILL RESTORE NORMAL MODE" in output, \
+            "Mode restoration message not found (long note may not have ended properly)"
+
         # Success summary
         print(f"\n✅ TEST PASSED")
         print(f"   Session: {session_dir.name}")
         print(f"   Segments: {total_segments}")
-        print(f"   Command detected: 'start a new note' ✓")
-        print(f"   Keep session for manual review and long note mode verification")
-        print(f"\n⚠️  Manual verification needed:")
-        print(f"   - Check if long note mode activated (look for mode change messages)")
-        print(f"   - Verify title was captured correctly")
-        print(f"   - Confirm mode restored to normal after 6s silence")
+        print(f"   Command detected: ✓")
+        print(f"   Title captured: ✓")
+        print(f"   Long note mode activated: ✓")
+        print(f"   Mode restored: ✓")
+        print(f"   Complete workflow verified!")
 
         return session_dir
 

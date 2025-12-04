@@ -30,6 +30,9 @@ from queue import Empty
 # Import audio source abstraction
 from palaver.recorder.audio_sources import create_audio_source, FileAudioSource
 
+# Import action phrase matching
+from palaver.recorder.action_phrases import LooseActionPhrase
+
 # ================== CONFIG ==================
 RECORD_SR = 48000
 VAD_SR = 16000
@@ -181,6 +184,14 @@ class ResultCollector:
         self.waiting_for_title = False  # State: waiting for title after "start new note"
         self.current_note_title = None  # Store the title when captured
 
+        # Initialize action phrase matchers with defaults
+        # Prefix pattern handles transcription artifacts like "Clerk,", "lurk,", "clark,"
+        self.start_note_phrase = LooseActionPhrase(
+            pattern="start new note",
+            threshold=0.66,  # Require at least 2 of 3 words to match
+            ignore_prefix=r'^(clerk|lurk|clark|plurk),?\s*'
+        )
+
         # Initialize files
         self.transcript_path.write_text("# Raw Transcript\n")
         self.incremental_path.write_text("# Incremental Transcript (updates as segments complete)\n")
@@ -221,14 +232,16 @@ class ResultCollector:
 
         # State machine for note handling
         if result.success and self.mode_change_callback:
-            text_lower = result.text.lower()
-
             # State 1: Check for "start new note" command
-            if not self.waiting_for_title and "start new note" in text_lower:
+            # Uses instance defaults: threshold=0.66, ignore_prefix for "Clerk," artifacts
+            match_score = self.start_note_phrase.match(result.text)
+
+            if not self.waiting_for_title and match_score > 0:
                 # Enter title-waiting state
                 self.waiting_for_title = True
                 print("\n" + "="*70)
                 print("📝 NEW NOTE DETECTED")
+                print(f"   Command matched: {result.text}")
                 print("Please speak the title for this note...")
                 print("="*70 + "\n")
 
@@ -323,6 +336,7 @@ vad = create_vad("normal")
 print("VAD ready.")
 
 segments = []
+kept_segment_indices = []  # Track which segments were actually saved (not discarded)
 session_dir = None
 in_speech = False
 job_queue = None
@@ -366,9 +380,11 @@ def audio_callback(indata, frames, time_info, status):
                 num_chunks = len(segments[-1])
                 print(f"\n[Speech end: {num_chunks} chunks, {dur:.2f}s]", end=" ", flush=True)
                 if dur >= MIN_SEG_SEC:
+                    seg_index = len(segments) - 1
                     print(f"✓ Segment #{len(segments)} KEPT", flush=True)
                     # Trigger save and transcription
-                    save_and_queue_segment(len(segments) - 1, seg)
+                    save_and_queue_segment(seg_index, seg)
+                    kept_segment_indices.append(seg_index)
 
                     # If we just finished a long note, queue switch back to normal mode
                     if vad_mode == "long_note":
@@ -546,7 +562,7 @@ def main(input_source: Optional[str] = None):
                 "file": f"seg_{i:04d}.wav",
                 "duration_sec": round(len(np.concatenate(segments[i]))/RECORD_SR, 3)
             }
-            for i in range(len(segments)) if segments[i]
+            for i in kept_segment_indices
         ]
     }
     (session_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
