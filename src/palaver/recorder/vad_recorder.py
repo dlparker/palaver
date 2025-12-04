@@ -16,22 +16,19 @@ import numpy as np
 import torch
 import time
 import wave
-import json
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-import subprocess
 from scipy.signal import resample_poly
-from multiprocessing import Process, Queue, Event
-from dataclasses import dataclass, asdict
-from typing import Optional, List
-from queue import Empty
+from typing import Optional
 
 # Import audio source abstraction
 from palaver.recorder.audio_sources import create_audio_source, FileAudioSource
 
-# Import action phrase matching
-from palaver.recorder.action_phrases import LooseActionPhrase
+# Import new modular components
+from palaver.recorder.transcription import WhisperTranscriber, TranscriptionJob
+from palaver.recorder.text_processor import TextProcessor
+from palaver.recorder.session import Session
 
 # ================== CONFIG ==================
 RECORD_SR = 48000
@@ -48,249 +45,8 @@ MIN_SEG_SEC = 1.2           # ~3-4 syllables at dictation pace (100-130 WPM)
 
 # Transcription settings
 NUM_WORKERS = 2             # Number of concurrent transcription workers
-JOB_QUEUE_SIZE = 10         # Bounded queue size
 WHISPER_MODEL = "models/multilang_whisper_large3_turbo.ggml"
 WHISPER_TIMEOUT = 60
-
-BASE_DIR = Path("sessions")
-BASE_DIR.mkdir(exist_ok=True)
-
-# ================== DATACLASSES ==================
-
-@dataclass
-class TranscriptionJob:
-    """Job sent to transcription worker"""
-    segment_index: int
-    wav_path: Path
-    session_dir: Path
-    samplerate: int
-    duration_sec: float
-    timestamp: str
-
-    def to_dict(self):
-        """Serialize for queue (Path objects need conversion)"""
-        d = asdict(self)
-        d['wav_path'] = str(d['wav_path'])
-        d['session_dir'] = str(d['session_dir'])
-        return d
-
-    @classmethod
-    def from_dict(cls, d):
-        """Deserialize from queue"""
-        d['wav_path'] = Path(d['wav_path'])
-        d['session_dir'] = Path(d['session_dir'])
-        return cls(**d)
-
-
-@dataclass
-class TranscriptionResult:
-    """Result from transcription worker"""
-    segment_index: int
-    text: str
-    success: bool
-    error_msg: Optional[str] = None
-    processing_time_sec: float = 0.0
-    wav_path: Optional[str] = None
-
-
-# ================== WORKER PROCESS ==================
-
-def transcription_worker(worker_id: int, job_queue: Queue, result_queue: Queue, shutdown_event: Event):
-    """
-    Worker process that transcribes audio segments.
-
-    Args:
-        worker_id: Identifier for this worker (for logging)
-        job_queue: Queue to receive TranscriptionJob objects
-        result_queue: Queue to send TranscriptionResult objects
-        shutdown_event: Event to signal graceful shutdown
-    """
-    print(f"[Worker {worker_id}] Starting transcription worker")
-
-    while not shutdown_event.is_set():
-        try:
-            # Non-blocking get with timeout to check shutdown_event
-            job_dict = job_queue.get(timeout=0.5)
-            if job_dict is None:  # Poison pill
-                break
-
-            job = TranscriptionJob.from_dict(job_dict)
-            print(f"[Worker {worker_id}] Transcribing segment {job.segment_index}...")
-
-            start_time = time.time()
-
-            try:
-                r = subprocess.run([
-                    "whisper-cli", "-m", WHISPER_MODEL,
-                    "-f", str(job.wav_path), "--language", "en",
-                    "--output-txt", "--no-timestamps"
-                ], capture_output=True, text=True, timeout=WHISPER_TIMEOUT, check=True)
-
-                text = r.stdout.strip() or "[empty]"
-                processing_time = time.time() - start_time
-
-                result = TranscriptionResult(
-                    segment_index=job.segment_index,
-                    text=text,
-                    success=True,
-                    processing_time_sec=processing_time,
-                    wav_path=str(job.wav_path)
-                )
-
-                print(f"[Worker {worker_id}] Segment {job.segment_index} done ({processing_time:.1f}s)")
-
-            except subprocess.TimeoutExpired:
-                result = TranscriptionResult(
-                    segment_index=job.segment_index,
-                    text=f"{job.wav_path} processing failure: timeout",
-                    success=False,
-                    error_msg="timeout",
-                    wav_path=str(job.wav_path)
-                )
-            except Exception as e:
-                result = TranscriptionResult(
-                    segment_index=job.segment_index,
-                    text=f"{job.wav_path} processing failure: {str(e)}",
-                    success=False,
-                    error_msg=str(e),
-                    wav_path=str(job.wav_path)
-                )
-
-            result_queue.put(asdict(result))
-
-        except Empty:
-            continue
-        except Exception as e:
-            print(f"[Worker {worker_id}] Unexpected error: {e}")
-            continue
-
-    print(f"[Worker {worker_id}] Shutting down")
-
-
-# ================== RESULT COLLECTOR ==================
-
-class ResultCollector:
-    """Collects transcription results and writes incremental updates"""
-
-    def __init__(self, session_dir: Path, result_queue: Queue, mode_change_callback=None):
-        self.session_dir = session_dir
-        self.result_queue = result_queue
-        self.results = {}
-        self.running = True
-        self.thread = None
-        self.transcript_path = session_dir / "transcript_raw.txt"
-        self.incremental_path = session_dir / "transcript_incremental.txt"
-        self.mode_change_callback = mode_change_callback  # Callback to signal mode change
-        self.waiting_for_title = False  # State: waiting for title after "start new note"
-        self.current_note_title = None  # Store the title when captured
-
-        # Initialize action phrase matchers with defaults
-        # Prefix pattern handles transcription artifacts like "Clerk,", "lurk,", "clark,"
-        self.start_note_phrase = LooseActionPhrase(
-            pattern="start new note",
-            threshold=0.66,  # Require at least 2 of 3 words to match
-            ignore_prefix=r'^(clerk|lurk|clark|plurk),?\s*'
-        )
-
-        # Initialize files
-        self.transcript_path.write_text("# Raw Transcript\n")
-        self.incremental_path.write_text("# Incremental Transcript (updates as segments complete)\n")
-
-    def start(self):
-        """Start collector thread"""
-        self.thread = threading.Thread(target=self._collect_loop, daemon=True)
-        self.thread.start()
-
-    def _collect_loop(self):
-        """Main loop for collecting results"""
-        while self.running:
-            try:
-                result_dict = self.result_queue.get(timeout=0.5)
-                if result_dict is None:  # Stop signal
-                    break
-
-                result = TranscriptionResult(**result_dict)
-                self.results[result.segment_index] = result
-
-                # Write incremental update
-                self._write_incremental(result)
-
-            except Empty:
-                continue
-            except Exception as e:
-                print(f"[Collector] Error processing result: {e}")
-
-    def _write_incremental(self, result: TranscriptionResult):
-        """Write incremental update for this segment"""
-        with open(self.incremental_path, 'a') as f:
-            status = "✓" if result.success else "✗"
-            f.write(f"\n{status} Segment {result.segment_index + 1}: {result.text}\n")
-            if not result.success and result.error_msg:
-                f.write(f"   Error: {result.error_msg}\n")
-
-        print(f"[Collector] Segment {result.segment_index} transcribed: {result.text[:60]}...")
-
-        # State machine for note handling
-        if result.success and self.mode_change_callback:
-            # State 1: Check for "start new note" command
-            # Uses instance defaults: threshold=0.66, ignore_prefix for "Clerk," artifacts
-            match_score = self.start_note_phrase.match(result.text)
-
-            if not self.waiting_for_title and match_score > 0:
-                # Enter title-waiting state
-                self.waiting_for_title = True
-                print("\n" + "="*70)
-                print("📝 NEW NOTE DETECTED")
-                print(f"   Command matched: {result.text}")
-                print("Please speak the title for this note...")
-                print("="*70 + "\n")
-
-            # State 2: Capture the title (next segment after command)
-            elif self.waiting_for_title:
-                self.waiting_for_title = False
-                self.current_note_title = result.text
-
-                # Now switch to long note mode
-                self.mode_change_callback("long_note")
-                print("\n" + "="*70)
-                print(f"📌 TITLE: {result.text}")
-                print("🎙️  LONG NOTE MODE ACTIVATED")
-                print("Silence threshold: 5 seconds (continue speaking...)")
-                print("="*70 + "\n")
-
-    def stop(self):
-        """Stop collector and write final transcript"""
-        self.running = False
-        if self.thread:
-            self.thread.join(timeout=2.0)
-
-    def write_final_transcript(self, total_segments: int):
-        """Write final ordered transcript"""
-        lines = ["# Raw Transcript\n"]
-
-        # Write in order, handling missing segments
-        for i in range(total_segments):
-            if i in self.results:
-                result = self.results[i]
-                lines.append(f"{i+1}. {result.text}")
-            else:
-                lines.append(f"{i+1}. [transcription pending or failed]")
-
-        self.transcript_path.write_text("\n".join(lines))
-
-        # Summary
-        successful = sum(1 for r in self.results.values() if r.success)
-        failed = total_segments - successful
-
-        summary = [
-            f"\n# Transcription Summary",
-            f"Total segments: {total_segments}",
-            f"Successful: {successful}",
-            f"Failed: {failed}"
-        ]
-
-        with open(self.transcript_path, 'a') as f:
-            f.write("\n".join(summary))
 
 
 # ================== VAD RECORDING ==================
@@ -339,10 +95,8 @@ segments = []
 kept_segment_indices = []  # Track which segments were actually saved (not discarded)
 session_dir = None
 in_speech = False
-job_queue = None
-result_queue = None
-collector = None
-input_source_metadata = None  # Store input source info for manifest
+transcriber = None
+text_processor = None
 
 def downsample_to_512(chunk):
     """Downsample to exactly 512 samples @ 16 kHz."""
@@ -427,12 +181,8 @@ def save_and_queue_segment(index: int, audio: np.ndarray):
         timestamp=datetime.now(timezone.utc).isoformat()
     )
 
-    # Queue for transcription (non-blocking)
-    try:
-        job_queue.put(job.to_dict(), block=False)
-        print(f"  → Queued for transcription")
-    except:
-        print(f"  → Queue full, transcription delayed")
+    # Queue for transcription via transcriber
+    transcriber.queue_job(job)
 
 def main(input_source: Optional[str] = None):
     """
@@ -442,13 +192,11 @@ def main(input_source: Optional[str] = None):
         input_source: Either device name (e.g., "hw:1,0") or path to WAV file.
                      If None, uses DEVICE constant.
     """
-    global session_dir, in_speech, job_queue, result_queue, collector, input_source_metadata
+    global session_dir, in_speech, transcriber, text_processor
 
-    sid = datetime.now().strftime("%Y%m%d_%H%M%S")
-    session_dir = BASE_DIR / sid
-    session_dir.mkdir(exist_ok=True)
-
-    print(f"\nSession → {session_dir}")
+    # Create session
+    session = Session()
+    session_dir = session.create()
 
     # Determine audio source
     if input_source is None:
@@ -466,35 +214,34 @@ def main(input_source: Optional[str] = None):
     is_file_input = isinstance(audio_source, FileAudioSource)
 
     # Store metadata for manifest
-    input_source_metadata = {
+    session.add_metadata("input_source", {
         "type": "file" if is_file_input else "device",
         "source": str(input_source)
-    }
+    })
+    session.add_metadata("num_workers", NUM_WORKERS)
 
     print(f"Input source: {'FILE' if is_file_input else 'DEVICE'} ({input_source})")
 
-    # Initialize queues
-    job_queue = Queue(maxsize=JOB_QUEUE_SIZE)
-    result_queue = Queue()
-    shutdown_event = Event()
+    # Create transcriber
+    transcriber = WhisperTranscriber(
+        num_workers=NUM_WORKERS,
+        model_path=WHISPER_MODEL,
+        timeout=WHISPER_TIMEOUT
+    )
+    transcriber.start()
 
-    # Start worker processes
-    workers = []
-    for i in range(NUM_WORKERS):
-        p = Process(target=transcription_worker,
-                   args=(i, job_queue, result_queue, shutdown_event))
-        p.start()
-        workers.append(p)
-
-    print(f"Started {NUM_WORKERS} transcription workers")
-
-    # Start result collector with mode change callback
-    collector = ResultCollector(session_dir, result_queue, mode_change_callback=switch_vad_mode)
-    collector.start()
+    # Create text processor with mode change callback
+    text_processor = TextProcessor(
+        session_dir=session_dir,
+        result_queue=transcriber.get_result_queue(),
+        mode_change_callback=switch_vad_mode
+    )
+    text_processor.start()
 
     input("Press Enter to start...")
 
     segments.clear()
+    kept_segment_indices.clear()
     in_speech = False
     vad.reset_states()
 
@@ -526,46 +273,35 @@ def main(input_source: Optional[str] = None):
         else:
             print(f"  → KEPT")
             save_and_queue_segment(len(segments) - 1, seg)
+            kept_segment_indices.append(len(segments) - 1)
 
     total_kept_segments = len([s for s in segments if s])  # Count non-empty segments
     print(f"\nFinal segment count: {total_kept_segments}")
     print(f"Waiting for transcriptions to complete...")
 
-    # Signal workers to finish
-    for _ in range(NUM_WORKERS):
-        job_queue.put(None)  # Poison pill
+    # Stop transcriber (signals workers to finish)
+    transcriber.stop()
 
-    # Wait for workers with timeout
-    for p in workers:
-        p.join(timeout=WHISPER_TIMEOUT * 2)
-        if p.is_alive():
-            print(f"Warning: Worker still running, terminating...")
-            p.terminate()
-
-    # Stop collector
-    result_queue.put(None)
-    collector.stop()
+    # Stop text processor
+    text_processor.stop()
 
     # Write final transcript
-    collector.write_final_transcript(total_kept_segments)
+    text_processor.finalize(total_kept_segments)
 
-    # Write manifest
-    manifest = {
-        "session_start_utc": datetime.now(timezone.utc).isoformat(),
-        "samplerate": RECORD_SR,
-        "total_segments": total_kept_segments,
-        "num_workers": NUM_WORKERS,
-        "input_source": input_source_metadata,  # Record input type
-        "segments": [
-            {
-                "index": i,
-                "file": f"seg_{i:04d}.wav",
-                "duration_sec": round(len(np.concatenate(segments[i]))/RECORD_SR, 3)
-            }
-            for i in kept_segment_indices
-        ]
-    }
-    (session_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    # Write manifest using Session
+    segment_info = [
+        {
+            "index": i,
+            "file": f"seg_{i:04d}.wav",
+            "duration_sec": round(len(np.concatenate(segments[i]))/RECORD_SR, 3)
+        }
+        for i in kept_segment_indices
+    ]
+    session.write_manifest(
+        segments=segment_info,
+        total_segments=total_kept_segments,
+        samplerate=RECORD_SR
+    )
 
     print(f"\nFinished! → {session_dir}")
     print(f"   • {total_kept_segments} speech segments created")
