@@ -33,9 +33,10 @@ DEVICE = "hw:1,0"
 CHUNK_SEC = 0.03
 CHUNK_SIZE = int(CHUNK_SEC * RECORD_SR)
 
-VAD_THRESHOLD = 0.5
-MIN_SILENCE_MS = 800        # Normal mode: 0.8 seconds
-MIN_SILENCE_MS_LONG = 5000  # Long note mode: 5 seconds
+VAD_THRESHOLD = 0.5          # Normal mode threshold
+VAD_THRESHOLD_LONG = 0.7     # Long note mode: higher threshold to ignore ambient noise
+MIN_SILENCE_MS = 800         # Normal mode: 0.8 seconds
+MIN_SILENCE_MS_LONG = 5000   # Long note mode: 5 seconds
 SPEECH_PAD_MS = 1300
 MIN_SEG_SEC = 1.2
 
@@ -148,11 +149,30 @@ print("VAD ready.")
 
 
 def create_vad(mode="normal"):
-    """Create VAD iterator with specified silence duration"""
-    silence_ms = MIN_SILENCE_MS_LONG if mode == "long_note" else MIN_SILENCE_MS
+    """
+    Create VAD iterator with specified silence duration and threshold.
+
+    In long_note mode, we use a higher threshold (0.7 instead of 0.5) to ignore
+    ambient noise and allow true silence detection. This is critical for microphone
+    input where background noise can prevent the 5-second silence from being detected.
+
+    Args:
+        mode: "normal" or "long_note"
+
+    Returns:
+        VADIterator instance configured for the specified mode
+    """
+    if mode == "long_note":
+        silence_ms = MIN_SILENCE_MS_LONG
+        threshold = VAD_THRESHOLD_LONG
+    else:
+        silence_ms = MIN_SILENCE_MS
+        threshold = VAD_THRESHOLD
+
+    print(f"[DEBUG] Creating VAD: mode={mode}, silence_threshold={silence_ms}ms, vad_threshold={threshold}")
     return _VADIterator(
         _vad_model,
-        threshold=VAD_THRESHOLD,
+        threshold=threshold,
         sampling_rate=VAD_SR,
         min_silence_duration_ms=silence_ms,
         speech_pad_ms=SPEECH_PAD_MS
@@ -605,20 +625,52 @@ class AsyncVADRecorder:
         """
         Request VAD mode change (will be applied at next segment boundary).
 
+        Also emits VADModeChanged event immediately so TUI can show feedback
+        even if user doesn't speak again (which would trigger the actual mode change).
+
         Called from audio callback (sync).
         """
         if new_mode != self.vad_mode:
             self.vad_mode_requested = new_mode
             print(f"\n[VAD] Mode change queued: {new_mode} (will apply after current segment)")
 
+            # Emit event immediately so TUI shows "Note complete" notification
+            # The actual mode change will happen at next segment boundary
+            silence_ms = MIN_SILENCE_MS_LONG if new_mode == "long_note" else MIN_SILENCE_MS
+            self._emit_event_threadsafe(VADModeChanged(
+                timestamp=time.time(),
+                mode=new_mode,
+                min_silence_ms=silence_ms
+            ))
+
     def _handle_mode_change_request(self, mode: str):
         """
         Handle mode change request from text processor.
 
-        This is called from text processor thread, so we need to be thread-safe.
+        This is called from text processor thread when title is captured.
+        We need to apply the mode change IMMEDIATELY so the current segment
+        (the note body that's being spoken right now) uses the long_note threshold.
+
+        This is thread-safe because we're just setting attributes that the
+        audio callback will read on its next iteration.
         """
-        # Just set the requested mode - will be applied in audio callback at segment boundary
-        self.vad_mode_requested = mode
+        if mode != self.vad_mode:
+            self.vad_mode = mode
+            self.vad = create_vad(mode)
+            print(f"\n[VAD] Mode changed IMMEDIATELY to: {mode}")
+            print(f"      (Applied mid-segment for current speech)")
+
+            # Emit mode changed event
+            silence_ms = MIN_SILENCE_MS_LONG if mode == "long_note" else MIN_SILENCE_MS
+            if self.loop:
+                asyncio.run_coroutine_threadsafe(
+                    self._emit_event(VADModeChanged(
+                        timestamp=time.time(),
+                        mode=mode,
+                        min_silence_ms=silence_ms
+                    )),
+                    self.loop
+                )
 
     async def _process_events(self):
         """
