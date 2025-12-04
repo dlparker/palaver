@@ -1,29 +1,70 @@
 
-1. Need to consider VAD attention but unrestricted recording after than, maybe
-   doing both but using VAD only to find terminating silence?
-3. Rework command listener.
-   1. Put everything no-matching in "slush"
-   2. Check for "attention to command" using fuxx
-   3. use rest of that segment as a command
-      1. Try to match, if good dispatch
-      2. If bad, try next segment and dont require attention
-      3. If no data for 5 seconds, reset
-      4. If command == "reset"
-4. Need a recorder status message emitter, maybe MQTT?
-5. Need to focus on time marks.
 2. Find out about audio compression
+3. Need a recorder status message emitter, maybe MQTT?
 
+
+Rework the text_processor
+1. Generalize notes into flexible commands and doc formats (see below for detail)
+2. Allow runtime setting of the prefix that is used to account for VAD tardiness
+   to start saving sound, in current code that is the word "clerk". Call this
+   the "attention_phrase".
+3. Add rapidfuzz support to the matcher logic for both the attention_phrase and
+   the CommandDoc "commad_phrase" (see below)
+4. When a speech does not match any command (or the attention phrase), save it
+   in a "slush_bucket". Future commands may involve using this text, allowing for
+   alternate styles of user interaction.
+5. Once a command is recognized, and buckets are being processed, if a bucket doesn't
+   fill within "start_window" (see below), then the command is discarded and the contents
+   of the command prompt and any filled buckets are moved to the current "slush_bucket"
    
+Generalize from hardcode "notes" to CommandDocs
+CommandDoc class API:
+
+1. a "command_phrase" property to be used by text processor to identify this doc type as the target.
+3. a list of the "SpeechBuckets" it wants filled, in the order to be filled
+
+The SpeechBucket class provides a name and a display_name property.
+The name property is for programmer use and the display_name property
+is for displaying to humans. Each have to be unique so that they can
+be used as dictionary keys.
+
+The SpeechBucket class has an API that gives listener specs for parameters
+in relative form. These will be relative to a global "base" definition
+of these factors that can be configured at run time, so user
+can adjust things to suit. The relative form is a float factor
+that will be multiplied by the "base" to get the final.
+
+For example, if the "base" value for "long speech termination silence"
+is 2 seconds, and a SpeechBucket instancee has the value of 3.0, then
+the silence value will be 6.0
+
+Relative Parameters
+1. segment_size - for the recorder process.
+2. start_window - How long to wait for text for this bucket before
+   giving up, which may reset the CommandDoc processing and lose
+   any progress.
+3. termination_silence - VAD setting to singnal end of bucket
+   
+ 
+So a note would be:
+
+(numbers are examples, not meant to be final)
+
+with Global params:
+    segment_size = 10
+    start_window = 1
+    termination_silence = 0.5
+
+class SimpleNote(CommandDoc):
+    command_phrase = "start new note"
+    speech_buckets = [
+       SpeechBucket(name="simple_note_title", display_name="Title", start_window=3.0), # sometimes the title task a couple of seconds to think of
+       SpeechBucket(name="simple_note_boy", display_name="Body", termination_silence=10.0, segment_size=0.5),
+    ]
    
 
 
-
-
-
-
-Rapid fuzz
-
-pip install rapidfuzz
+Example rapidfuzz code
     from rapidfuzz import fuzz
 
     string1 = "apple"

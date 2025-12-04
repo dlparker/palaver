@@ -103,8 +103,8 @@ class StatusDisplay(Static):
         return Panel(content, title="Status", border_style="yellow")
 
 
-class TranscriptMonitor(Static):
-    """Display real-time transcript"""
+class CurrentTranscriptMonitor(Static):
+    """Display real-time transcript for current note"""
 
     def __init__(self):
         super().__init__()
@@ -113,9 +113,9 @@ class TranscriptMonitor(Static):
     def add_line(self, segment_index: int, text: str, status: str = "✓"):
         """Add transcript line"""
         self.transcript_lines.append(f"{status} {segment_index + 1}. {text}")
-        # Keep last 20 lines
-        if len(self.transcript_lines) > 20:
-            self.transcript_lines = self.transcript_lines[-20:]
+        # Keep last 50 lines (will scroll)
+        if len(self.transcript_lines) > 50:
+            self.transcript_lines = self.transcript_lines[-50:]
         self.update_display()
 
     def update_line(self, segment_index: int, text: str, status: str = "✓"):
@@ -134,11 +134,44 @@ class TranscriptMonitor(Static):
     def update_display(self):
         """Refresh display"""
         content = "\n".join(self.transcript_lines) if self.transcript_lines else "[No segments yet]"
-        self.update(Panel(content, title="Transcript", border_style="green"))
+        self.update(Panel(content, title="Current Note", border_style="green"))
 
     def clear(self):
         """Clear transcript"""
         self.transcript_lines = []
+        self.update_display()
+
+
+class NoteTitlesMonitor(Static):
+    """Display titles of completed notes"""
+
+    def __init__(self):
+        super().__init__()
+        self.note_titles = []
+
+    def add_note(self, title: str):
+        """Add a completed note title"""
+        self.note_titles.append(title)
+        self.update_display()
+
+    def update_display(self):
+        """Refresh display"""
+        if not self.note_titles:
+            content = "[No notes yet]"
+        else:
+            # Show all note titles, numbered
+            lines = []
+            for i, title in enumerate(self.note_titles, 1):
+                # Truncate long titles
+                display_title = title[:50] + "..." if len(title) > 50 else title
+                lines.append(f"{i}. {display_title}")
+            content = "\n".join(lines)
+
+        self.update(Panel(content, title="Completed Notes", border_style="blue"))
+
+    def clear(self):
+        """Clear all note titles"""
+        self.note_titles = []
         self.update_display()
 
 
@@ -215,6 +248,22 @@ class RecorderApp(App):
         margin-bottom: 1;
     }
 
+    #transcript-row {
+        width: 100%;
+        height: 100%;
+    }
+
+    #current-transcript {
+        width: 2fr;
+        height: 100%;
+        margin-right: 1;
+    }
+
+    #note-titles {
+        width: 1fr;
+        height: 100%;
+    }
+
     #notification-section {
         height: 8;
     }
@@ -230,6 +279,8 @@ class RecorderApp(App):
         super().__init__()
         self.backend = AsyncVADRecorder(event_callback=self.handle_recorder_event)
         self.current_segment = -1
+        self.current_note_title = None  # Track current note title
+        self.in_note_mode = False  # Track if we're currently in a note
 
     def compose(self) -> ComposeResult:
         """Build UI"""
@@ -247,9 +298,15 @@ class RecorderApp(App):
                     self.status_display = StatusDisplay(id="status-display")
                     yield self.status_display
 
-            with ScrollableContainer(id="transcript-section"):
-                self.transcript_monitor = TranscriptMonitor()
-                yield self.transcript_monitor
+            with Container(id="transcript-section"):
+                with Horizontal(id="transcript-row"):
+                    with ScrollableContainer(id="current-transcript"):
+                        self.current_transcript = CurrentTranscriptMonitor()
+                        yield self.current_transcript
+
+                    with ScrollableContainer(id="note-titles"):
+                        self.note_titles = NoteTitlesMonitor()
+                        yield self.note_titles
 
             with Container(id="notification-section"):
                 self.notification_display = NotificationDisplay()
@@ -259,7 +316,8 @@ class RecorderApp(App):
 
     def on_mount(self):
         """Initialize after mounting"""
-        self.transcript_monitor.update_display()
+        self.current_transcript.update_display()
+        self.note_titles.update_display()
         self.notification_display.update_display()
         self.notification_display.add_notification(
             "Press SPACE or click button to start recording",
@@ -277,12 +335,19 @@ class RecorderApp(App):
             self.record_button.set_recording(event.is_recording)
             if event.is_recording:
                 self.status_display.session_path = self.backend.session_dir
-                self.transcript_monitor.clear()
+                self.current_transcript.clear()
+                self.note_titles.clear()
+                self.in_note_mode = False
+                self.current_note_title = None
                 self.notification_display.add_notification(
                     "🎙️  Recording started",
                     "bold green"
                 )
             else:
+                # If we have a current note that wasn't completed, add it
+                if self.in_note_mode and self.current_note_title:
+                    self.note_titles.add_note(self.current_note_title)
+
                 self.notification_display.add_notification(
                     f"✓ Recording stopped → {self.backend.session_dir}",
                     "bold yellow"
@@ -309,7 +374,7 @@ class RecorderApp(App):
         elif isinstance(event, SpeechEnded):
             self.mode_display.vad_active = False
             if event.kept:
-                self.transcript_monitor.add_line(
+                self.current_transcript.add_line(
                     event.segment_index,
                     f"[Processing... {event.duration_sec:.1f}s]",
                     "⏳"
@@ -325,25 +390,37 @@ class RecorderApp(App):
 
         elif isinstance(event, TranscriptionComplete):
             if event.success:
-                self.transcript_monitor.update_line(
+                self.current_transcript.update_line(
                     event.segment_index,
                     event.text[:100],  # Truncate for display
                     "✓"
                 )
             else:
-                self.transcript_monitor.update_line(
+                self.current_transcript.update_line(
                     event.segment_index,
                     "[transcription failed]",
                     "✗"
                 )
 
         elif isinstance(event, NoteCommandDetected):
+            # If we were already in a note, save it before starting new one
+            if self.in_note_mode and self.current_note_title:
+                self.note_titles.add_note(self.current_note_title)
+
+            # Clear current transcript for new note
+            self.current_transcript.clear()
+            self.in_note_mode = True
+            self.current_note_title = None
+
             self.notification_display.add_notification(
                 "📝 NEW NOTE DETECTED - Speak title next...",
                 "bold yellow"
             )
 
         elif isinstance(event, NoteTitleCaptured):
+            # Save the title for this note
+            self.current_note_title = event.title
+
             self.notification_display.add_notification(
                 f"📌 TITLE: {event.title} - Long note mode active, continue speaking...",
                 "bold cyan"
