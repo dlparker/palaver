@@ -22,50 +22,50 @@
 
 ---
 
-## Phase 1: Foundation - MQTT Adapter and Event UUIDs
+## Phase 1: Foundation - MQTT Adapter and Event UUIDs ✅ COMPLETED
 
-### 1.1 Add UUID to AudioEvent Base Class
-- [ ] **File**: `src/palaver/recorder/async_vad_recorder.py`
-- [ ] Import `uuid` and `field` from dataclasses
-- [ ] Modify `AudioEvent` dataclass (around line 52):
+### 1.1 Add UUID to AudioEvent Base Class ✅
+- [x] **File**: `src/palaver/recorder/async_vad_recorder.py`
+- [x] Import `uuid` and `field` from dataclasses
+- [x] Modify `AudioEvent` dataclass (around line 52):
   ```python
   @dataclass
   class AudioEvent:
       timestamp: float
-      event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+      event_id: str = field(default_factory=lambda: str(uuid.uuid4()), kw_only=True)
   ```
-- [ ] Test: Run existing tests to ensure nothing breaks with new field
+- [x] Test: Run existing tests to ensure nothing breaks with new field
   ```bash
   uv run pytest tests/test_recorder_events.py -v
   ```
 
-### 1.2 Create MQTT Module Structure
-- [ ] Create directory: `src/palaver/mqtt/`
-- [ ] Create file: `src/palaver/mqtt/__init__.py` (can be empty)
-- [ ] Create file: `src/palaver/mqtt/client.py`
-- [ ] Create file: `src/palaver/mqtt/mqtt_adapter.py`
+### 1.2 Create MQTT Module Structure ✅
+- [x] Create directory: `src/palaver/mqtt/`
+- [x] Create file: `src/palaver/mqtt/__init__.py` (exports MQTTAdapter, MQTTPublisher)
+- [x] Create file: `src/palaver/mqtt/client.py`
+- [x] Create file: `src/palaver/mqtt/mqtt_adapter.py`
 
-### 1.3 Implement MQTT Client Wrapper
-- [ ] **File**: `src/palaver/mqtt/client.py`
-- [ ] Import `asyncio_mqtt.Client`
-- [ ] Implement `MQTTPublisher` class:
+### 1.3 Implement MQTT Client Wrapper ✅
+- [x] **File**: `src/palaver/mqtt/client.py`
+- [x] Import `asyncio_mqtt.Client`
+- [x] Implement `MQTTPublisher` class:
   - `__init__(broker, port, qos)` - defaults: localhost, 1883, qos=1
   - `async connect()` - connect to broker
   - `async disconnect()` - cleanup
   - `async publish(topic, payload, retain=False)` - publish with QoS 1, no retention
-- [ ] Add dependency to `pyproject.toml`:
+- [x] Add dependency to `pyproject.toml`:
   ```toml
   dependencies = [
       # ... existing ...
       "asyncio-mqtt>=0.16.2",
   ]
   ```
-- [ ] Install: `uv pip install -e .`
+- [x] Install: `uv pip install -e .`
 
-### 1.4 Implement MQTT Adapter
-- [ ] **File**: `src/palaver/mqtt/mqtt_adapter.py`
-- [ ] Import event types from `palaver.recorder.async_vad_recorder`
-- [ ] Implement `MQTTAdapter` class:
+### 1.4 Implement MQTT Adapter ✅
+- [x] **File**: `src/palaver/mqtt/mqtt_adapter.py`
+- [x] Import event types from `palaver.recorder.async_vad_recorder`
+- [x] Implement `MQTTAdapter` class:
   - `__init__(mqtt_client, session_id)` - store client and session_id
   - Track state: `current_state`, `current_bucket`, `command_doc_type`
   - Store segment durations from `SpeechEnded` events (for enrichment)
@@ -74,27 +74,27 @@
   - `async _publish_command_completion(event)` - handle `CommandCompleted`
   - `_update_state(state, command_type=None)` - state transitions
 
-### 1.5 Segment Message Publishing
-- [ ] **In `MQTTAdapter._publish_segment()`**:
-- [ ] Build message with fields:
+### 1.5 Segment Message Publishing ✅
+- [x] **In `MQTTAdapter._publish_segment()`**:
+- [x] Build message with fields:
   - `event_id` (from event)
   - `timestamp` (from event)
   - `session_id` (from self)
   - `segment_index`, `text`, `success`, `processing_time_sec` (from event)
   - `duration_sec` (lookup from stored SpeechEnded events)
   - `session_state`: {state, command_type, current_bucket}
-- [ ] Topic: `palaver/session/{session_id}/segment`
-- [ ] Convert to JSON and publish
+- [x] Topic: `palaver/session/{session_id}/segment`
+- [x] Convert to JSON and publish
 
-### 1.6 Command Completion Message Publishing
-- [ ] **In `MQTTAdapter._publish_command_completion()`**:
-- [ ] Build message with fields:
+### 1.6 Command Completion Message Publishing ✅
+- [x] **In `MQTTAdapter._publish_command_completion()`**:
+- [x] Build message with fields:
   - `event_id`, `timestamp`, `session_id`
   - `command_type`, `output_files` (from event)
-  - `bucket_contents` (need to add to CommandCompleted event - see Phase 2)
-  - `duration_sec` (calculate from command start time)
-- [ ] Topic: `palaver/session/{session_id}/command/completed`
-- [ ] Convert to JSON and publish
+  - `bucket_contents` (added to CommandCompleted event)
+  - `duration_sec` (calculate from command start time - pending Phase 2)
+- [x] Topic: `palaver/session/{session_id}/command/completed`
+- [x] Convert to JSON and publish
 
 ---
 
@@ -163,13 +163,30 @@
 - [ ] **Decision needed**: Choose and implement bucket completion logic
 - [ ] **Recommended**: Listen for VADModeChanged(mode="normal") after long_note mode
 
+### 2.6 Cleanup Segment Files After CommandDoc Completion
+- [ ] **Add debug configuration flag**:
+  - [ ] **File**: `src/palaver/config/recorder_config.py`
+  - [ ] Add field: `keep_segment_files: bool = False` (debug flag)
+  - [ ] Update `config.example.yaml` with comment explaining the flag
+- [ ] **Implement segment cleanup in `TextProcessor._complete_command()`**:
+  - [ ] Track which segment indices were used in the CommandDoc
+  - [ ] After `render()` completes successfully
+  - [ ] If `not config.keep_segment_files`:
+    - Delete segment WAV files that were used in the CommandDoc
+    - Example: `sessions/YYYYMMDD_HHMMSS/seg_0000.wav`, `seg_0001.wav`, etc.
+  - [ ] Keep segments if `keep_segment_files=True` (for debugging)
+- [ ] **Alternative**: Cleanup in `CommandCompleted` event handler
+  - Could move cleanup logic to event handler instead of TextProcessor
+  - Keeps TextProcessor focused on text processing
+  - Event handler would need access to session directory and segment list
+
 ---
 
-## Phase 3: Configuration and Integration
+## Phase 3: Configuration and Integration (Partial - CLI complete, TUI pending)
 
-### 3.1 Add MQTT Configuration
-- [ ] **File**: `src/palaver/config/recorder_config.py`
-- [ ] Add to `RecorderConfig` dataclass (around line 14):
+### 3.1 Add MQTT Configuration ✅
+- [x] **File**: `src/palaver/config/recorder_config.py`
+- [x] Add to `RecorderConfig` dataclass (around line 14):
   ```python
   # MQTT Configuration (local broker, no retention, QoS 1)
   mqtt_enabled: bool = False
@@ -179,15 +196,15 @@
   mqtt_topic_prefix: str = "palaver"
   ```
 
-### 3.2 Wire MQTT into CLI Recorder
-- [ ] **File**: `scripts/direct_recorder.py`
-- [ ] Import MQTT modules:
+### 3.2 Wire MQTT into CLI Recorder ✅
+- [x] **File**: `scripts/direct_recorder.py`
+- [x] Import MQTT modules:
   ```python
   from palaver.mqtt.mqtt_adapter import MQTTAdapter
   from palaver.mqtt.client import MQTTPublisher
   from palaver.config.recorder_config import RecorderConfig
   ```
-- [ ] After creating recorder, before `start_recording()`:
+- [x] After creating recorder, before `start_recording()`:
   ```python
   # Setup MQTT if enabled
   mqtt_adapter = None
@@ -202,30 +219,36 @@
       session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
       mqtt_adapter = MQTTAdapter(mqtt_client, session_id)
 
+  # Create combined event handler
+  async def combined_event_handler(event: AudioEvent):
+      await event_logger(event)
+      if mqtt_adapter:
+          await mqtt_adapter.handle_event(event)
+
   # Pass to recorder
-  recorder = AsyncVADRecorder(
-      event_callback=mqtt_adapter.handle_event if mqtt_adapter else None
-  )
+  recorder = AsyncVADRecorder(event_callback=combined_event_handler)
   ```
-- [ ] Add cleanup on shutdown:
+- [x] Add cleanup on shutdown:
   ```python
-  if mqtt_adapter:
-      await mqtt_adapter.mqtt_client.disconnect()
+  if mqtt_client:
+      await mqtt_client.disconnect()
   ```
 
-### 3.3 Wire MQTT into TUI
-- [ ] **File**: `src/palaver/tui/recorder_tui.py`
-- [ ] Similar integration as CLI recorder
-- [ ] In `RecorderApp.__init__()`, setup MQTT if config.mqtt_enabled
-- [ ] Chain callbacks: TUI needs events AND MQTT needs events
-- [ ] **Options**:
-  1. Create wrapper that calls both callbacks
-  2. Have MQTT adapter forward events to TUI callback
-- [ ] **Recommended**: Wrapper function that calls both
+### 3.3 Wire MQTT into TUI ✅
+- [x] **File**: `src/palaver/tui/recorder_tui.py`
+- [x] Similar integration as CLI recorder
+- [x] In `RecorderApp.__init__()`, load config and create recorder with keep_segment_files
+- [x] In `async on_mount()`, setup MQTT if config.mqtt_enabled
+- [x] Chain callbacks: TUI needs events AND MQTT needs events
+- [x] Implemented: Forward events to MQTT in `handle_recorder_event()`
+- [x] Update MQTT adapter session_id when recording starts
+- [x] Disconnect MQTT in `action_quit()`
+- [x] Display MQTT status notification on connection
 
-### 3.4 Create Example Configuration File
-- [ ] Create file: `config.example.yaml`
-- [ ] Include MQTT settings:
+### 3.4 Create Example Configuration File ✅
+- [x] Create file: `config.example.yaml`
+- [x] Include all RecorderConfig settings with comments
+- [x] Include MQTT settings:
   ```yaml
   # MQTT Configuration
   mqtt_enabled: false
@@ -281,6 +304,90 @@
 - [ ] Record "start new note" / "Test Title" / "Test body"
 - [ ] Verify MQTT messages in subscriber terminal
 - [ ] Check message format matches plan
+
+---
+
+## Phase 5: Voice Stop Command (Future Enhancement)
+
+**Goal**: Add voice-activated recording stop to provide explicit user control and solve shutdown race conditions.
+
+**Design**:
+- Global default stop phrase in config
+- CommandDoc can use default, specify custom, or opt out
+- Solves race condition where transcription completes after text processor stops
+
+### 5.1 Add Stop Phrase Configuration
+- [ ] **File**: `src/palaver/config/recorder_config.py`
+- [ ] Add field: `stop_phrase: str = "break break break"` (or "attention to command: stop")
+- [ ] Add field: `stop_phrase_threshold: float = 80.0` (rapidfuzz similarity %)
+- [ ] Update `config.example.yaml` with explanation and examples
+
+### 5.2 Extend CommandDoc Base Class
+- [ ] **File**: `src/palaver/commands/command_doc.py`
+- [ ] Add abstract property: `stop_phrase: Optional[str]`
+  - Return `None` to use global default from config
+  - Return custom string to override
+  - Return `""` (empty string) to disable stop detection for this command
+- [ ] Document the three modes in docstring
+
+### 5.3 Implement Stop Detection in TextProcessor
+- [ ] **File**: `src/palaver/recorder/text_processor.py`
+- [ ] Add stop phrase matcher (similar to `start_note_phrase`)
+- [ ] In `_check_commands()` after bucket accumulation:
+  ```python
+  # Check for stop command (if in active command)
+  if self.current_command is not None:
+      stop_phrase = self._get_stop_phrase()  # CommandDoc custom or config default
+      if stop_phrase and self._matches_stop_phrase(result.text, stop_phrase):
+          # Complete current bucket
+          self._complete_bucket(...)
+          # Complete command workflow
+          self._complete_command()
+          # Trigger recording stop
+          self.stop_recording_callback()
+          return
+  ```
+
+### 5.4 Wire Stop Callback Through Stack
+- [ ] Add `stop_recording_callback` parameter to `TextProcessor.__init__()`
+- [ ] In `AsyncVADRecorder`, pass callback to TextProcessor:
+  ```python
+  stop_callback=lambda: asyncio.create_task(self.stop_recording())
+  ```
+- [ ] Handle thread-safety (callback called from text processor thread)
+
+### 5.5 Update SimpleNote CommandDoc
+- [ ] **File**: `src/palaver/commands/simple_note.py`
+- [ ] Add `stop_phrase` property:
+  ```python
+  @property
+  def stop_phrase(self) -> Optional[str]:
+      return None  # Use global default from config
+  ```
+
+### 5.6 Benefits of This Approach
+- **Solves Race Condition**: Stop command is transcribed first, ensuring all prior transcriptions complete
+- **Explicit Control**: User signals "I'm done" instead of relying on silence timeouts
+- **Flexible**: CommandDocs can customize or disable as needed
+- **Better UX**: No awkward waiting for silence threshold
+- **Clean Shutdown**: Command workflow completes before stop is initiated
+
+### 5.7 Example Usage
+```yaml
+# config.yaml
+stop_phrase: "break break break"
+stop_phrase_threshold: 75.0  # Lower threshold for natural speech variations
+```
+
+**User says**: "This is my note body... break break break"
+1. Segment transcribed: "This is my note body... break break break"
+2. TextProcessor accumulates: "This is my note body..."
+3. TextProcessor detects stop phrase
+4. Completes note_body bucket
+5. Calls `render()` to create note file
+6. Deletes segment files (if configured)
+7. Triggers recording stop
+8. **All transcriptions complete ✅ No race condition!**
 
 ---
 
@@ -359,13 +466,37 @@ uv run python scripts/direct_recorder.py
 
 **Last Updated**: 2024-12-05
 
-**Current Phase**: Not started
+**Current Phase**: Phase 2 Complete ✅ - Command Workflow Implemented
 
 **Completed**:
 - Planning
 - Architecture design
+- **Phase 1**: Foundation - MQTT Adapter and Event UUIDs ✅
+  - Added UUID field to AudioEvent base class
+  - Created MQTT module structure (client.py, mqtt_adapter.py)
+  - Implemented MQTTPublisher wrapper (migrated to aiomqtt 2.4.0)
+  - Implemented MQTTAdapter with segment and command completion publishing
+  - Added aiomqtt dependency
+- **Phase 2**: Command Workflow Events ✅
+  - Extended TextProcessor with command workflow state tracking
+  - Implemented CommandDetected, BucketStarted, BucketFilled event emission
+  - Implemented bucket accumulation and completion logic
+  - Added notify_mode_changed() for bucket completion detection
+  - Implemented _complete_command() with render() and CommandCompleted event
+  - Added keep_segment_files config flag and segment cleanup
+  - Wired through AsyncVADRecorder and CLI
+- **Phase 3**: Configuration and Integration ✅
+  - Added MQTT configuration to RecorderConfig ✅
+  - Wired MQTT into CLI recorder ✅
+  - Wired MQTT into TUI recorder ✅
+  - Created config.example.yaml ✅
+  - Updated CLI and TUI to load config.yaml from working directory ✅
+
+**Known Issue**:
+- Race condition in file playback mode: final transcription completes after text processor stops
+- Solution planned: Phase 5 - Voice Stop Command (will solve race condition elegantly)
 
 **Next Steps**:
-1. Add UUID to AudioEvent (Phase 1.1)
-2. Create MQTT module structure (Phase 1.2)
-3. Implement MQTT client wrapper (Phase 1.3)
+1. Wire MQTT into TUI (Phase 3.3)
+2. Create unit tests (Phase 4.1-4.3)
+3. (Future) Implement Phase 5: Voice Stop Command

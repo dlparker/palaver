@@ -34,6 +34,10 @@ from palaver.recorder.async_vad_recorder import (
     NoteTitleCaptured,
     QueueStatus,
 )
+from palaver.config.recorder_config import RecorderConfig
+from palaver.mqtt.mqtt_adapter import MQTTAdapter
+from palaver.mqtt.client import MQTTPublisher
+from datetime import datetime
 
 
 class RecordButton(Button):
@@ -277,7 +281,26 @@ class RecorderApp(App):
 
     def __init__(self):
         super().__init__()
-        self.backend = AsyncVADRecorder(event_callback=self.handle_recorder_event)
+
+        # Load configuration
+        config_path = Path("config.yaml")
+        if config_path.exists():
+            self.config = RecorderConfig.from_file(config_path)
+        else:
+            self.config = RecorderConfig.defaults()
+
+        # Setup MQTT if enabled
+        self.mqtt_adapter = None
+        self.mqtt_client = None
+        if self.config.mqtt_enabled:
+            # Note: MQTT setup happens in async on_mount() to handle async connection
+            pass
+
+        # Create combined event handler (will add MQTT in on_mount if enabled)
+        self.backend = AsyncVADRecorder(
+            event_callback=self.handle_recorder_event,
+            keep_segment_files=self.config.keep_segment_files
+        )
         self.current_segment = -1
         self.current_note_title = None  # Track current note title
         self.in_note_mode = False  # Track if we're currently in a note
@@ -314,11 +337,37 @@ class RecorderApp(App):
 
         yield Footer()
 
-    def on_mount(self):
+    async def on_mount(self):
         """Initialize after mounting"""
         self.current_transcript.update_display()
         self.note_titles.update_display()
         self.notification_display.update_display()
+
+        # Setup MQTT if enabled
+        if self.config.mqtt_enabled:
+            try:
+                self.mqtt_client = MQTTPublisher(
+                    broker=self.config.mqtt_broker,
+                    port=self.config.mqtt_port,
+                    qos=self.config.mqtt_qos
+                )
+                await self.mqtt_client.connect()
+
+                # Use timestamp session_id (will be updated when recording starts)
+                session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+                self.mqtt_adapter = MQTTAdapter(self.mqtt_client, session_id)
+
+                self.notification_display.add_notification(
+                    f"✓ MQTT: {self.config.mqtt_broker}:{self.config.mqtt_port}",
+                    "bold green"
+                )
+            except Exception as e:
+                self.notification_display.add_notification(
+                    f"⚠ MQTT failed: {e}",
+                    "bold yellow"
+                )
+                self.mqtt_adapter = None
+
         self.notification_display.add_notification(
             "Press SPACE or click button to start recording",
             "bold cyan"
@@ -326,7 +375,11 @@ class RecorderApp(App):
 
     async def handle_recorder_event(self, event: AudioEvent):
         """Handle events from backend (async callback)"""
-        # Events come from async tasks, can directly update UI
+        # Forward to MQTT if enabled
+        if self.mqtt_adapter:
+            await self.mqtt_adapter.handle_event(event)
+
+        # Update UI
         self._handle_event_on_ui_thread(event)
 
     def _handle_event_on_ui_thread(self, event: AudioEvent):
@@ -339,6 +392,11 @@ class RecorderApp(App):
                 self.note_titles.clear()
                 self.in_note_mode = False
                 self.current_note_title = None
+
+                # Update MQTT adapter session_id to match actual session directory
+                if self.mqtt_adapter and self.backend.session_dir:
+                    self.mqtt_adapter.session_id = self.backend.session_dir.name
+
                 self.notification_display.add_notification(
                     "🎙️  Recording started",
                     "bold green"
@@ -451,6 +509,11 @@ class RecorderApp(App):
         """Quit application (async)"""
         if self.backend.is_recording:
             await self.backend.stop_recording()
+
+        # Disconnect MQTT if connected
+        if self.mqtt_client:
+            await self.mqtt_client.disconnect()
+
         self.exit()
 
 

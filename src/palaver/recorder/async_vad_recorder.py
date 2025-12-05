@@ -13,12 +13,13 @@ Architecture:
 import asyncio
 import sys
 import time
+import uuid
 import wave
 import numpy as np
 import torch
 from datetime import datetime, timezone
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Callable, List, Dict
 from scipy.signal import resample_poly
 
@@ -52,6 +53,7 @@ WHISPER_TIMEOUT = 60
 class AudioEvent:
     """Base class for events from audio callback"""
     timestamp: float
+    event_id: str = field(default_factory=lambda: str(uuid.uuid4()), kw_only=True)
 
 
 @dataclass
@@ -181,6 +183,7 @@ class CommandCompleted(AudioEvent):
     """All buckets filled, command completed successfully."""
     command_doc_type: str
     output_files: List[Path]  # Files created by render()
+    bucket_contents: Dict[str, str]  # Filled bucket contents
 
 
 @dataclass
@@ -281,9 +284,10 @@ class AsyncVADRecorder:
         Callback can be sync or async function.
     """
 
-    def __init__(self, event_callback: Optional[Callable] = None):
+    def __init__(self, event_callback: Optional[Callable] = None, keep_segment_files: bool = False):
         # Event callback for consumers (TUI, monitoring, etc.)
         self.event_callback = event_callback
+        self.keep_segment_files = keep_segment_files
 
         # Event loop and queue
         self.loop: Optional[asyncio.AbstractEventLoop] = None
@@ -444,7 +448,8 @@ class AsyncVADRecorder:
             session_dir=self.session_dir,
             result_queue=self.transcriber.get_result_queue(),
             mode_change_callback=self._handle_mode_change_request,
-            event_callback=self._emit_event_from_text_processor
+            event_callback=self._emit_event_from_text_processor,
+            keep_segment_files=self.keep_segment_files
         )
         self.text_processor.start()
 
@@ -684,6 +689,10 @@ class AsyncVADRecorder:
                 min_silence_ms=silence_ms
             ))
 
+            # Notify text processor of mode change (for bucket completion detection)
+            if self.text_processor:
+                self.text_processor.notify_mode_changed(self.vad_mode)
+
     def _switch_vad_mode(self, new_mode: str):
         """
         Request VAD mode change (will be applied at next segment boundary).
@@ -705,6 +714,10 @@ class AsyncVADRecorder:
                 mode=new_mode,
                 min_silence_ms=silence_ms
             ))
+
+            # Notify text processor of mode change (for bucket completion detection)
+            if self.text_processor:
+                self.text_processor.notify_mode_changed(new_mode)
 
     def _handle_mode_change_request(self, mode: str):
         """

@@ -41,6 +41,16 @@ class RecorderConfig:
     # Fuzzy matching
     command_phrase_threshold: float = 80.0  # rapidfuzz similarity %
 
+    # MQTT Configuration (local broker, no retention, QoS 1)
+    mqtt_enabled: bool = False
+    mqtt_broker: str = "localhost"
+    mqtt_port: int = 1883
+    mqtt_qos: int = 1  # At least once delivery
+    mqtt_topic_prefix: str = "palaver"
+
+    # Debug / Storage
+    keep_segment_files: bool = False  # Keep segment WAV files after CommandDoc completion (for debugging)
+
     @classmethod
     def from_file(cls, path: Path) -> 'RecorderConfig':
         """

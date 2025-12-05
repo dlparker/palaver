@@ -19,6 +19,7 @@ Usage:
 import asyncio
 import argparse
 import time
+from datetime import datetime
 from pathlib import Path
 
 from palaver.recorder.async_vad_recorder import (
@@ -35,6 +36,9 @@ from palaver.recorder.async_vad_recorder import (
     NoteTitleCaptured,
 )
 from palaver.recorder.audio_sources import FileAudioSource
+from palaver.config.recorder_config import RecorderConfig
+from palaver.mqtt.mqtt_adapter import MQTTAdapter
+from palaver.mqtt.client import MQTTPublisher
 
 # Global recording start time (set when recording begins)
 RECORDING_START_TIME = None
@@ -128,8 +132,51 @@ async def run_interactive_recording(input_source: str = None, auto_start: bool =
     """
     global RECORDING_START_TIME
 
-    # Create recorder with event logger callback
-    recorder = AsyncVADRecorder(event_callback=event_logger)
+    # Load configuration from file if exists, otherwise use defaults
+    config_path = Path("config.yaml")
+    if config_path.exists():
+        config = RecorderConfig.from_file(config_path)
+        print(f"✓ Loaded configuration from {config_path}")
+    else:
+        config = RecorderConfig.defaults()
+        print("⚠ Using default configuration (config.yaml not found)")
+
+    # Setup MQTT if enabled
+    mqtt_adapter = None
+    mqtt_client = None
+    if config.mqtt_enabled:
+        try:
+            mqtt_client = MQTTPublisher(
+                broker=config.mqtt_broker,
+                port=config.mqtt_port,
+                qos=config.mqtt_qos
+            )
+            await mqtt_client.connect()
+
+            # Use timestamp session_id (matches sessions/ directory naming)
+            session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+            mqtt_adapter = MQTTAdapter(mqtt_client, session_id)
+
+            print(f"✓ MQTT enabled: publishing to {config.mqtt_broker}:{config.mqtt_port}")
+            print(f"  Session ID: {session_id}")
+            print(f"  Topic prefix: {config.mqtt_topic_prefix}")
+        except Exception as e:
+            print(f"⚠ Failed to setup MQTT: {e}")
+            print("  Continuing without MQTT...")
+            mqtt_adapter = None
+
+    # Create combined event handler (calls both logger and MQTT)
+    async def combined_event_handler(event: AudioEvent):
+        """Handle events for both logging and MQTT"""
+        await event_logger(event)
+        if mqtt_adapter:
+            await mqtt_adapter.handle_event(event)
+
+    # Create recorder with combined callback and config options
+    recorder = AsyncVADRecorder(
+        event_callback=combined_event_handler,
+        keep_segment_files=config.keep_segment_files
+    )
 
     # Determine input source
     if input_source is None:
@@ -179,6 +226,13 @@ async def run_interactive_recording(input_source: str = None, auto_start: bool =
 
         print("\nStopping recording...")
         session_dir = await recorder.stop_recording()
+
+    # Cleanup MQTT connection
+    if mqtt_client:
+        # Small delay to allow final MQTT messages to be sent (especially in file mode)
+        await asyncio.sleep(0.5)
+        await mqtt_client.disconnect()
+        print("✓ MQTT disconnected")
 
     return session_dir
 
@@ -279,4 +333,5 @@ Output:
 
 
 if __name__ == "__main__":
+    import sys
     sys.exit(main())
