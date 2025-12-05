@@ -34,7 +34,8 @@ class TestTUIBasic:
             RecordButton,
             ModeDisplay,
             StatusDisplay,
-            TranscriptMonitor,
+            CurrentTranscriptMonitor,
+            NoteTitlesMonitor,
             NotificationDisplay,
         )
 
@@ -42,7 +43,8 @@ class TestTUIBasic:
         assert RecordButton is not None
         assert ModeDisplay is not None
         assert StatusDisplay is not None
-        assert TranscriptMonitor is not None
+        assert CurrentTranscriptMonitor is not None
+        assert NoteTitlesMonitor is not None
         assert NotificationDisplay is not None
 
     def test_event_types_imported(self):

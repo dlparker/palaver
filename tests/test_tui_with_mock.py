@@ -120,22 +120,22 @@ class TestTUIWithMock:
             await pilot.pause(0.1)
 
             # Initially no transcript lines
-            assert len(app.transcript_monitor.transcript_lines) == 0
+            assert len(app.current_transcript.transcript_lines) == 0
 
             # Simulate speech segment
             await app.backend.simulate_speech_segment("Hello world", 2.0)
             await pilot.pause(0.2)
 
             # Should have transcript line
-            assert len(app.transcript_monitor.transcript_lines) == 1
-            assert "Hello world" in app.transcript_monitor.transcript_lines[0]
+            assert len(app.current_transcript.transcript_lines) == 1
+            assert "Hello world" in app.current_transcript.transcript_lines[0]
 
             # Simulate another segment
             await app.backend.simulate_speech_segment("Second segment", 1.5)
             await pilot.pause(0.2)
 
-            assert len(app.transcript_monitor.transcript_lines) == 2
-            assert "Second segment" in app.transcript_monitor.transcript_lines[1]
+            assert len(app.current_transcript.transcript_lines) == 2
+            assert "Second segment" in app.current_transcript.transcript_lines[1]
 
     @pytest.mark.asyncio
     async def test_vad_active_indicator(self):
@@ -236,15 +236,13 @@ class TestTUIWithMock:
             )
             await pilot.pause(0.3)
 
-            # Verify transcript has all segments
-            transcript_lines = app.transcript_monitor.transcript_lines
-            assert len(transcript_lines) >= 3
+            # Verify transcript has body segments (command and title should be cleared)
+            transcript_lines = app.current_transcript.transcript_lines
+            assert len(transcript_lines) >= 2
 
-            # Check for note command
-            assert any("start a new note" in line.lower() for line in transcript_lines)
-
-            # Check for title
-            assert any("My Important Note" in line for line in transcript_lines)
+            # Check for body paragraphs in current transcript
+            assert any("First paragraph" in line for line in transcript_lines)
+            assert any("Second paragraph" in line for line in transcript_lines)
 
             # Verify mode changes happened
             # Should be back to normal after note
@@ -267,7 +265,7 @@ class TestTUIWithMock:
                 await pilot.pause(0.1)
 
             # Should have 5 transcript lines
-            assert len(app.transcript_monitor.transcript_lines) == 5
+            assert len(app.current_transcript.transcript_lines) == 5
 
             # Verify segment count
             assert app.status_display.total_segments == 5
@@ -288,12 +286,12 @@ class TestTUIWithMock:
                 await app.backend.simulate_speech_segment(f"Segment {i+1}", 0.5)
                 await pilot.pause(0.05)
 
-            # Should only keep last 20 lines
-            assert len(app.transcript_monitor.transcript_lines) == 20
+            # Should have all 25 lines (limit is 50)
+            assert len(app.current_transcript.transcript_lines) == 25
 
-            # Should have most recent segments
-            assert "Segment 25" in app.transcript_monitor.transcript_lines[-1]
-            assert "Segment 6" in app.transcript_monitor.transcript_lines[0]
+            # Should have most recent segment last
+            assert "Segment 25" in app.current_transcript.transcript_lines[-1]
+            assert "Segment 1" in app.current_transcript.transcript_lines[0]
 
     @pytest.mark.asyncio
     async def test_clear_notifications(self):

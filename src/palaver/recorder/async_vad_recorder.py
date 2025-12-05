@@ -19,7 +19,7 @@ import torch
 from datetime import datetime, timezone
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Optional, Callable
+from typing import Optional, Callable, List, Dict
 from scipy.signal import resample_poly
 
 # Import modular components
@@ -133,6 +133,69 @@ class QueueStatus(AudioEvent):
     queued_jobs: int
     completed_transcriptions: int
     total_segments: int
+
+
+# ================== NEW COMMANDDOC EVENTS ==================
+
+@dataclass
+class CommandDetected(AudioEvent):
+    """Command phrase matched, workflow starting."""
+    command_doc_type: str      # "SimpleNote"
+    command_phrase: str        # "start new note"
+    matched_text: str          # "start a new note" (what user actually said)
+    similarity_score: float    # 95.0 (rapidfuzz score)
+
+
+@dataclass
+class BucketStarted(AudioEvent):
+    """Speech bucket became active and is waiting for input."""
+    command_doc_type: str
+    bucket_name: str           # "note_title"
+    bucket_display_name: str   # "Note Title"
+    bucket_index: int          # 0 (first bucket)
+    start_window_sec: float    # 6.0 (timeout for first speech)
+
+
+@dataclass
+class BucketFilled(AudioEvent):
+    """Speech bucket completed successfully."""
+    command_doc_type: str
+    bucket_name: str
+    bucket_display_name: str
+    text: str                  # Accumulated transcribed text
+    duration_sec: float        # How long user spoke
+    chunk_count: int           # Number of chunks accumulated
+
+
+@dataclass
+class BucketTimeout(AudioEvent):
+    """Speech bucket timed out (no speech within start_window)."""
+    command_doc_type: str
+    bucket_name: str
+    bucket_display_name: str
+    elapsed_sec: float         # How long we waited
+
+
+@dataclass
+class CommandCompleted(AudioEvent):
+    """All buckets filled, command completed successfully."""
+    command_doc_type: str
+    output_files: List[Path]  # Files created by render()
+
+
+@dataclass
+class CommandAborted(AudioEvent):
+    """Command workflow aborted (timeout, user stopped recording, etc.)."""
+    command_doc_type: str
+    reason: str               # "bucket_timeout", "recording_stopped", etc.
+    partial_buckets: Dict[str, str]  # Buckets that were filled before abort
+
+
+@dataclass
+class SlushBucketUpdated(AudioEvent):
+    """Unmatched speech added to slush bucket."""
+    text: str                 # New text added
+    total_items: int          # Total segments in slush bucket
 
 
 # ================== VAD MANAGEMENT ==================
