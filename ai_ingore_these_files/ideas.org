@@ -74,5 +74,144 @@ Example rapidfuzz code
    
 
 
+
+
+
+
+
+
+
+
+   
+Answers:
+
+  1. Attention Phrase Matching:
+    - Should the attention_phrase be matched at the START of every speech segment, or can it appear anywhere in the segment?
+      ------
+      Only at the start of a segment and only when a command is expected. It should be ignored elsewhere
+      ------
+      
+    - When attention_phrase is found and stripped, should the rest of that segment be processed (e.g., could contain a command), or is it always discarded?
+      ------
+      The rest of the segment should alwasy contain a command, it is up to the user to ensure that speech happens fast enough to
+      fit in a segment, and the user must think about that when adjusting the global segment length.
+      ------
+    - What should the default rapidfuzz threshold be for attention_phrase matching? (e.g., 80% similarity?)
+      ------
+      Lets start with 80%, but let's put the value, along the segment length and the others mentioned into some kind of config
+      structure that can be loaded from a json or yaml file.
+      ------
+  2. CommandDoc Registration:
+    - How should CommandDocs be registered with the system?
+    - Should there be a registry/plugin system, or just pass a list to TextProcessor init?
+      ------
+      For now let's do that by hard coding it during startup, passing a list of CommandDocs to the text processor. This design
+      is too speculative at this point to justify investing in a dynamic registry.
+      ------
+    - Can multiple CommandDocs have the same command_phrase (priority system), or must they be unique?
+      ------
+      They must be unique. The text processor should enforce that during startup
+      ------
+      
+  3. Command Matching Priority:
+    - If a segment matches multiple command_phrases (via fuzzy matching), which one wins?
+      ------
+      The first one found in the original list order, a poor man's priority system.
+      ------
+    - Should there be a minimum similarity threshold for command_phrase matching?
+      ------
+      No, I don't know how it is going to work yet.
+      ------
+    - Should we try attention_phrase matching first, then command matching, or both in parallel?
+      ------
+      We may have to try some experiments to answer that. There is no user interest in the answer, but one may work better.
+      ------
+  4. Slush Bucket Behavior:
+    - Should the slush_bucket accumulate ALL unmatched segments across the entire session, or reset when a command starts?
+      ------
+      Reset when the command starts
+      ------
+    - When command fails (start_window timeout), you said "contents of command prompt and filled buckets go to slush_bucket" - does this mean:
+        - The original command_phrase text goes to slush_bucket?
+        ------
+        Yes
+        ------
+      - All bucket contents collected so far go to slush_bucket?
+        ------
+        Yes
+        ------
+      - Both?
+        ------
+        Yes
+        ------
+  5. SpeechBucket Completion:
+    - After a bucket is "filled" (termination_silence detected), does it automatically move to the next bucket, or wait for explicit confirmation?
+        ------
+        automatically advance
+        ------
+    - Can a bucket be re-filled if the user keeps speaking after termination_silence?
+        ------
+        No
+        ------
+  6. Events and Callbacks:
+    - What events should be emitted during this process? For example:
+        - CommandDetected(command_doc_type, command_phrase_matched)
+      - BucketStarted(bucket_name, display_name)
+      - BucketFilled(bucket_name, text)
+      - BucketTimeout(bucket_name)
+      - CommandAborted(reason)
+      - SlushBucketUpdated(text)
+        ------
+        That's a good list, do those
+        ------
+    - Should the mode_change_callback be replaced with a more general event callback?
+        ------
+        Yes. Future applications may extend the event system beyond the process via message queues, RPCs,
+        etc. So it is a good idea to build a general purpose event system.
+        ------
+  7. VAD Mode Changes:
+    - Currently, the system switches VAD modes (normal → long_note). Should:
+        - Each SpeechBucket dynamically change VAD parameters when it becomes active?
+        ------
+        If needed, yes
+        ------
+      - VAD changes be queued and applied at segment boundaries (current behavior)?
+      - Or should buckets just specify desired parameters and TextProcessor handles the timing?
+        I think this, but I would like to see an analysis of the relevant tradeoffs
+        ------
+  8. Backward Compatibility:
+    - Should the current "note" workflow continue to work during the transition?
+    - Or is this a breaking change where we reimplement notes as a SimpleNote CommandDoc from day one?
+      ------
+      This, the "note" workflow was just scaffoling to get all the other work done.
+      -----
+  9. Output Files:
+    - Currently writes transcript_raw.txt and transcript_incremental.txt. With CommandDocs:
+        - Should each CommandDoc type generate its own output file(s)?
+        ------
+        Yes
+        ------
+      - Should there be a generic transcript PLUS per-command outputs?
+        ------
+        Yes
+        ------
+      - Should slush_bucket contents be written to a separate file?
+        ------
+        Yes
+        ------
+  10. Segment Size:
+    - You mentioned segment_size as a SpeechBucket parameter. Does this mean:
+        - The bucket will accumulate multiple segments up to this size?
+      - Or is this about chunking long speech into smaller pieces?
+        ------
+        This. The current behavior is awkward, the user cannot monitor the
+        transcription process because the segment size is so large.
+        ------
+      - How does this interact with VAD segment detection?
+        ------
+        I don't know. Can you give me a short design review of how the code
+        manages the segment controls at present?
+        -------
+    
    
    
