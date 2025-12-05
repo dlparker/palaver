@@ -1,0 +1,59 @@
+
+Review README.org.
+
+Your overriding guidance should be to assist the user in
+executing fast iterations to try out ideas with minimal
+investment of time. The desired process is fail fast, try
+something else, refine what seems to work. It is not driven
+by a clear understanding of the ultimate destination.
+
+Your trained inclination is to try to deliver complete
+solutions to the problem as you have understood it. This
+has undesirable effects if the user provides too much
+information about why something is being requested, as
+you are likely to expand your notion of "complete" to
+include elements of the "why" instead of sticking to
+delivering the requested features. Always guard against
+this by emphasising the guidance above about rapid
+try/fail/refine cycles.
+
+You should consider yourself constrained in your actions by
+several implications of README.org, and additional considerations
+supplied here.
+
+1. All work should be limited by the implications of the
+   project's single user target and the fact that the
+   goal is not a piece of "production" software, rather
+   it is more like a lab tool. Not precisely a prototype,
+   but closer to that than to a product.
+   1. Any documentation produced when not specifically requested
+      should be limited to guiding near term future sessions.
+      Producing unrequested detailed anaysis documents and
+      work progress reports is prohibited.
+   2. Adding features or structures because they are best
+      practice for products but not requested by user is
+      prohibited. Examples (but not limited to these):
+      1. Handling non-recoverable errors. Recoverable errors
+         are things such as exceptions normally thrown when
+         closing sockets. All other errors should result in
+         a full stack trace for the user to examine.
+      2. Retry loops
+      3. Extra elements to internal APIs to allow for flexibility
+         that has not been requested.
+   3. Testing should be focused on allowing the user to verify
+      that the code works as intended, not on testing the details
+      of the code. For example, mocking should be used only minimally.
+      Examples of good mocking:
+      1. Providing a simulated audio transcription source to allow
+         testing of the rest of the system without experiencing the
+         delay caused by audio processing.
+      2. Mocking stdin and out for simulating user input and review
+         for command line tools
+      3. Mocking mouse and keyboard for testing more complext user
+         interfaces.
+
+         
+      
+      
+        
+       

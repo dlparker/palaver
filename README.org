@@ -1,37 +1,77 @@
 * Palaver toolset
 
-* Voice to text (Stage 1)
+The goal of this project is to explore techniques for building components
+of an LLM powered assistant tha uses a voice interface. The system is
+being custom designed and built by the user for the exclusive use of
+the user. The larger system architecture and goals are not relevant
+to this project but are present in the mind of the user and will help
+define the goals of this project.
 
-1. Supports the process of prompt engineering for prompting LLMs directly
+None of the code in this project is expected to be preserved for a
+long time without extensive modification or even replacement. The
+goals of the project are indistinct and present only as a set
+of mental images of future use present in the user's mind. 
+
+With these facts in mind, there are no Product Requirements Documents
+since there is no product, there is only "trying things out". 
+There are no architectural guidance documents as they represent work that
+will be wasted as the code undergoes massive changes when the user
+decides to "try something else".
+
+With those caveates in mind, the overall result of the code in this
+project is to give the user a chance to experiment with the experince
+of accomplishing specific tasks via a voice activated command system
+with text to speech feedback.
+
+** Current status
+
+A basic structure has been built to allow the user to experiment with
+voice activated note taking, and to start to differentiate the notes
+based on command prefixes. The techniques uses are preliminary:
+
+1. VAD based sound segment recording
+2. Whisper.cpp file based segment transcription
+3. A trivial TUI based on textual that lets user record multiple notes.
+
+
+* Longer term aspirations for project
+
+** Voice to text (Stage 1)
+
+1. Supports voice driven note taking with command prefixes to
+   control disposition of note.
+2. Supports simple note catalog management to collect notes into
+   taxonomies (maybe only one, but maybe multiple, not sure)
+3. Supports the process of prompt engineering for prompting LLMs directly
    and through agentic interfaces such as Claude Code.
-2. Supports dictate/review/edit cycles to let human speak freely but
+4. Supports dictate/review/edit cycles to let human speak freely but
    still avoid LLM context polution.
 
-* Text to speech (Stage 1)
+** Text to speech (Stage 1)
 
 1. Supports basic playback controls of generated speech, pause, rewind, fast rewind/forward.
 2. Supports voice to text annotation of original text
 3. Supports display of text with tracking ball during speech, ala sing along with Mitch.
 
-* Supports basic history functions (Stage 1)
+** Supports basic history functions (Stage 1)
 
 1. On command save of input artifacts (audio, converted-edited text)
 2. On command save of output artifacts (result text, annotations)
 3. On command grouping for saved artifacts in file system hierarchy fashion
 4. On command tagging of saved artifacts and groups with words or short phrases
 
-* Supports voice commands for managing tool use workflows (Stage 2)
+** Supports voice commands for managing tool use workflows (Stage 2)
 
 Command recognition and execution for all stage 1 features.
 
 
-* Supports history taxonomy (Stage 2)
+** Supports history taxonomy (Stage 2)
 
-1. Voice interactive marking of history atrifacts with trees of tags
+1. Voice interactive marking of history artifacts with trees of tags
 2. Voice interactive expansion/refinement of tag trees into Topic Trees
 
    
-* Supports structured RAG creation from history (Stage 3)
+** Supports structured RAG creation from history (Stage 3)
 
 1. Using typeagent-py, driven by the history Topic Trees, voice interaction
    to construct data collections with mutliple taxonomies.
@@ -39,13 +79,13 @@ Command recognition and execution for all stage 1 features.
    voice interaction loops to identify relevant topics and add
    context to prompts RAG style.
 
-* Strucuted RAG updates via voice driven MCP interaction (Stage 4)
+** Strucuted RAG updates via voice driven MCP interaction (Stage 4)
 
 1. Provide taxonomy meta data in prompts when S-RAG used
 2. Voice interaction for appoval/refinement/rejection of data and taxonomy updates
 3. Updates through tool into typeagent-py database.
 
-* Background
+** Background
 
 This is part of a larger set of projects. Some preliminary thoughts:
 
