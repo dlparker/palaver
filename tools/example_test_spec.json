@@ -1,0 +1,7 @@
+{
+  "segments": [
+    {"text": "Clerk, start a new note", "silence_after": 1.0},
+    {"text": "Example note title", "silence_after": 1.0},
+    {"text": "This is the body of the note", "silence_after": 6.0}
+  ]
+}
