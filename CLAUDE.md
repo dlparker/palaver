@@ -54,8 +54,11 @@ uv run python scripts/direct_recorder.py --input tests/audio_samples/note1.wav
 ### Package Management
 ```bash
 # This project uses uv for dependency management
-# Install dependencies (if needed)
+# Install package in editable mode (required for development)
 uv pip install -e .
+
+# This enables imports from src/palaver/ without setting PYTHONPATH
+# Verify installation: uv run python -c "import palaver; print(palaver.__file__)"
 ```
 
 ## Architecture Overview

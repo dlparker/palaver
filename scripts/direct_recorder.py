@@ -16,14 +16,10 @@ Usage:
     python scripts/direct_recorder.py --input tests/audio_samples/note1.wav
 """
 
-import sys
 import asyncio
 import argparse
 import time
 from pathlib import Path
-
-# Add src to path for development usage
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from palaver.recorder.async_vad_recorder import (
     AsyncVADRecorder,
