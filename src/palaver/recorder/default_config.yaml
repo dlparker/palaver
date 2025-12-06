@@ -1,0 +1,36 @@
+# Palaver Recorder Configuration Example
+# Copy this to config.yaml and modify as needed
+
+# Attention phrase (VAD start delay workaround)
+attention_phrase: "clerk"
+attention_phrase_threshold: 80.0
+
+# Base timing values (SpeechBucket multiplies these)
+base_segment_size: 5.0        # Target chunk duration for real-time feedback
+base_start_window: 2.0        # How long to wait for bucket to start
+base_termination_silence: 0.8 # Silence duration to end bucket
+
+# VAD settings
+vad_threshold_normal: 0.5
+vad_threshold_long: 0.7
+min_segment_duration: 1.2
+
+# Transcription
+whisper_model: "models/multilang_whisper_large3_turbo.ggml"
+num_workers: 2
+whisper_timeout: 60
+
+# Fuzzy matching
+command_phrase_threshold: 80.0
+
+# MQTT Configuration
+# Enable MQTT to publish real-time transcription events
+mqtt_enabled: true           # Set to true to enable MQTT publishing
+mqtt_broker: "localhost"      # MQTT broker hostname
+mqtt_port: 1883                # MQTT broker port
+mqtt_qos: 1                    # Quality of Service (1 = at least once)
+mqtt_topic_prefix: "palaver"   # Topic prefix for all messages
+
+# MQTT Topics (when enabled):
+#   palaver/session/{session_id}/segment            - Transcription segments
+#   palaver/session/{session_id}/command/completed  - Command completions
