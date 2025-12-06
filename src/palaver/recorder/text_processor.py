@@ -42,7 +42,8 @@ class TextProcessor:
                  result_queue: Queue,
                  mode_change_callback: Optional[Callable[[str], None]] = None,
                  event_callback: Optional[Callable] = None,
-                 keep_segment_files: bool = False):
+                 keep_segment_files: bool = False,
+                 stop_recording_callback: Optional[Callable[[], None]] = None):
         """
         Initialize TextProcessor.
 
@@ -54,12 +55,15 @@ class TextProcessor:
             event_callback: Callback for emitting events to UI/monitoring
                            Called with AudioEvent instances (thread-safe)
             keep_segment_files: If False, delete segment files after CommandDoc completion
+            stop_recording_callback: Callback to stop recording (for voice stop command)
+                                    Called with no arguments
         """
         self.session_dir = session_dir
         self.result_queue = result_queue
         self.mode_change_callback = mode_change_callback
         self.event_callback = event_callback
         self.keep_segment_files = keep_segment_files
+        self.stop_recording_callback = stop_recording_callback
 
         # State machine (legacy - will be replaced by command workflow)
         self.waiting_for_title = False
@@ -85,12 +89,28 @@ class TextProcessor:
         self.transcript_path = session_dir / "transcript_raw.txt"
         self.incremental_path = session_dir / "transcript_incremental.txt"
 
-        # Initialize action phrase matchers with defaults
+        # Load config for stop phrase
+        from palaver.config.recorder_config import RecorderConfig
+        try:
+            config = RecorderConfig.from_file(Path("config.yaml"))
+        except FileNotFoundError:
+            config = RecorderConfig.defaults()
+
+        # Initialize action phrase matchers
         # Prefix pattern handles transcription artifacts like "Clerk,", "lurk,", "clark,"
         self.start_note_phrase = LooseActionPhrase(
             pattern="start new note",
             threshold=0.66,  # Require at least 2 of 3 words to match
             ignore_prefix=r'^(clerk|lurk|clark|plurk),?\s*'
+        )
+
+        # Stop phrase matcher (uses config)
+        self.stop_phrase_config = config.stop_phrase
+        self.stop_phrase_threshold = config.stop_phrase_threshold
+        self.stop_phrase_matcher = LooseActionPhrase(
+            pattern=self.stop_phrase_config,
+            threshold=self.stop_phrase_threshold / 100.0,  # Convert % to 0-1
+            ignore_prefix=None
         )
 
         # Initialize transcript files
@@ -209,11 +229,18 @@ class TextProcessor:
         )
         from palaver.commands.simple_note import SimpleNote
 
-        # State 1: Check for "start new note" command (no active command)
-        if self.current_command is None:
-            match_score = self.start_note_phrase.match(result.text)
+        # State 1: Check for "start new note" command
+        match_score = self.start_note_phrase.match(result.text)
 
-            if match_score > 0:
+        if match_score > 0:
+            # If we're in note_body bucket, complete the current command first
+            if (self.current_command is not None and self.current_bucket_index == 1):
+                bucket = self.current_command.speech_buckets[self.current_bucket_index]
+                self._complete_bucket(bucket, result.segment_index - 1)
+                self._complete_command()
+
+            # Start new command
+            if self.current_command is None:
                 # Create SimpleNote command instance
                 self.current_command = SimpleNote()
                 self.current_bucket_index = 0
@@ -256,7 +283,26 @@ class TextProcessor:
                 self.bucket_contents[bucket_name] = ""
                 self.bucket_segment_indices[bucket_name] = []
 
-            # Accumulate text
+            # Check for stop command BEFORE accumulating text
+            stop_phrase = self._get_active_stop_phrase()
+            if stop_phrase and self._matches_stop_phrase(result.text, stop_phrase):
+                # User said stop command - complete the command and stop recording
+                print("\n" + "="*70)
+                print("🛑 STOP COMMAND DETECTED")
+                print(f"   Matched: {result.text}")
+                print("="*70 + "\n")
+
+                # Complete current bucket (don't include the stop phrase text)
+                self._complete_bucket(bucket, result.segment_index)
+                # Complete command workflow
+                self._complete_command()
+
+                # Trigger recording stop
+                if self.stop_recording_callback:
+                    self.stop_recording_callback()
+                return
+
+            # Accumulate text (stop phrase not detected)
             self.bucket_contents[bucket_name] += " " + result.text
             self.bucket_segment_indices[bucket_name].append(result.segment_index)
 
@@ -434,6 +480,57 @@ class TextProcessor:
                 print(f"[TextProcessor] Warning: Failed to delete {seg_file.name}: {e}")
 
         return deleted_count
+
+    def _get_active_stop_phrase(self) -> Optional[str]:
+        """
+        Get the active stop phrase for current command.
+
+        Returns CommandDoc's custom stop phrase, or global config default,
+        or None if disabled.
+
+        Returns:
+            Stop phrase string, or None if stop detection disabled
+        """
+        if self.current_command is None:
+            # No active command, use global default
+            return self.stop_phrase_config
+
+        # Get CommandDoc's stop phrase preference
+        command_stop_phrase = self.current_command.stop_phrase
+
+        if command_stop_phrase is None:
+            # Use global default
+            return self.stop_phrase_config
+        elif command_stop_phrase == "":
+            # Disabled for this command
+            return None
+        else:
+            # Custom stop phrase for this command
+            return command_stop_phrase
+
+    def _matches_stop_phrase(self, text: str, stop_phrase: str) -> bool:
+        """
+        Check if text matches the stop phrase.
+
+        Args:
+            text: Transcribed text to check
+            stop_phrase: Stop phrase to match against
+
+        Returns:
+            True if text matches stop phrase above threshold
+        """
+        # Update matcher pattern if stop_phrase differs from config
+        if stop_phrase != self.stop_phrase_config:
+            # Create temporary matcher for custom stop phrase
+            temp_matcher = LooseActionPhrase(
+                pattern=stop_phrase,
+                threshold=self.stop_phrase_threshold / 100.0,
+                ignore_prefix=None
+            )
+            return temp_matcher.match(text) > 0
+        else:
+            # Use pre-configured matcher
+            return self.stop_phrase_matcher.match(text) > 0
 
     def stop(self):
         """Stop collector thread."""

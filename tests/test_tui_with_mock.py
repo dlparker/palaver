@@ -7,7 +7,7 @@ import pytest
 from textual.widgets import Button
 
 from palaver.tui.recorder_tui import RecorderApp
-from tests.mocks.mock_recorder import MockAsyncVADRecorder
+from mocks.mock_recorder import MockAsyncVADRecorder
 
 
 class TestTUIWithMock:

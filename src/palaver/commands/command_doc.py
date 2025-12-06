@@ -8,7 +8,7 @@ A CommandDoc defines:
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pathlib import Path
 from palaver.commands.speech_bucket import SpeechBucket
 
@@ -52,6 +52,25 @@ class CommandDoc(ABC):
             List of SpeechBucket instances
         """
         pass
+
+    @property
+    def stop_phrase(self) -> Optional[str]:
+        """
+        Custom stop phrase for this command, or None to use global default.
+
+        Three modes:
+        - Return None: Use global default from config.stop_phrase
+        - Return custom string: Use command-specific stop phrase
+        - Return empty string "": Disable stop detection for this command
+
+        The stop phrase allows users to explicitly end recording by voice,
+        providing better control than waiting for silence timeouts and
+        solving race conditions in command completion.
+
+        Returns:
+            Stop phrase string, None (use default), or "" (disable)
+        """
+        return None  # Default: use global config stop_phrase
 
     @abstractmethod
     def render(self, bucket_contents: Dict[str, str], output_dir: Path) -> List[Path]:

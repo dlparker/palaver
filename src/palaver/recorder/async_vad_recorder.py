@@ -449,7 +449,8 @@ class AsyncVADRecorder:
             result_queue=self.transcriber.get_result_queue(),
             mode_change_callback=self._handle_mode_change_request,
             event_callback=self._emit_event_from_text_processor,
-            keep_segment_files=self.keep_segment_files
+            keep_segment_files=self.keep_segment_files,
+            stop_recording_callback=self._handle_stop_recording_request
         )
         self.text_processor.start()
 
@@ -747,6 +748,22 @@ class AsyncVADRecorder:
                     )),
                     self.loop
                 )
+
+    def _handle_stop_recording_request(self):
+        """
+        Handle stop recording request from text processor.
+
+        This is called from text processor thread when stop command is detected.
+        We schedule the async stop_recording() coroutine to run in the event loop.
+
+        This is thread-safe because we use run_coroutine_threadsafe to schedule
+        the coroutine in the main event loop.
+        """
+        if self.loop:
+            asyncio.run_coroutine_threadsafe(
+                self.stop_recording(),
+                self.loop
+            )
 
     async def _process_events(self):
         """

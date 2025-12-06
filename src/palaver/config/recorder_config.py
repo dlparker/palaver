@@ -41,6 +41,10 @@ class RecorderConfig:
     # Fuzzy matching
     command_phrase_threshold: float = 80.0  # rapidfuzz similarity %
 
+    # Voice stop command
+    stop_phrase: str = "break break break"  # Global default stop phrase
+    stop_phrase_threshold: float = 75.0     # rapidfuzz similarity % (lower for natural variations)
+
     # MQTT Configuration (local broker, no retention, QoS 1)
     mqtt_enabled: bool = False
     mqtt_broker: str = "localhost"
@@ -123,3 +127,6 @@ class RecorderConfig:
 
         if not (0.0 <= self.command_phrase_threshold <= 100.0):
             raise ValueError("command_phrase_threshold must be between 0 and 100")
+
+        if not (0.0 <= self.stop_phrase_threshold <= 100.0):
+            raise ValueError("stop_phrase_threshold must be between 0 and 100")
