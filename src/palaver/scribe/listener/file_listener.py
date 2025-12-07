@@ -20,7 +20,7 @@ from palaver.scribe.listen_api import (Listener,
 logger = logging.getLogger("FileListener")
 
 class FileListener(ListenerCCSMixin, Listener):
-    """ Implements the Listener interface by pulling audi data
+    """ Implements the Listener interface by pulling audio data
     from one or more wav files, good for testing, may have some
     realword application for refining transcription via playback.
     """
