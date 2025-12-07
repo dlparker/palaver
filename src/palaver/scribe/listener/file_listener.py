@@ -1,15 +1,17 @@
 import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
-import wave
+from pathlib import Path
 import os
 import time
 import logging
-import aiofiles
+import traceback
 import numpy as np
+import soundfile as sf
 from palaver.scribe.listen_api import (Listener,
                                        ListenerCCSMixin,
                                        AudioEvent,
+                                       AudioErrorEvent,
                                        AudioChunkEvent,
                                        AudioStartEvent,
                                        AudioStopEvent
@@ -23,16 +25,13 @@ class FileListener(ListenerCCSMixin, Listener):
     realword application for refining transcription via playback.
     """
 
-    def __init__(self, samplerate: int, channels: int, blocksize: int, files: Optional[list[os.PathLike[str]]]):
-        super().__init__(samplerate, channels, blocksize)
-        self.files = files
-        self.file_index = -1
-        self.current_file_path = None
-        self._wave_file: wave.Wave_read | None = None
+    def __init__(self, chunk_duration: float = 0.03, files: Optional[list[Path | str]] = None):
+        super().__init__(chunk_duration)
+        self.files: List[Path] = [Path(p) for p in (files or [])]
+        self.current_file = None
+        self._sound_file: Optional[sf.SoundFile] = None
         self._running = False
-        self._queue = asyncio.Queue()
         self._reader_task = None
-        self._emitter_task = None
 
     async def add_file(self, filepath: os.PathLike[str]) -> None:
         self.files.append(filepath)
@@ -41,76 +40,87 @@ class FileListener(ListenerCCSMixin, Listener):
         if self._running:
             return
 
-        if len(self.files) > self.file_index:
-            self.file_index += 1
-        if len(self.files) > self.file_index - 1:
-            self.current_file_path = self.files[self.file_index]
-            self._running = True
+        if len(self.files) > 0:
             self._reader_task = asyncio.create_task(self._reader())
-            self._emitter_task = asyncio.create_task(self._emitter())
+            self._running = True
 
-        # Emit a "started" event if you want
-        await self.emit_event(AudioStartEvent())
+    async def _load_next_file(self) -> bool:
+        """Internal: close current and open next file. Returns True if a file was opened."""
+        if self._sound_file is not None:
+            self._sound_file.close()
+            self._sound_file = None
 
-    async def _emitter(self):
-        while True:
-            event = await self._queue.get()
-            if event is None:  # end of current file
-                break
-            # if no listener, nothing to do with data, so why did someone ask for it?
-            await self.event_listener.on_event(event)
-                
+        if self.files:
+            self._current_file = self.files.pop(0)
+        else:
+            self._current_file = None
+
+        if not self._current_file:
+            return False
+
+        # might blow up, let it
+        self._sound_file = sf.SoundFile(self._current_file)
+        return True
+        
     async def _reader(self):
-        if not self._running or not self.current_file_path:
+        try:
+            await self._reader_inner()
+        except Exception:
+            await self.emit_event(AudioErrorEvent(message=traceback.format_exc()))
+        finally:
+            self._reader_task = None
+            try:
+                await self.stop_recording()
+            except Exception:
+                await self.emit_event(AudioErrorEvent(message=traceback.format_exc()))
+            
+            
+    async def _reader_inner(self):
+        if not self._running:
             return
 
-        def _stream_frames():
-            """Synchronous generator that yields raw frames exactly like your original code"""
-            with wave.open(str(self.current_file_path), "rb") as wav:
-                while True:
-                    frames = wav.readframes(4096)  # your original 4K block size
-                    if not frames:
-                        return
-                    yield frames, wav.getparams()
+        await self._load_next_file()
+        if self._sound_file is None:
+            return
 
-        # This runs the blocking wave.open + readframes loop in a thread
-        # but yields one small block at a time
-        for raw_frames, params in await asyncio.to_thread(_stream_frames):
-            nchannels, sampwidth, framerate, nframes, comptype, compname = params
+        while self._running:
+            sr = self._sound_file.samplerate
+            channels = self._sound_file.channels
+            frames_per_chunk = max(1, int(round(self.chunk_duration * sr)))
+            await self.emit_event(AudioStartEvent(sample_rate=sr,
+                                                  channels=channels,
+                                                  blocksize=frames_per_chunk,
+                                                  datatype='float32'))
 
-            # ────── Your original conversion code, unchanged ──────
-            if sampwidth == 2:
-                audio = np.frombuffer(raw_frames, dtype=np.int16).astype(np.float32) / 32768.0
-            elif sampwidth == 4:
-                audio = np.frombuffer(raw_frames, dtype=np.int32).astype(np.float32) / 2147483648.0
-            else:
-                raise ValueError(f"Unsupported sample width: {sampwidth}")
+            # Play current file until EOF
+            while True:
+                data = self._sound_file.read(frames=frames_per_chunk, dtype="float32", always_2d=True)
+                if data.shape[0] == 0:
+                    break
 
-            if nchannels == 1:
-                audio = np.column_stack((audio, audio))
-            elif nchannels == 2:
-                audio = audio.reshape(-1, 2)
-            else:
-                raise ValueError(f"Unsupported channels: {nchannels}")
+                duration = data.shape[0] / sr
 
-            if framerate != self.samplerate:
-                from scipy.signal import resample_poly
-                audio = resample_poly(audio, self.samplerate, framerate, axis=0)
+                await self.emit_event(AudioChunkEvent(
+                    data=data,
+                    duration=duration,
+                    sample_rate=sr,
+                    channels=channels,
+                    blocksize=frames_per_chunk,
+                    datatype='float32',
+                    in_speech=False,
+                    meta_data={'file': self._current_file},
+                ))
+                await asyncio.sleep(self.chunk_duration)
+            # File finished — move to next one automatically
+            await self._load_next_file()
 
-            chunk_duration = len(audio) / self.samplerate
-            event = AudioChunkEvent(
-                data=audio,
-                duration=chunk_duration,
-                in_speech=False,
-                params=params,
-            )
-            await self._queue.put(event)
-            # Real-time pacing
-            await asyncio.sleep(self.blocksize / self.samplerate)
+            if not self._current_file:
+                break
 
-
+        # All done
         await self.emit_event(AudioStopEvent())
-        await self._queue.put(None)  # signal EOF
+        await self._cleanup()
+        self._reader_task = None
         
     async def stop_recording(self) -> None:
         if not self._running:
@@ -120,32 +130,36 @@ class FileListener(ListenerCCSMixin, Listener):
         await self._cleanup()
         await self.emit_event(AudioStopEvent())
 
-    async def _cleanup(self) -> None:
-        if self._wave_file is not None:
+    async def stop_recording(self) -> None:
+        if not self._running:
+            return
+        self._running = False
+        if self._reader_task:
+            self._reader_task.cancel()
             try:
-                self._wave_file.close()
-            finally:
-                self._wave_file = None
+                await self._reader_task
+            except asyncio.CancelledError:
+                pass
+        await self._cleanup()
+        
+    async def _cleanup(self) -> None:
+        if self._sound_file is not None:
+            self._sound_file.close()
+            self._sound_file = None
+        self._current_file = None
         self._running = False
 
     # ------------------------------------------------------------------
     # Context manager support to ensure open files get closed
     # ------------------------------------------------------------------
     async def __aenter__(self) -> "FileListener":
-        await self.start_recording()
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         await self.stop_recording()  # always runs, even on exception/cancellation
+        await self._cleanup()  # in case stopped but not cleaned up yet, race
 
     # Optional: make it usable in sync `with` too (rare but nice)
     def __enter__(self): raise TypeError("Use 'async with' with FileListener")
     def __exit__(self, *args): ...
 
-    # ------------------------------------------------------------------
-    # Receive audio fragments from the audio pipeline
-    # ------------------------------------------------------------------
-    async def on_audio_fragment(self, audio_bytes: bytes) -> None:
-        """Called by your audio source whenever a new chunk is ready."""
-        if self._running and self._wave_file:
-            self._wave_file.writeframes(audio_bytes)

@@ -1,67 +1,75 @@
 #!/usr/bin/env python3
 import asyncio
-import sounddevice as sd
 from pathlib import Path
+import traceback
+import sounddevice as sd
+import numpy as np
+
 from palaver.scribe.listener.file_listener import FileListener
-from palaver.scribe.listen_api import AudioEvent, AudioChunkEvent, AudioStartEvent, AudioStopEvent
+from palaver.scribe.listener.downsampler import DownSampler
+from palaver.scribe.listen_api import AudioChunkEvent, AudioStartEvent, AudioStopEvent, AsyncIterator, AudioErrorEvent
 
-# Match your recording settings
-RECORD_SR = 48000
-CHANNELS = 2
 CHUNK_SEC = 0.03
-BLOCKSIZE = int(CHUNK_SEC * RECORD_SR)
 
-# Path to your test file
 note1_wave = Path(__file__).parent.parent / "tests_slow" / "audio_samples" / "note1_base.wav"
 
 class Player:
-    def __init__(self, samplerate: int):
-        self.stream = sd.OutputStream(
-            samplerate=samplerate,
-            channels=CHANNELS,
-            dtype='float32',
-            blocksize=BLOCKSIZE,
-        )
-        self.stopped = False
 
-    async def on_event(self, event: AudioEvent):
-        if isinstance(event, AudioChunkEvent):
-            # AudioChunkEvent.data is already float32, shape (n_samples, 2) or (n_samples,)
-            audio = event.data
-            if audio.ndim == 1:
-                audio = audio.reshape(-1, 1)
-                audio = np.column_stack([audio, audio])  # mono → stereo
-            self.stream.write(audio)
-        elif isinstance(event, AudioStartEvent):
+    def __init__(self):
+        self.stream = None
+        self.stopped = True
+        
+    async def on_event(self, event):
+        if isinstance(event, AudioStartEvent):
+            self.stream = sd.OutputStream(
+                samplerate=event.sample_rate,
+                channels=event.channels,
+                blocksize=event.blocksize,
+                dtype=event.datatype,
+            )
+            self.stream.start()
+            print("Opened stream")
             print(event)
-            print("start event")
+        elif isinstance(event, AudioChunkEvent):
+            audio = event.data
+            # to swith from mono to stereo, if desired
+            #if audio.shape[1] == 1 and :
+            #    audio = np.column_stack((audio[:,0], audio[:,0]))            
+            try:
+                self.stream.write(audio)
+            except:
+                print(f"Got error processing \n{event}\n{traceback.format_exc()}")
+                self.stop()
         elif isinstance(event, AudioStopEvent):
             print(event)
-            print("stop event")
             self.stop()
-            self.stopped = True
+        elif isinstance(event, AudioErrorEvent):
+            print(f"got error event\n {event.message}")
+            self.stop()
         else:
-            print(event)
-            import ipdb;ipdb.set_trace()
+            print(f"got unknown event {event}")
+            self.stop()
+        
 
     def start(self):
-        self.stream.start()
-
+        self.stopped = False
+        
     def stop(self):
-        self.stream.stop()
-        self.stream.close()
-
+        if self.stream:
+            self.stream.stop()
+            self.stream.close()
+        self.stopped = True
 
 async def main():
-    player = Player(RECORD_SR)
-    listener = FileListener(RECORD_SR, CHANNELS, BLOCKSIZE, [note1_wave])
-
-    await listener.set_event_listener(player)
+    listener = FileListener(files=[note1_wave], chunk_duration=CHUNK_SEC)
+    downsampler = DownSampler(listener, target_samplerate=16000, target_channels=1)
+    player = Player()
+    downsampler.add_event_listener(player)
+    #listener.add_event_listener(player)
     player.start()
 
-    async with listener:
+    async with listener:          
         await listener.start_recording()
-
         # Keep running until the file is fully played
         while listener._running and not player.stopped:
             await asyncio.sleep(0.1)
@@ -70,4 +78,4 @@ async def main():
     print("Playback finished.")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main())    
