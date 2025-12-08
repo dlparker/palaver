@@ -26,8 +26,9 @@ class FileListener(ListenerCCSMixin, Listener):
     realword application for refining transcription via playback.
     """
 
-    def __init__(self, chunk_duration: float = 0.03, files: Optional[list[Path | str]] = None):
+    def __init__(self, chunk_duration: float = 0.03, simulate_timing: bool = True, files: Optional[list[Path | str]] = None):
         super().__init__(chunk_duration)
+        self._simulate_timing = simulate_timing
         self.files: List[Path] = [Path(p) for p in (files or [])]
         self.current_file = None
         self._sound_file: Optional[sf.SoundFile] = None
@@ -101,23 +102,22 @@ class FileListener(ListenerCCSMixin, Listener):
                 if data.shape[0] == 0:
                     break
 
-                # If the file has fewer frames than requested in the last chunk,
-                # adjust duration accordingly (important!)
-                actual_frames = data.shape[0]
-                duration = actual_frames / sr
-
+                duration = data.shape[0] / sr
                 await self.emit_event(AudioChunkEvent(
                     source_id=self.source_id,
                     data=data,
                     duration=duration,
                     sample_rate=sr,
                     channels=channels,
-                    blocksize=actual_frames,  # use actual, not requested
+                    blocksize=frames_per_chunk,
                     datatype='float32',
                     in_speech=False,
-                    meta_data={'file': str(self._current_file)},
+                    meta_data={'file': self._current_file},
                 ))
-
+                if self._simulate_timing:
+                    # We want to simulate the timing of actual audio input
+                    # because things downstream care about it, such as the ring buffer
+                    await asyncio.sleep(self.chunk_duration)
             # File finished — move to next one automatically
             await self._load_next_file()
 
@@ -169,6 +169,4 @@ class FileListener(ListenerCCSMixin, Listener):
     # Optional: make it usable in sync `with` too (rare but nice)
     def __enter__(self): raise TypeError("Use 'async with' with FileListener")
     def __exit__(self, *args): ...
-
-
 

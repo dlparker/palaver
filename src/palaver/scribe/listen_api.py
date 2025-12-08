@@ -9,8 +9,8 @@ from collections import deque
 import numpy as np
 from eventemitter import AsyncIOEventEmitter
 
-from palaver.scribe.audio_events import AudioEvent, AudioEventListener, AudioChunkEvent
-   
+from palaver.scribe.audio_events import AudioEvent, AudioEventListener
+
 class Listener(Protocol):
 
     def add_event_listener(self, e_listener: AudioEventListener) -> None: ...
@@ -66,77 +66,3 @@ def create_source_id(source_type: str, start_datetime: datetime, port: int) -> s
     return uri    
 
 
-class AudioRingBuffer:
-    def __init__(self, max_seconds: float):
-        """
-        Initialize the ring buffer.
-        
-        :param max_seconds: Maximum seconds of audio history to retain.
-        """
-        if max_seconds <= 0:
-            raise ValueError("max_seconds must be positive")
-        self.max_seconds = max_seconds
-        self.buffer: deque[AudioChunkEvent] = deque()
-
-    def add(self, event: AudioChunkEvent) -> None:
-        """
-        Add a new AudioChunkEvent to the buffer and prune old entries.
-        """
-        self.buffer.append(event)
-        self._prune()
-
-    def _prune(self, now: float = None) -> None:
-        """
-        Remove events entirely older than the retention window.
-        
-        :param now: Optional current time (defaults to time.time()).
-        """
-        if now is None:
-            now = time.time()
-        while self.buffer and (self.buffer[0].timestamp + self.buffer[0].duration < now - self.max_seconds):
-            self.buffer.popleft()
-
-    def get_all(self) -> List[AudioChunkEvent]:
-        """Return a list of all current events in the buffer (oldest to newest)."""
-        return list(self.buffer)
-
-    def get_recent(self, min_seconds: float = None) -> List[AudioChunkEvent]:
-        """
-        Return the most recent events covering at least min_seconds of audio (or all if None).
-        Starts from the newest and works backward.
-        
-        :param min_seconds: Minimum seconds to cover (default: None, returns all).
-        :return: List of events (oldest to newest within the subset).
-        """
-        if min_seconds is None:
-            return self.get_all()
-        
-        if min_seconds <= 0:
-            return []
-        
-        subset = []
-        total_dur = 0.0
-        for event in reversed(self.buffer):
-            subset.append(event)
-            total_dur += event.duration
-            if total_dur >= min_seconds:
-                break
-        return subset[::-1]  # Reverse to oldest-first order
-
-    def get_concatenated_samples(self, min_seconds: float = None) -> np.ndarray:
-        """
-        Optional: Concatenate the data arrays from the recent events into a single np.ndarray.
-        Assumes all events have compatible shapes (same channels, dtype, etc.).
-        
-        :param min_seconds: Minimum seconds to cover (default: None, uses all).
-        :return: Concatenated float32 array, shape (total_samples, channels).
-        """
-        events = self.get_recent(min_seconds)
-        if not events:
-            return np.empty((0, 0), dtype=np.float32)
-        return np.concatenate([ev.data for ev in events], axis=0)
-
-    @property
-    def total_duration(self) -> float:
-        """Total duration of audio in the buffer."""
-        return sum(ev.duration for ev in self.buffer)

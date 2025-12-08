@@ -6,6 +6,7 @@ import resampy
 import torch
 from scipy.signal import resample_poly
 from eventemitter import AsyncIOEventEmitter
+from palaver.scribe.listener.downsampler import DownSampler
 
 logger = logging.getLogger("VADFilter")
 
@@ -55,6 +56,7 @@ class VADFilter(AudioEventListener):
         self._speech_pad_ms = SPEECH_PAD_MS
         self._vad = self.create_vad(self._silence_ms, self._threshold, self._speech_pad_ms)
         self._counter = None
+        self._downsampler = DownSampler(target_samplerate=16000, target_channels=1)
 
     def create_vad(self, silence_ms, threshold, speech_pad_ms):
         """
@@ -84,9 +86,10 @@ class VADFilter(AudioEventListener):
                 logger.debug("[Speech end on audio end] %s", my_event)
             await self.emitter.emit(AudioEvent, event)
             return
-        chunk = event.data[:, 0].copy()
+        down_event = await self._downsampler.convert(event)
+        chunk = down_event.data[:, 0].copy()
         start_time = time.time()
-        vad_chunk = downsample_to_512(chunk, event.sample_rate)
+        vad_chunk = downsample_to_512(chunk, down_event.sample_rate)
         window = self._vad(vad_chunk, return_seconds=False)
         self._counter = time.time() - start_time
         if window:

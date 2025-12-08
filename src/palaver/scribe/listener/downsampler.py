@@ -12,8 +12,7 @@ from palaver.scribe.audio_events import (
 
 class DownSampler(AudioEventListener):
     
-    def __init__(self, listener, target_samplerate:int, target_channels:int, quality: str = "kaiser_fast"):
-        self.listener = listener
+    def __init__(self, target_samplerate:int, target_channels:int, quality: str = "kaiser_fast"):
         self.target_sr = target_samplerate
         self.target_ch = target_channels
         self.quality = quality  # kaiser_fast is fast & excellent; use "sinc_best" if you want absolute max quality
