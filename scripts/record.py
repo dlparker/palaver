@@ -21,7 +21,7 @@ class Recorder:
         self.audio_buffer = []
         self.buffer_lock = threading.Lock()
         
-    async def on_event(self, event):
+    async def on_audio_event(self, event):
         if isinstance(event, AudioStartEvent):
             self.sound_file = sf.SoundFile(self.path, mode='w',
                                            samplerate=event.sample_rate,
@@ -57,9 +57,9 @@ class Recorder:
             self.stream.close()
         self.stopped = True
 
-async def main():
+async def main(path):
     listener = MicListener(chunk_duration=CHUNK_SEC)
-    recorder = Recorder("test.wav")
+    recorder = Recorder(path)
     listener.add_event_listener(recorder)
     recorder.start()
 
@@ -74,4 +74,8 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())    
+    import argparse 
+    parser = argparse.ArgumentParser(description='Record demo for scribe listener')
+    parser.add_argument('path', type=str, nargs='?', help="Name of file to record", default="record_1.wav")
+    args = parser.parse_args()
+    asyncio.run(main(path=args.path))

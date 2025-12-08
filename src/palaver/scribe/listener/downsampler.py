@@ -72,7 +72,7 @@ class DownSampler(AudioEventListener):
         )
         return new_event
         
-    async def on_event(self, event):
+    async def on_audio_event(self, event):
         if isinstance(event, (AudioChunkEvent, AudioStartEvent)):
             new_event = await self.convert(event)
             await self.emitter.emit(AudioEvent, new_event)
@@ -81,6 +81,6 @@ class DownSampler(AudioEventListener):
             await self.emitter.emit(AudioEvent, event)
         
     def add_event_listener(self, e_listener: AudioEventListener) -> None:
-        self.emitter.on(AudioEvent, e_listener.on_event)
+        self.emitter.on(AudioEvent, e_listener.on_audio_event)
 
 

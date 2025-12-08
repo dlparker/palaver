@@ -29,7 +29,7 @@ class ListenerCCSMixin:
         self.emitter = AsyncIOEventEmitter()
 
     def add_event_listener(self, e_listener: AudioEventListener) -> None:
-        self.emitter.on(AudioEvent, e_listener.on_event)
+        self.emitter.on(AudioEvent, e_listener.on_audio_event)
 
     async def emit_event(self, event: AudioEvent) -> None:
         await self.emitter.emit(AudioEvent, event)

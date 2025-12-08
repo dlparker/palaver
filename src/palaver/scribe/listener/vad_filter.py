@@ -76,7 +76,7 @@ class VADFilter(AudioEventListener):
         )
         return vad
         
-    async def on_event(self, event):
+    async def on_audio_event(self, event):
         if not isinstance(event, AudioChunkEvent):
             if isinstance(event, AudioStopEvent) and self._in_speech:
                 my_event = AudioSpeechStopEvent(
@@ -119,6 +119,6 @@ class VADFilter(AudioEventListener):
         await self.emitter.emit(AudioEvent, event)
             
     def add_event_listener(self, e_listener: AudioEventListener) -> None:
-        self.emitter.on(AudioEvent, e_listener.on_event)
+        self.emitter.on(AudioEvent, e_listener.on_audio_event)
 
 

@@ -6,16 +6,15 @@ import traceback
 import sounddevice as sd
 import numpy as np
 
-from palaver.scribe.audio_events import (
-    AudioEvent,
-    AudioErrorEvent,
-    AudioStartEvent,
-    AudioStopEvent,
-    AudioSpeechStartEvent,
-    AudioSpeechStopEvent,
-    AudioChunkEvent,
-    AudioEventListener,
-)
+from palaver.scribe.audio_events import (AudioEvent,
+                                         AudioErrorEvent,
+                                         AudioStartEvent,
+                                         AudioStopEvent,
+                                         AudioSpeechStartEvent,
+                                         AudioSpeechStopEvent,
+                                         AudioChunkEvent,
+                                         AudioEventListener,
+                                         )
 from palaver.scribe.listener.file_listener import FileListener
 from palaver.scribe.listener.downsampler import DownSampler
 from palaver.scribe.listener.vad_filter import VADFilter
@@ -33,7 +32,7 @@ class Player:
         self.using_vad = using_vad
         self.in_speech = False
         
-    async def on_event(self, event):
+    async def on_audio_event(self, event):
         if isinstance(event, AudioStartEvent):
             self.stream = sd.OutputStream(
                 samplerate=event.sample_rate,
