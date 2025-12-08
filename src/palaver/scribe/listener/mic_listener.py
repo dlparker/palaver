@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Optional
+from typing import Optional
 from pathlib import Path
 import os
 import time
@@ -8,9 +8,8 @@ import logging
 import traceback
 import numpy as np
 import sounddevice as sd
-from palaver.scribe.listen_api import (Listener,
-                                       ListenerCCSMixin,
-                                       AudioEvent,
+from palaver.scribe.listen_api import Listener, ListenerCCSMixin
+from palaver.scribe.audio_events import (AudioEvent,
                                        AudioErrorEvent,
                                        AudioChunkEvent,
                                        AudioStartEvent,

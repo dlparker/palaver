@@ -3,7 +3,7 @@ import numpy as np
 import resampy
 from eventemitter import AsyncIOEventEmitter
 
-from palaver.scribe.listen_api import (
+from palaver.scribe.audio_events import (
     AudioEvent,
     AudioStartEvent,
     AudioChunkEvent,

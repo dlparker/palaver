@@ -8,7 +8,7 @@ import numpy as np
 import soundfile as sf
 
 from palaver.scribe.listener.mic_listener import MicListener
-from palaver.scribe.listen_api import AudioChunkEvent, AudioStartEvent, AudioStopEvent, AsyncIterator, AudioErrorEvent
+from palaver.scribe.audio_events import AudioChunkEvent, AudioStartEvent, AudioStopEvent, AudioErrorEvent
 
 CHUNK_SEC = 0.03
 

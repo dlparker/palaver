@@ -7,7 +7,13 @@ import numpy as np
 
 from palaver.scribe.listener.file_listener import FileListener
 from palaver.scribe.listener.downsampler import DownSampler
-from palaver.scribe.listen_api import AudioChunkEvent, AudioStartEvent, AudioStopEvent, AsyncIterator, AudioErrorEvent
+from palaver.scribe.audio_events import (
+    AudioEvent,
+    AudioStartEvent,
+    AudioStopEvent,
+    AudioChunkEvent,
+    AudioEventListener,
+)
 
 CHUNK_SEC = 0.03
 
@@ -60,12 +66,14 @@ class Player:
             self.stream.close()
         self.stopped = True
 
-async def main():
-    listener = FileListener(files=[note1_wave], chunk_duration=CHUNK_SEC)
-    downsampler = DownSampler(listener, target_samplerate=16000, target_channels=1)
+async def main(path, downsample):
+    listener = FileListener(files=[path], chunk_duration=CHUNK_SEC)
     player = Player()
-    downsampler.add_event_listener(player)
-    #listener.add_event_listener(player)
+    if downsample:
+        downsampler = DownSampler(listener, target_samplerate=16000, target_channels=1)
+        downsampler.add_event_listener(player)
+    else:
+        listener.add_event_listener(player)
     player.start()
 
     async with listener:          
@@ -78,4 +86,10 @@ async def main():
     print("Playback finished.")
 
 if __name__ == "__main__":
-    asyncio.run(main())    
+    import argparse 
+    parser = argparse.ArgumentParser(description='Playback demo for sound files')
+    parser.add_argument('-d', '--downsample', action='store_true', 
+                       help="Apply VAD compliant downsample to file")
+    parser.add_argument('path', type=str, nargs='?', help="Name of file to play", default=note1_wave)
+    args = parser.parse_args()
+    asyncio.run(main(path=args.path,  downsample=args.downsample))
