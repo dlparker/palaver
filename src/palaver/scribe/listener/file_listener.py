@@ -6,9 +6,11 @@ import os
 import time
 import logging
 import traceback
+from datetime import datetime
 import numpy as np
 import soundfile as sf
-from palaver.scribe.listen_api import Listener, ListenerCCSMixin
+
+from palaver.scribe.listen_api import Listener, ListenerCCSMixin, create_source_id
 from palaver.scribe.audio_events import (AudioEvent,
                                        AudioErrorEvent,
                                        AudioChunkEvent,
@@ -31,6 +33,7 @@ class FileListener(ListenerCCSMixin, Listener):
         self._sound_file: Optional[sf.SoundFile] = None
         self._running = False
         self._reader_task = None
+        self.source_id = create_source_id("file", datetime.utcnow(), 10000)
 
     async def add_file(self, filepath: os.PathLike[str]) -> None:
         self.files.append(filepath)
@@ -65,13 +68,13 @@ class FileListener(ListenerCCSMixin, Listener):
         try:
             await self._reader_inner()
         except Exception:
-            await self.emit_event(AudioErrorEvent(message=traceback.format_exc()))
+            await self.emit_event(AudioErrorEvent(source_id=self.source_id, message=traceback.format_exc()))
         finally:
             self._reader_task = None
             try:
                 await self.stop_recording()
             except Exception:
-                await self.emit_event(AudioErrorEvent(message=traceback.format_exc()))
+                await self.emit_event(AudioErrorEvent(source_id=self.source_id, message=traceback.format_exc()))
             
             
     async def _reader_inner(self):
@@ -86,7 +89,8 @@ class FileListener(ListenerCCSMixin, Listener):
             sr = self._sound_file.samplerate
             channels = self._sound_file.channels
             frames_per_chunk = max(1, int(round(self.chunk_duration * sr)))
-            await self.emit_event(AudioStartEvent(sample_rate=sr,
+            await self.emit_event(AudioStartEvent(source_id=self.source_id,
+                                                  sample_rate=sr,
                                                   channels=channels,
                                                   blocksize=frames_per_chunk,
                                                   datatype='float32'))
@@ -97,19 +101,23 @@ class FileListener(ListenerCCSMixin, Listener):
                 if data.shape[0] == 0:
                     break
 
-                duration = data.shape[0] / sr
+                # If the file has fewer frames than requested in the last chunk,
+                # adjust duration accordingly (important!)
+                actual_frames = data.shape[0]
+                duration = actual_frames / sr
 
                 await self.emit_event(AudioChunkEvent(
+                    source_id=self.source_id,
                     data=data,
                     duration=duration,
                     sample_rate=sr,
                     channels=channels,
-                    blocksize=frames_per_chunk,
+                    blocksize=actual_frames,  # use actual, not requested
                     datatype='float32',
                     in_speech=False,
-                    meta_data={'file': self._current_file},
+                    meta_data={'file': str(self._current_file)},
                 ))
-                await asyncio.sleep(self.chunk_duration)
+
             # File finished — move to next one automatically
             await self._load_next_file()
 
@@ -117,7 +125,7 @@ class FileListener(ListenerCCSMixin, Listener):
                 break
 
         # All done
-        await self.emit_event(AudioStopEvent())
+        await self.emit_event(AudioStopEvent(source_id=self.source_id))
         await self._cleanup()
         self._reader_task = None
         
@@ -127,7 +135,7 @@ class FileListener(ListenerCCSMixin, Listener):
 
         self.current_file_path = None
         await self._cleanup()
-        await self.emit_event(AudioStopEvent())
+        await self.emit_event(AudioStopEvent(source_id=self.source_id))
 
     async def stop_recording(self) -> None:
         if not self._running:
@@ -161,4 +169,6 @@ class FileListener(ListenerCCSMixin, Listener):
     # Optional: make it usable in sync `with` too (rare but nice)
     def __enter__(self): raise TypeError("Use 'async with' with FileListener")
     def __exit__(self, *args): ...
+
+
 

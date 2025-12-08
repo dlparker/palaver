@@ -18,7 +18,6 @@ class DownSampler(AudioEventListener):
         self.target_ch = target_channels
         self.quality = quality  # kaiser_fast is fast & excellent; use "sinc_best" if you want absolute max quality
         self.emitter = AsyncIOEventEmitter()
-        self.listener.add_event_listener(self)
 
     async def convert(self, event):
         if isinstance(event, AudioStartEvent):
@@ -34,8 +33,6 @@ class DownSampler(AudioEventListener):
                 new_event.blocksize * 2
             return new_event
         
-        if not isinstance(event, AudioChunkEvent):
-            return
         data = event.data
         src_sr = event.sample_rate
         src_ch = event.channels
@@ -62,6 +59,7 @@ class DownSampler(AudioEventListener):
         new_duration = data.shape[0] / self.target_sr
 
         new_event = AudioChunkEvent(
+            source_id=event.source_id,
             data=data,
             duration=new_duration,
             sample_rate=self.target_sr,
@@ -76,10 +74,11 @@ class DownSampler(AudioEventListener):
         return new_event
         
     async def on_event(self, event):
-        if  isinstance(event, AudioChunkEvent) or isinstance(event, AudioStartEvent):
+        if isinstance(event, (AudioChunkEvent, AudioStartEvent)):
             new_event = await self.convert(event)
             await self.emitter.emit(AudioEvent, new_event)
-        else:
+        # For all other events (Stop, Error, etc.), forward unchanged
+        elif not isinstance(event, (AudioChunkEvent, AudioStartEvent)):
             await self.emitter.emit(AudioEvent, event)
         
     def add_event_listener(self, e_listener: AudioEventListener) -> None:

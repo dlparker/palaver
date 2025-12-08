@@ -6,9 +6,10 @@ import os
 import time
 import logging
 import traceback
+from datetime import datetime
 import numpy as np
 import sounddevice as sd
-from palaver.scribe.listen_api import Listener, ListenerCCSMixin
+from palaver.scribe.listen_api import Listener, ListenerCCSMixin, create_source_id
 from palaver.scribe.audio_events import (AudioEvent,
                                        AudioErrorEvent,
                                        AudioChunkEvent,
@@ -36,7 +37,7 @@ class MicListener(ListenerCCSMixin, Listener):
         self._pre_fill_blocks = 10
         self._q_out = asyncio.Queue()
         self._stream = None
-        
+        self.source_id = create_source_id("default_mic", datetime.utcnow(), 10000)
 
     async def start_recording(self) -> None:
         if self._running:
@@ -65,7 +66,8 @@ class MicListener(ListenerCCSMixin, Listener):
         self._samplerate = self._stream.samplerate
         self._channels = self._stream.channels
         self._dtype = self._stream.dtype
-        await self.emit_event(AudioStartEvent(sample_rate=int(self._stream.samplerate),
+        await self.emit_event(AudioStartEvent(source_id=self.source_id,
+                                              sample_rate=int(self._stream.samplerate),
                                               channels=self._stream.channels[0],
                                               blocksize=self._stream.blocksize,
                                               datatype=self._stream.dtype))
@@ -74,11 +76,12 @@ class MicListener(ListenerCCSMixin, Listener):
                 indata, status = await self._q_out.get()
                 if status:
                     msg = f"Error during record: {status}"
-                    event = AudioErrorEvent(message=msg)
+                    event = AudioErrorEvent(source_id=self.source_id, message=msg)
                     await self.emit_event(event)                    
                     await self.stop()
                     return
                 event = AudioChunkEvent(
+                    source_id=self.source_id,
                     data=indata,
                     duration=len(indata) / self._stream.samplerate,
                     in_speech=False,
@@ -89,9 +92,9 @@ class MicListener(ListenerCCSMixin, Listener):
                     meta_data={'device': self._stream.device},
                 )
                 await self.emit_event(event)                    
-                wait_time = (self._stream.blocksize / self._stream.samplerate) 
-                await asyncio.sleep(wait_time) 
-        await self.emit_event(AudioStopEvent())
+                #wait_time = (self._stream.blocksize / self._stream.samplerate) 
+                #await asyncio.sleep(wait_time) 
+        await self.emit_event(AudioStopEvent(source_id=self.source_id))
         await self._queue.put(None)  # signal EOF
         self._stream = None
         
@@ -100,7 +103,7 @@ class MicListener(ListenerCCSMixin, Listener):
             return
 
         await self._cleanup()
-        await self.emit_event(AudioStopEvent())
+        await self.emit_event(AudioStopEvent(source_id=self.source_id))
 
     async def stop_recording(self) -> None:
         if not self._running:

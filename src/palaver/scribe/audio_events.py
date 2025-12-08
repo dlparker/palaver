@@ -14,6 +14,7 @@ class AudioEventType(str, Enum):
 @dataclass(kw_only=True)
 class AudioEvent:
     event_type: AudioEventType
+    source_id: str
     timestamp: float = field(default_factory=time.time)
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
@@ -46,6 +47,18 @@ class AudioChunkEvent(AudioEvent):
     in_speech: bool = False               # Marked as containing speech
     meta_data: Any = None                 # optional metadata, depends on source of audio
 
+@dataclass(kw_only=True)
+class AudioSpeechStartEvent(AudioEvent):
+    event_type: ClassVar[AudioEventType] = AudioEventType.audio_start
+    silence_period_ms: int
+    vad_threshold: float
+    sampling_rate: float
+    speech_pad_ms: int
+
+@dataclass(kw_only=True)
+class AudioSpeechStopEvent(AudioEvent):
+    event_type: ClassVar[AudioEventType] = AudioEventType.audio_stop
+    
 class AudioEventListener(Protocol):
 
     async def on_event(self, AudioEvent) -> None: ...
