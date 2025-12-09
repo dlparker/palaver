@@ -30,8 +30,8 @@ _VADIterator = _vad_utils[3]
 logger.info("Silero VAD Loading complete")
 
 VAD_THRESHOLD = 0.5          # Default threshold
-MIN_SILENCE_MS = 800         # Default 0.8 seconds
-SPEECH_PAD_MS = 1300
+MIN_SILENCE_MS = 1000         # Default 1.0 seconds
+SPEECH_PAD_MS = 1500
 VAD_SR = 16000
 
 
@@ -111,7 +111,7 @@ class VADFilter(AudioEventListener):
                     await self.emitter.emit(AudioEvent, my_event)
                     logger.debug("[Speech end] %s", my_event)
                 self._in_speech = False
-                print(f"\n\n------------------------\nTime for speech detection {self._counter}\n------------------\n\n")
+                logger.debug(f"\n\n------------------------\nTime for speech detection {self._counter}\n------------------\n\n")
 
         event.in_speech = self._in_speech
         await self.emitter.emit(AudioEvent, event)

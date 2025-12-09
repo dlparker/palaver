@@ -37,13 +37,14 @@ class ScriveJob:
 
     def on_new_segment(self, segment):
         self.segment = segment
+        import ipdb; ipdb.set_trace()
         print(f"Job {self.index} In callback: {segment}")
         self.scrivener.job_done(self)
 
 class Scrivener:
     BUFFER_SAMPLES = 30000   # exactly the size you want to feed whisper.cpp at once
 
-    def __init__(self):
+    def __init__(self, model):
         self.buffer = np.zeros(self.BUFFER_SAMPLES, dtype=np.float32)
         self.buffer_pos = 0
         self.in_speech = False
@@ -53,7 +54,7 @@ class Scrivener:
         self.job_index = 0
         self.process_task = None
         self.model = Model(
-            'models/multilang_whisper_large3_turbo.ggml',
+            model,
             n_threads=8,
             print_realtime=False,
             print_progress=False,
@@ -206,10 +207,10 @@ class Player:
         self.stopped = True
 
 
-async def main(path, simulate_timing):
+async def main(path, simulate_timing, model):
     listener = FileListener(chunk_duration=CHUNK_SEC, simulate_timing=simulate_timing, files=[path])
     player = Player(using_vad=False)
-    scrivener = Scrivener()
+    scrivener = Scrivener(model)
     
     source = listener
 
@@ -236,8 +237,9 @@ async def main(path, simulate_timing):
 if __name__ == "__main__":
     import argparse 
     parser = argparse.ArgumentParser(description='transcribe test')
+    parser.add_argument('--model', nargs='?', const=1, type=str, default="models/ggml-base.en.bin")
     parser.add_argument('-s', '--simulate_timing', action='store_true', 
                        help="Plays samples with simulated input timing")
     parser.add_argument('path', type=str, nargs='?', help="Name of file to play", default=note1_wave)
     args = parser.parse_args()
-    asyncio.run(main(path=args.path, simulate_timing=args.simulate_timing))
+    asyncio.run(main(path=args.path, simulate_timing=args.simulate_timing, model=args.model))
