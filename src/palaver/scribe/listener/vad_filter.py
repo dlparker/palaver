@@ -47,7 +47,7 @@ def downsample_to_512(chunk: np.ndarray, in_samplerate) -> np.ndarray:
 
 class VADFilter(AudioEventListener):
     
-    def __init__(self, sound_source, remove_marked=False):
+    def __init__(self, sound_source):
         self.sound_source = sound_source
         self.emitter = AsyncIOEventEmitter()
         self._in_speech = False
@@ -56,7 +56,6 @@ class VADFilter(AudioEventListener):
         self._speech_pad_ms = SPEECH_PAD_MS
         self._vad = self.create_vad(self._silence_ms, self._threshold, self._speech_pad_ms)
         self._counter = None
-        self._downsampler = DownSampler(target_samplerate=16000, target_channels=1)
 
     def create_vad(self, silence_ms, threshold, speech_pad_ms):
         """
@@ -86,10 +85,9 @@ class VADFilter(AudioEventListener):
                 logger.debug("[Speech end on audio end] %s", my_event)
             await self.emitter.emit(AudioEvent, event)
             return
-        down_event = await self._downsampler.convert(event)
-        chunk = down_event.data[:, 0].copy()
+        chunk = event.data[:, 0].copy()
         start_time = time.time()
-        vad_chunk = downsample_to_512(chunk, down_event.sample_rate)
+        vad_chunk = downsample_to_512(chunk, event.sample_rate)
         window = self._vad(vad_chunk, return_seconds=False)
         self._counter = time.time() - start_time
         if window:

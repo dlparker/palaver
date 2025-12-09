@@ -1,3 +1,4 @@
+import asyncio
 
 from palaver.scribe.audio_events import (AudioEvent,
                                          AudioErrorEvent,
@@ -6,6 +7,9 @@ from palaver.scribe.audio_events import (AudioEvent,
                                          AudioChunkEvent,
                                          )
 
+NUM_WORKERS = 2
+WHISPER_MODEL = "models/multilang_whisper_large3_turbo.ggml"
+WHISPER_TIMEOUT = 60
 
 class UncutVTT:
 
@@ -13,6 +17,13 @@ class UncutVTT:
         self._source = source
         self._on_vad_signals = on_vad_signals
         self._copying = not on_vad_signals
+        from palaver.recorder.transcription import WhisperTranscriber
+        self.transcriber = WhisperTranscriber(
+            num_workers=NUM_WORKERS,
+            model_path=WHISPER_MODEL,
+            timeout=WHISPER_TIMEOUT
+        )
+        self.transcriber.start()
 
     def on_audio_event(self, event: AudioEvent):
         if not self._copying:
