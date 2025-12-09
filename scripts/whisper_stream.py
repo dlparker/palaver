@@ -55,8 +55,8 @@ class Scrivener:
         self.model = Model(
             'models/multilang_whisper_large3_turbo.ggml',
             n_threads=8,
-            print_realtime=True,
-            print_progress=True,
+            print_realtime=False,
+            print_progress=False,
         )
        
     def push_buffer_job(self, final=False):
@@ -120,16 +120,16 @@ class Scrivener:
         job = self.job_queue.get()
         while job is not None:
             self.job_in_progress = True
-            print(f'\n{time.time()}:Job{job.index}\n')
+            #print(f'\n{time.time()}:Job{job.index}\n')
             self.model.transcribe(
                 media=job.data,
                 new_segment_callback=job.on_new_segment,
                 single_segment=False,
-                print_progress=True,
-                print_realtime=True,
+                print_progress=False,
+                print_realtime=False,
             )
             self.job_in_progress = False
-            print(f'\n{time.time()}:Done Job{job.index}\n')
+            #print(f'\n{time.time()}:Done Job{job.index}\n')
             if job.final:
                 return
             job = self.job_queue.get()
