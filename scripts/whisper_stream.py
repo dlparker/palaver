@@ -63,9 +63,11 @@ class Scrivener:
         size = self.buffer_pos
         send_buffer = np.zeros(size, dtype=np.float32)
         send_buffer[:] = self.buffer[:size]
+        self.buffer_pos = 0
         job = ScriveJob(self, index=self.job_index, final=final, data=send_buffer)
         self.job_index += 1
         self.job_queue.put_nowait(job)
+        print(f"pushed job {job.index} onto queue, data size = {size}")
                         
     def job_done(self, job):
         self.result_queue.put_nowait(job)
@@ -100,18 +102,16 @@ class Scrivener:
 
             # Every time the buffer becomes full → process immediately
             if self.buffer_pos >= self.BUFFER_SAMPLES:
-                self.push_buffer_job(final=True)
-                self.job_queue.put(None)
+                self.push_buffer_job()
 
         elif isinstance(event, AudioStopEvent):
             # End of stream → flush whatever is left in the buffer (even if < 30k)
             if self.buffer_pos > 0:
+                print(f"{self.buffer_pos} in buffer at audi stop, pushing")
                 self.push_buffer_job(final=True)
-                self.job_queue.put(None)
-            if self.process_task:
-                self.job_queue.put(None)
-                while self.job_in_progress or self.job_queue.qsize() > 0:
-                    await asyncio.sleep(0.1)
+            start_time = time.time()
+            while self.process_task and (self.job_in_progress or self.job_queue.qsize() > 0):
+                await asyncio.sleep(0.1)
             if self.process_task:
                 self.process_task.cancel()
             print("Transcription finished.")
