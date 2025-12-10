@@ -7,7 +7,6 @@ Test VAD recorder with pre-recorded audio files
 import pytest
 import sys
 from pathlib import Path
-from io import StringIO
 import json
 
 # Add src to path for imports
@@ -16,31 +15,21 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from palaver.recorder import vad_recorder
 
 
-class TestVADRecorderFile:
-    """Test VAD recorder using file input"""
+class TestFileDriven:
+    """Test speech, vad, commands using file input""" 
 
     @pytest.fixture
     def audio_file(self):
         """Path to test audio file"""
         return Path(__file__).parent / "audio_samples" / "note1.wav"
 
-    @pytest.fixture
-    def cleanup_sessions(self):
-        """Cleanup session directories after test"""
-        yield
-        # Note: We'll keep sessions for manual inspection during development
-        # Uncomment to auto-cleanup:
-        # sessions_dir = Path("sessions")
-        # if sessions_dir.exists():
-        #     shutil.rmtree(sessions_dir)
-
-    def test_process_note1_file(self, audio_file, cleanup_sessions, monkeypatch, capsys):
+    def test_process_note1_file(self, audio_file):
         """
         Test processing note1.wav file through VAD recorder.
 
         Expected behavior:
         - File should be processed without errors
-        - VAD should detect 4 speech segments (based on piper.sh design)
+        - VAD 
         - Segments should be saved as WAV files
         - Transcription should detect "start a new note" command
         - Title should be captured

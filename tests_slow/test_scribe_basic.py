@@ -1,14 +1,16 @@
-#!/usr/bin/env python3
-import sys
+#!/usr/bin/env python
+"""
+tests/test_vad_recorder_file.py
+Test VAD recorder with pre-recorded audio files
+"""
+
+import pytest
 import asyncio
-import time
-from pprint import pprint
+import sys
+import os
 from pathlib import Path
-import traceback
+import json
 import logging
-from queue import Queue
-import sounddevice as sd
-import numpy as np
 
 from palaver.scribe.audio_events import (AudioEvent,
                                          AudioErrorEvent,
@@ -28,48 +30,40 @@ from palaver.scribe.scriven.detect_commands import DetectCommands
 from palaver.scribe.command_match import CommandMatch
 
 
-logging.basicConfig(stream=sys.stdout, level=logging.WARNING)
-logger = logging.getLogger("CLI")
+logger = logging.getLogger("test_code")
 
-CHUNK_SEC = 0.03
-
-note1_wave = Path(__file__).parent.parent / "tests_slow" / "audio_samples" / "note1_base.wav"
 
 class TextPrinter(TextEventListener):
 
-    def __init__(self, print_progress=False):
-        self.full_text = ""
-        self.print_progress = print_progress
+    def __init__(self, on_text_callback, on_command_callback):
+        self.full_text = []
+        self.on_text_callback = on_text_callback
+        self.on_command_callback = on_command_callback
         self.command_matcher = DetectCommands(self.on_command, self.command_error_callback)
 
     async def on_command(self, command_match):
-        pprint(command_match.__dict__)
+        await self.on_command_callback(command_match)
 
     def command_error_callback(self, error):
         print(f"command matcher error {error}")
         
     async def on_text_event(self, event):
-        logger.info("*"*100)
-        logger.info("--------Text received---------")
+        logger.debug("*"*100)
+        logger.debug("--------Text received---------")
         for seg in event.segments:
-            logger.info(seg.text)
-            if self.print_progress:
-                print(seg.text+ " ")
-            self.full_text += seg.text + " "
-        logger.info("--------END Text received---------")
-        logger.info("*"*100)
+            logger.debug("in TextPrinter: %s", seg.text)
+            await self.on_text_callback(seg.text)
+            self.full_text.append(seg.text)
+        logger.debug("--------END Text received---------")
+        logger.debug("*"*100)
         await self.command_matcher.on_text_event(event)
-
-    def finish(self):
-        print(self.full_text)
 
 class Player:
 
-    def __init__(self, using_vad):
+    def __init__(self):
         self.stream = None
         self.stopped = True
         self.counter = 0
-        self.using_vad = using_vad
         self.in_speech = False
         
     async def on_audio_event(self, event):
@@ -88,7 +82,7 @@ class Player:
             # to swith from mono to stereo, if desired
             #if audio.shape[1] == 1 and :
             #    audio = np.column_stack((audio[:,0], audio[:,0]))            
-            if not self.using_vad or self.in_speech:
+            if not self.in_speech:
                 try:
                     self.stream.write(audio)
                 except:
@@ -125,12 +119,32 @@ class Player:
             self.stream.close()
         self.stopped = True
 
+CHUNK_SEC = 0.03
 
-async def main(path, simulate_timing, model, play_sound):
-    listener = FileListener(chunk_duration=CHUNK_SEC, simulate_timing=simulate_timing, files=[path])
-    if play_sound:
-        player = Player(using_vad=False)
     
+async def test_process_note1_file():
+    """
+    Test processing note1.wav file through VAD recorder.
+
+    Expected behavior:
+    - File should be processed without errors
+    - Downsampling should prep stream for VAD
+    - VAD should find voice
+    - Transcription should produce TextEvents
+    - Command detection should detect "start a new note"
+    """
+    # Verify test file exists
+    audio_file = Path(__file__).parent / "audio_samples" / "note1.wav"
+    assert audio_file.exists()
+    model = Path(__file__).parent.parent / "models" / "ggml-base.en.bin"
+    assert model.exists()
+    logging.info(f"TESTING FILE INPUT: {audio_file}")
+    logging.debug(f"Expected: 4 segments with long note mode workflow")
+    listener = FileListener(chunk_duration=CHUNK_SEC, simulate_timing=False, files=[audio_file])
+    play_sound = os.environ.get("PLAYBACK_DURING_TESTS", False)
+    if play_sound:
+        player = Player()
+
     source = listener
 
     downsampler = DownSampler(target_samplerate=16000, target_channels=1)
@@ -144,10 +158,17 @@ async def main(path, simulate_timing, model, play_sound):
     def error_callback(error_dict:dict):
         from pprint import pformat
         raise Exception(pformat(error_dict))
-    
-    whisper_thread = WhisperThread(model, error_callback)
+
+    whisper_thread = WhisperThread(model, error_callback, use_mp=True)
     vadfilter.add_event_listener(whisper_thread)
-    text_printer = TextPrinter(print_progress=True)
+
+    async def on_command_callback(command_match):
+        logger.info(command_match)
+
+    async def on_text_callback(text_event):
+        logger.info("in test on_text_callback %s", text_event)
+        
+    text_printer = TextPrinter(on_text_callback, on_command_callback)
     whisper_thread.add_text_event_listener(text_printer)
     await whisper_thread.start()
 
@@ -162,17 +183,4 @@ async def main(path, simulate_timing, model, play_sound):
     if play_sound:
         player.stop()
     await whisper_thread.gracefull_shutdown(3.0)
-    text_printer.finish()
     logger.info("Playback finished.")
-    
-if __name__ == "__main__":
-    import argparse 
-    parser = argparse.ArgumentParser(description='transcribe test')
-    parser.add_argument('--model', nargs='?', const=1, type=str, default="models/ggml-base.en.bin")
-    parser.add_argument('-s', '--simulate_timing', action='store_true', 
-                       help="Plays samples with simulated input timing")
-    parser.add_argument('-p', '--play_sound', action='store_true', 
-                       help="Plays sound through player during file processing")
-    parser.add_argument('path', type=str, nargs='?', help="Name of file to play", default=note1_wave)
-    args = parser.parse_args()
-    asyncio.run(main(path=args.path, simulate_timing=args.simulate_timing, model=args.model, play_sound=args.play_sound))

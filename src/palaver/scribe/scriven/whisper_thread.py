@@ -7,7 +7,9 @@ from typing import Optional, Dict
 from collections.abc import Callable
 from queue import Empty, Queue
 from dataclasses import dataclass, field
-from threading import Event
+from threading import Event as TEvent
+import multiprocessing as mp
+from multiprocessing import Process, Queue as MPQueue, Event as MPEvent
 import numpy as np
 from pywhispercpp.model import Model
 from eventemitter import AsyncIOEventEmitter
@@ -38,7 +40,7 @@ class ScriveJob:
 class Worker:
 
     def __init__(self, job_queue: Queue, result_queue: Queue,
-                 shutdown_event: Event, model_path):
+                 shutdown_event, model_path):
         self.job_queue = job_queue
         self.result_queue = result_queue
         self.shutdown_event = shutdown_event
@@ -47,7 +49,8 @@ class Worker:
 
             
     def run(self):
-        self.model = Model(self.model_path, n_threads=8,
+        self.model = Model(str(self.model_path),
+                           n_threads=8,
                            print_realtime=False,
                            print_progress=False,
                            )
@@ -87,8 +90,8 @@ class Worker:
                         job.job_id, job.duration, len(job.text_segments))
             
 
-def worker_wrapper(job_queue: Queue, result_queue: Queue,
-                   error_queue: Queue, shutdown_event: Event,
+def thread_worker_wrapper(job_queue: Queue, result_queue: Queue,
+                   error_queue: Queue, shutdown_event: TEvent,
                    model_path: os.PathLike[str]):
 
     try:
@@ -97,9 +100,25 @@ def worker_wrapper(job_queue: Queue, result_queue: Queue,
     except Exception as e:
         error_dict = dict(exception=e,
                           traceback=traceback.format_exc())
-        logger._error("Whipser thread exiting on error: \n%s", e)
+        logger.error("Whipser thread exiting on error: \n%s", e)
         self._error_queue.put_nowait(error_dict)
         return Error
+    logger.info("Worker thread for model %s exiting", model_path)
+    return None
+
+def process_worker_wrapper(job_queue: MPQueue, result_queue: MPQueue,
+                           error_queue: MPQueue, shutdown_event: MPEvent,
+                           model_path: os.PathLike[str]):
+
+    try:
+        worker = Worker(job_queue, result_queue, shutdown_event, model_path)
+        worker.run()
+    except Exception as e:
+        error_dict = dict(exception=e,
+                          traceback=traceback.format_exc())
+        logger.error("Whipser thread exiting on error: \n%s", e)
+        error_queue.put_nowait(error_dict)
+        return error_dict
     logger.info("Worker thread for model %s exiting", model_path)
     return None
 
@@ -111,7 +130,7 @@ class WhisperThread:
                       'require_speech': True,
                       'model_path': None,
                       'pre_buffer_samples': 0,
-                      'error_callback': None
+                      'error_callback': None,
                       }
     config_help = {'buffer_samples': "The number of samples that will be collected before sending to speech transcriber, max",
                    'require_speech': "If true, then transcription will be turned on and off by audio events for speech start and stop",
@@ -120,7 +139,7 @@ class WhisperThread:
                    'error_callback': "Callable that accepts a dictionary of error info when a background error occurs",
                    }
     
-    def __init__(self, model_path: os.PathLike[str], error_callback: Callable[[dict], None]):
+    def __init__(self, model_path: os.PathLike[str], error_callback: Callable[[dict], None], use_mp=False):
         self._model_path = model_path
         self._error_callback = error_callback
         self._config = dict(self.default_config)
@@ -132,10 +151,19 @@ class WhisperThread:
         self._first_chunk = None
         self._last_chunk = None
         self._next_job_id = 0
-        self._job_queue = Queue()
-        self._result_queue = Queue()
-        self._error_queue = Queue()
-        self._shutdown_event = Event()
+        self._process = None
+        self._use_mp = use_mp
+        if self._use_mp:
+            self._job_queue = MPQueue()
+            self._result_queue = MPQueue()
+            self._error_queue = MPQueue()
+            self._shutdown_event = MPEvent()
+        else:
+            self._job_queue = Queue()
+            self._result_queue = Queue()
+            self._error_queue = Queue()
+            self._shutdown_event = TEvent()
+        self._worker_running = False
         self._worker_task = None
         self._sender_task = None
         self._error_task = None
@@ -145,28 +173,42 @@ class WhisperThread:
         return self._config
     
     async def update_config(self, new_config):
-        if new_config['model_path'] != self._model_path and self._worker_task:
+        if new_config['model_path'] != self._model_path and self._worker_running:
             raise Exception("dynmaic model change not yet implemented")
-        if new_config['buffer_samples'] != self._config['buffer_samples'] and self._worker_task:
+        if new_config['buffer_samples'] != self._config['buffer_samples'] and self._worker_running:
             raise Exception("dynmaic buffer size change yet implemented")
-        if new_config['pre_buffer_samples'] != self._config['pre_buffer_samples'] and self._worker_task:
+        if new_config['pre_buffer_samples'] != self._config['pre_buffer_samples'] and self._worker_running:
             raise Exception("dynmaic pre_buffer size change yet implemented")
-        if new_config['require_speech'] != self._config['require_speech'] and self._worker_task:
+        if new_config['require_speech'] != self._config['require_speech'] and self._worker_running:
             self._config['require_speech'] = new_config['require_speech']
             await self.set_in_speech(new_config['require_speech'])
-        if new_config['error_callback'] != self._config['error_callaback'] and self._worker_task:
+        if new_config['error_callback'] != self._config['error_callback'] and self._worker_running:
             self._config['error_callback'] = new_config['error_callback']
             self._error_callback = new_config['error_callback']
         
     async def start(self):
-        coro = asyncio.to_thread(worker_wrapper,
-                               self._job_queue,
-                               self._result_queue,
-                               self._error_queue,
-                               self._shutdown_event,
-                               self._model_path)
+        if self._use_mp:
+            args = [self._job_queue,
+                    self._result_queue,
+                    self._error_queue,
+                    self._shutdown_event,
+                    self._model_path,
+                    ]
+            print("\n\nUsing process\n\n")
+            self._process = Process(target=process_worker_wrapper, args=args)
+            self._process.start()
+            self._worker_running = True
+        else:
+            print("\n\nUsing thread\n\n")
+            coro = asyncio.to_thread(thread_worker_wrapper,
+                                     self._job_queue,
+                                     self._result_queue,
+                                     self._error_queue,
+                                     self._shutdown_event,
+                                     self._model_path)
                            
-        self._worker_task = asyncio.create_task(coro)
+            self._worker_task = asyncio.create_task(coro)
+            self._worker_running = True
         self._sender_task = asyncio.create_task(self._sender())
         self._error_task = asyncio.create_task(self._error_watcher())
 
@@ -177,12 +219,29 @@ class WhisperThread:
                          last_chunk=None)
         self._job_queue.put_nowait(job)
         start_time = time.time()
-        try:
-            await asyncio.wait_for(self._worker_task, timeout=timeout)
-        except asyncio.TimeoutError:
-            msg = f"Whisper worker did not shutdown within requested timeout {timeout}s"
-            logger.error(msg)
-            raise Exception(msg)
+        if self._use_mp:
+            try:
+                while self._process and self._process.is_alive() and time.time() - start_time < timeout:
+                    await asyncio.sleep(0.05)
+
+            except:
+                import ipdb; ipdb.set_trace()
+                msg = f"Whisper worker check got error {traceback.format_exc()}"
+                logger.error(msg)
+                raise Exception(msg)
+            if self._process and self._process.is_alive():
+                msg = f"Whisper worker did not shutdown within requested timeout {timeout}s"
+                logger.error(msg)
+                raise Exception(msg)
+        else:
+            try:
+                await asyncio.wait_for(self._worker_task, timeout=timeout)
+            except asyncio.TimeoutError:
+                msg = f"Whisper worker did not shutdown within requested timeout {timeout}s"
+                logger.error(msg)
+                raise Exception(msg)
+        
+        self._worker_running = False
         sender_time = time.time()
         wait_time = timeout - (sender_time - start_time)
         while True:
@@ -213,7 +272,7 @@ class WhisperThread:
             self._last_chunk = None
                 
     async def on_audio_event(self, event):
-        if not self._worker_task:
+        if not self._worker_running:
             return
         if isinstance(event, AudioSpeechStartEvent):
             await self.set_in_speech(True)
@@ -249,10 +308,16 @@ class WhisperThread:
         
     async def stop(self):
         self._shutdown_event.set()
-        res = await self._worker_task
-        if res:
-            logger.error("Worker task returned error %s", res)
-        self._worker_task = None
+        if self._use_mp:
+            if self._process:
+                self._process.join()
+                self._process = None
+        else:
+            res = await self._worker_task
+            if res:
+                logger.error("Worker task returned error %s", res)
+            self._worker_task = None
+        self._worker_running = False
         if self._sender_task:
             try:
                 self._sender_task.cancel()
@@ -289,7 +354,7 @@ class WhisperThread:
         
     async def _sender(self):
         try:
-            while self._worker_task:
+            while self._worker_running:
                 while self._result_queue.qsize() == 0:
                     try:
                         await asyncio.sleep(0.001)
@@ -321,7 +386,7 @@ class WhisperThread:
     async def _error_watcher(self):
         # Raise exception in main thread when an error block arrives from woker thread
         try:
-            while self._worker_task:
+            while self._worker_running:
                 while self._error_queue.qsize() == 0:
                     try:
                         await asyncio.sleep(0.01)
@@ -329,7 +394,7 @@ class WhisperThread:
                         break
                 if self._error_queue.qsize() > 0:
                     error_dict = self._error_queue.get()
-                    self._error_callaback(error_dict)
+                    self._error_callback(error_dict)
         except Exception as e:
             error_dict = dict(exception=e,
                               traceback=traceback.format_exc())

@@ -5,6 +5,8 @@ This file is automatically loaded by pytest and provides
 shared fixtures and configuration for all tests.
 """
 import os
+import sys
+import logging
 import pytest
 
 # Set ipdb as the default breakpoint() debugger
@@ -61,3 +63,5 @@ def configure_breakpoint():
     yield
     # Cleanup after tests (optional)
     pass
+
+

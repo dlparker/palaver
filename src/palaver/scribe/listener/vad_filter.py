@@ -4,6 +4,7 @@ import time
 import numpy as np
 import resampy
 import torch
+from silero_vad import load_silero_vad, VADIterator
 from scipy.signal import resample_poly
 from eventemitter import AsyncIOEventEmitter
 from palaver.scribe.listener.downsampler import DownSampler
@@ -19,15 +20,11 @@ from palaver.scribe.audio_events import (
     AudioChunkEvent,
     AudioEventListener,
 )
-logger.info("Loading Silero VAD...")
-_vad_model, _vad_utils = torch.hub.load(
-    'snakers4/silero-vad',
-    'silero_vad',
-    trust_repo=True,
-    verbose=False
-)
-_VADIterator = _vad_utils[3]
-logger.info("Silero VAD Loading complete")
+
+# This loads the model without any network calls (uses bundled local files)
+_vad_model = load_silero_vad()
+
+
 
 VAD_THRESHOLD = 0.5          # Default threshold
 MIN_SILENCE_MS = 1000         # Default 1.0 seconds
@@ -66,7 +63,7 @@ class VADFilter(AudioEventListener):
         self._threshold = threshold
         self._speech_pad_ms = speech_pad_ms
         logger.info(f"[DEBUG] Creating VAD: silence_threshold={silence_ms}ms, vad_threshold={threshold}")
-        vad = _VADIterator(
+        vad = VADIterator(
             _vad_model,
             threshold=self._threshold,
             sampling_rate=VAD_SR,
