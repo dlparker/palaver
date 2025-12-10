@@ -33,7 +33,7 @@ logger = logging.getLogger("CLI")
 
 CHUNK_SEC = 0.03
 
-note1_wave = Path(__file__).parent.parent / "tests_slow" / "audio_samples" / "note1_base.wav"
+note1_wave = Path(__file__).parent.parent / "tests" / "audio_samples" / "note1_base.wav"
 
 class TextPrinter(TextEventListener):
 
@@ -145,7 +145,11 @@ async def main(path, simulate_timing, model, play_sound):
         from pprint import pformat
         raise Exception(pformat(error_dict))
     
-    whisper_thread = WhisperThread(model, error_callback)
+    whisper_thread = WhisperThread(model, error_callback, use_mp=True)
+    #whisp_config = whisper_thread.get_config()
+    #whisp_config['pre_buffer_seconds'] = 1.0
+    #await whisper_thread.update_config(whisp_config)
+    
     vadfilter.add_event_listener(whisper_thread)
     text_printer = TextPrinter(print_progress=True)
     whisper_thread.add_text_event_listener(text_printer)
@@ -175,4 +179,10 @@ if __name__ == "__main__":
                        help="Plays sound through player during file processing")
     parser.add_argument('path', type=str, nargs='?', help="Name of file to play", default=note1_wave)
     args = parser.parse_args()
-    asyncio.run(main(path=args.path, simulate_timing=args.simulate_timing, model=args.model, play_sound=args.play_sound))
+    model_path = Path(args.model)
+    if not model_path.exists():
+        parser.error(f"Model file {model_path} does not exist")
+    file_path = Path(args.path)
+    if not file_path.exists():
+        parser.error(f"Sound file {file_path} does not exist")
+    asyncio.run(main(path=file_path, simulate_timing=args.simulate_timing, model=model_path, play_sound=args.play_sound))

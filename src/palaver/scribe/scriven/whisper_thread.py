@@ -5,6 +5,7 @@ import asyncio
 import traceback
 from typing import Optional, Dict
 from collections.abc import Callable
+from collections import deque
 from queue import Empty, Queue
 from dataclasses import dataclass, field
 from threading import Event as TEvent
@@ -129,13 +130,13 @@ class WhisperThread:
     default_config = {'buffer_samples': BUFFER_SAMPLES,
                       'require_speech': True,
                       'model_path': None,
-                      'pre_buffer_samples': 0,
+                      'pre_buffer_seconds': 1.0,
                       'error_callback': None,
                       }
     config_help = {'buffer_samples': "The number of samples that will be collected before sending to speech transcriber, max",
                    'require_speech': "If true, then transcription will be turned on and off by audio events for speech start and stop",
                    'model_path': "Required path to the whispercpp compatible speech transcription model, e.g. ggml-basic.en.bin",
-                   'pre_buffer_samples': "If require_speech is true, how many extra samples will be pulled from pre-start history",
+                   'pre_buffer_seconds': "If require_speech is true, extra samples will be pulled from pre-start history this far back in time",
                    'error_callback': "Callable that accepts a dictionary of error info when a background error occurs",
                    }
     
@@ -147,6 +148,7 @@ class WhisperThread:
         self._config['error_callback'] = self._error_callback
         self._buffer = np.zeros(self._config['buffer_samples'], dtype=np.float32)
         self._buffer_pos = 0
+        self._pre_buffer = None
         self._in_speech = False
         self._first_chunk = None
         self._last_chunk = None
@@ -170,15 +172,21 @@ class WhisperThread:
         self._emitter = AsyncIOEventEmitter()
 
     def get_config(self):
-        return self._config
+        return dict(self._config)
     
     async def update_config(self, new_config):
-        if new_config['model_path'] != self._model_path and self._worker_running:
-            raise Exception("dynmaic model change not yet implemented")
-        if new_config['buffer_samples'] != self._config['buffer_samples'] and self._worker_running:
-            raise Exception("dynmaic buffer size change yet implemented")
-        if new_config['pre_buffer_samples'] != self._config['pre_buffer_samples'] and self._worker_running:
-            raise Exception("dynmaic pre_buffer size change yet implemented")
+        if new_config['model_path'] != self._model_path:
+            if self._worker_running:
+                raise Exception("dynmaic model change not yet implemented")
+            self._config['model_path'] = self._model_path = new_config['model_path']
+        if new_config['buffer_samples'] != self._config['buffer_samples']:
+            if self._worker_running:
+                raise Exception("dynmaic buffer size change yet implemented")
+            self._config['buffer_samples'] = new_config['buffer_samples']
+        if new_config['pre_buffer_seconds'] != self._config['pre_buffer_seconds']:
+            if self._worker_running:
+                raise Exception("dynmaic pre_buffer size change yet implemented")
+            self._config['pre_buffer_seconds'] = new_config['pre_buffer_seconds']
         if new_config['require_speech'] != self._config['require_speech'] and self._worker_running:
             self._config['require_speech'] = new_config['require_speech']
             await self.set_in_speech(new_config['require_speech'])
@@ -187,6 +195,11 @@ class WhisperThread:
             self._error_callback = new_config['error_callback']
         
     async def start(self):
+        if self._config['pre_buffer_seconds']  > 0:
+            self._pre_buffer = AudioRingBuffer(max_seconds=self._config['pre_buffer_seconds'])
+        else:
+            self._pre_buffer = None
+
         if self._use_mp:
             args = [self._job_queue,
                     self._result_queue,
@@ -225,7 +238,6 @@ class WhisperThread:
                     await asyncio.sleep(0.05)
 
             except:
-                import ipdb; ipdb.set_trace()
                 msg = f"Whisper worker check got error {traceback.format_exc()}"
                 logger.error(msg)
                 raise Exception(msg)
@@ -270,7 +282,30 @@ class WhisperThread:
                 self._last_chunk = None
             self._first_chunk = None
             self._last_chunk = None
-                
+
+    async def _handle_chunk(self, event):
+        if self._first_chunk is None:
+            self._first_chunk = event
+        self._last_chunk = event
+        # event.data is already np.ndarray, shape (N, 1), dtype=float32, 16kHz mono
+        chunk = event.data.flatten()                # → shape (N,), makes life easier
+        samples_needed = self._config['buffer_samples'] - self._buffer_pos
+        if len(chunk) <= samples_needed:
+            # Whole chunk fits → just copy it in
+            self._buffer[self._buffer_pos:self._buffer_pos + len(chunk)] = chunk
+            self._buffer_pos += len(chunk)
+        else:
+            # Chunk is bigger than remaining space → fill what we can, process, start new buffer
+            self._buffer[self._buffer_pos:] = chunk[:samples_needed]
+            await self._push_buffer_job()
+            # Put the leftover part into the fresh buffer
+            leftover = chunk[samples_needed:]
+            self._buffer[:len(leftover)] = leftover
+            self._buffer_pos = len(leftover)
+        # Every time the buffer becomes full → process immediately
+        if self._buffer_pos >= self._config['buffer_samples']:
+            await self._push_buffer_job()
+        
     async def on_audio_event(self, event):
         if not self._worker_running:
             return
@@ -278,28 +313,17 @@ class WhisperThread:
             await self.set_in_speech(True)
         elif isinstance(event, AudioSpeechStopEvent):
             await self.set_in_speech(False)
+        elif isinstance(event, AudioChunkEvent) and not self._in_speech and self._pre_buffer is not None:
+            self._pre_buffer.add(event)
         elif isinstance(event, AudioChunkEvent) and self._in_speech:
-            if self._first_chunk is None:
-                self._first_chunk = event
-            self._last_chunk = event
-            # event.data is already np.ndarray, shape (N, 1), dtype=float32, 16kHz mono
-            chunk = event.data.flatten()                # → shape (N,), makes life easier
-            samples_needed = self._config['buffer_samples'] - self._buffer_pos
-            if len(chunk) <= samples_needed:
-                # Whole chunk fits → just copy it in
-                self._buffer[self._buffer_pos:self._buffer_pos + len(chunk)] = chunk
-                self._buffer_pos += len(chunk)
-            else:
-                # Chunk is bigger than remaining space → fill what we can, process, start new buffer
-                self._buffer[self._buffer_pos:] = chunk[:samples_needed]
-                await self._push_buffer_job()
-                # Put the leftover part into the fresh buffer
-                leftover = chunk[samples_needed:]
-                self._buffer[:len(leftover)] = leftover
-                self._buffer_pos = len(leftover)
-            # Every time the buffer becomes full → process immediately
-            if self._buffer_pos >= self._config['buffer_samples']:
-                await self._push_buffer_job()
+            if self._pre_buffer and self._pre_buffer.has_data():
+                # We collected some while not in speech, get those
+                # and process those first. Helps avoid dropped
+                # words at the beginning when doing VAD
+                print(f"\nPrepending {len(self._pre_buffer.buffer)}\n")
+                for pre_event in self._pre_buffer.get_all(clear=True):
+                    await self._handle_chunk(pre_event)
+            await self._handle_chunk(event)
         elif isinstance(event, AudioStopEvent):
             await self.set_in_speech(False)
         
@@ -403,3 +427,44 @@ class WhisperThread:
             self._error_task = None
             
         
+class AudioRingBuffer:
+
+    def __init__(self, max_seconds: float = 2):
+        """
+        Initialize the ring buffer.
+        
+        :param max_seconds: Maximum seconds of audio history to retain.
+        """
+        if max_seconds <= 0:
+            raise ValueError("max_seconds must be positive")
+        self.max_seconds = max_seconds
+        self.buffer: deque[AudioChunkEvent] = deque()
+
+    def has_data(self):
+        return len(self.buffer)
+    
+    def add(self, event: AudioChunkEvent) -> None:
+        """
+        Add a new AudioChunkEvent to the buffer and prune old entries.
+        """
+        self.buffer.append(event)
+        self._prune()
+
+    def _prune(self, now: float = None) -> None:
+        """
+        Remove events entirely older than the retention window.
+        
+        :param now: Optional current time (defaults to time.time()).
+        """
+        if now is None:
+            now = time.time()
+        while self.buffer and (self.buffer[0].timestamp + self.buffer[0].duration < now - self.max_seconds):
+            self.buffer.popleft()
+
+    def get_all(self, clear=False) -> list[AudioChunkEvent]:
+        """Return a list of all current events in the buffer (oldest to newest)."""
+        res = list(self.buffer)
+        if clear:
+            self.buffer.clear()
+        return res
+
