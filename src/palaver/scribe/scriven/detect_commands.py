@@ -34,11 +34,16 @@ class DetectCommands:
         
     async def on_text_event(self, event):
         on_command = self._config['on_command']
+        issued = set()
         for segment_index, seg in enumerate(event.segments):
             search_buffer = seg.text
             for pattern in self._command_dictionary:
                 ratio = fuzz.partial_ratio(pattern,  search_buffer)
                 if ratio >= self._config['match_minimum']:
-                    res = CommandMatch(self._command_dictionary[pattern], pattern, event, segment_index)
+                    command_key = self._command_dictionary[pattern]
+                    if command_key in issued:
+                        continue
+                    res = CommandMatch(command_key, pattern, event, segment_index)
                     await on_command(res)
+                    issued.add(command_key)
                 
