@@ -97,8 +97,8 @@ def worker_wrapper(job_queue: Queue, result_queue: Queue,
     except Exception as e:
         error_dict = dict(exception=e,
                           traceback=traceback.format_exc())
-        logger.error("Whipser thread exiting on error: \n%s", e)
-        self.error_queue.put_nowait(error_dict)
+        logger._error("Whipser thread exiting on error: \n%s", e)
+        self._error_queue.put_nowait(error_dict)
         return Error
     logger.info("Worker thread for model %s exiting", model_path)
     return None
@@ -121,64 +121,64 @@ class WhisperThread:
                    }
     
     def __init__(self, model_path: os.PathLike[str], error_callback: Callable[[dict], None]):
-        self.model_path = model_path
-        self.error_callback = error_callback
-        self.config = dict(self.default_config)
-        self.config['model_path'] = self.model_path
-        self.config['error_callback'] = self.error_callback
-        self.buffer = np.zeros(self.config['buffer_samples'], dtype=np.float32)
-        self.buffer_pos = 0
-        self.in_speech = False
-        self.first_chunk = None
-        self.last_chunk = None
-        self.next_job_id = 0
-        self.job_queue = Queue()
-        self.result_queue = Queue()
-        self.error_queue = Queue()
-        self.shutdown_event = Event()
-        self.worker_task = None
-        self.sender_task = None
-        self.error_task = None
-        self.emitter = AsyncIOEventEmitter()
+        self._model_path = model_path
+        self._error_callback = error_callback
+        self._config = dict(self.default_config)
+        self._config['model_path'] = self._model_path
+        self._config['error_callback'] = self._error_callback
+        self._buffer = np.zeros(self._config['buffer_samples'], dtype=np.float32)
+        self._buffer_pos = 0
+        self._in_speech = False
+        self._first_chunk = None
+        self._last_chunk = None
+        self._next_job_id = 0
+        self._job_queue = Queue()
+        self._result_queue = Queue()
+        self._error_queue = Queue()
+        self._shutdown_event = Event()
+        self._worker_task = None
+        self._sender_task = None
+        self._error_task = None
+        self._emitter = AsyncIOEventEmitter()
 
     def get_config(self):
-        return self.config
+        return self._config
     
     async def update_config(self, new_config):
-        if new_config['model_path'] != self.model_path:
+        if new_config['model_path'] != self._model_path and self._worker_task:
             raise Exception("dynmaic model change not yet implemented")
-        if new_config['buffer_samples'] != self.config['buffer_samples']:
+        if new_config['buffer_samples'] != self._config['buffer_samples'] and self._worker_task:
             raise Exception("dynmaic buffer size change yet implemented")
-        if new_config['pre_buffer_samples'] != self.config['pre_buffer_samples']:
+        if new_config['pre_buffer_samples'] != self._config['pre_buffer_samples'] and self._worker_task:
             raise Exception("dynmaic pre_buffer size change yet implemented")
-        if new_config['require_speech'] != self.config['require_speech']:
-            self.config['require_speech'] = new_config['require_speech']
+        if new_config['require_speech'] != self._config['require_speech'] and self._worker_task:
+            self._config['require_speech'] = new_config['require_speech']
             await self.set_in_speech(new_config['require_speech'])
-        if new_config['error_callback'] != self.config['error_callaback']:
-            self.config['error_callback'] = new_config['error_callback']
-            self.error_callback = new_config['error_callback']
+        if new_config['error_callback'] != self._config['error_callaback'] and self._worker_task:
+            self._config['error_callback'] = new_config['error_callback']
+            self._error_callback = new_config['error_callback']
         
     async def start(self):
         coro = asyncio.to_thread(worker_wrapper,
-                               self.job_queue,
-                               self.result_queue,
-                               self.error_queue,
-                               self.shutdown_event,
-                               self.model_path)
+                               self._job_queue,
+                               self._result_queue,
+                               self._error_queue,
+                               self._shutdown_event,
+                               self._model_path)
                            
-        self.worker_task = asyncio.create_task(coro)
-        self.sender_task = asyncio.create_task(self.sender())
-        self.error_task = asyncio.create_task(self.error_watcher())
+        self._worker_task = asyncio.create_task(coro)
+        self._sender_task = asyncio.create_task(self._sender())
+        self._error_task = asyncio.create_task(self._error_watcher())
 
     async def gracefull_shutdown(self, timeout=3.0):
         job =  ScriveJob(job_id=-1,
                          data=None,
                          first_chunk=None,
                          last_chunk=None)
-        self.job_queue.put_nowait(job)
+        self._job_queue.put_nowait(job)
         start_time = time.time()
         try:
-            await asyncio.wait_for(self.worker_task, timeout=timeout)
+            await asyncio.wait_for(self._worker_task, timeout=timeout)
         except asyncio.TimeoutError:
             msg = f"Whisper worker did not shutdown within requested timeout {timeout}s"
             logger.error(msg)
@@ -187,7 +187,7 @@ class WhisperThread:
         wait_time = timeout - (sender_time - start_time)
         while True:
             await asyncio.sleep(0.001)
-            if self.result_queue.qsize() == 0:
+            if self._result_queue.qsize() == 0:
                 break
             if time.time() - sender_time >= wait_time:
                 msg = f"Whisper sender task did not collect last result within requested timeout {timeout}s"
@@ -200,64 +200,85 @@ class WhisperThread:
     # This is called by audio event code when "require_speech" is true,
     # or can be managed manually to turn transcription on and off
     async def set_in_speech(self, value):
-        if self.in_speech != value:
-            self.in_speech = value
-            if not value and self.buffer_pos > 1000:
-                await self.push_buffer_job()
+        if self._in_speech != value:
+            self._in_speech = value
+            if not value and self._buffer_pos > 1000:
+                await self._push_buffer_job()
             else:
-                self.buffer = np.zeros(self.config['buffer_samples'], dtype=np.float32)
-                self.buffer_pos = 0
-                self.first_chunk = None
-                self.last_chunk = None
-            self.first_chunk = None
-            self.last_chunk = None
+                self._buffer = np.zeros(self._config['buffer_samples'], dtype=np.float32)
+                self._buffer_pos = 0
+                self._first_chunk = None
+                self._last_chunk = None
+            self._first_chunk = None
+            self._last_chunk = None
                 
     async def on_audio_event(self, event):
-        if not self.worker_task:
+        if not self._worker_task:
             return
         if isinstance(event, AudioSpeechStartEvent):
             await self.set_in_speech(True)
         elif isinstance(event, AudioSpeechStopEvent):
             await self.set_in_speech(False)
-        elif isinstance(event, AudioChunkEvent) and self.in_speech:
-            if self.first_chunk is None:
-                self.first_chunk = event
-            self.last_chunk = event
+        elif isinstance(event, AudioChunkEvent) and self._in_speech:
+            if self._first_chunk is None:
+                self._first_chunk = event
+            self._last_chunk = event
             # event.data is already np.ndarray, shape (N, 1), dtype=float32, 16kHz mono
             chunk = event.data.flatten()                # → shape (N,), makes life easier
-            samples_needed = self.config['buffer_samples'] - self.buffer_pos
+            samples_needed = self._config['buffer_samples'] - self._buffer_pos
             if len(chunk) <= samples_needed:
                 # Whole chunk fits → just copy it in
-                self.buffer[self.buffer_pos:self.buffer_pos + len(chunk)] = chunk
-                self.buffer_pos += len(chunk)
+                self._buffer[self._buffer_pos:self._buffer_pos + len(chunk)] = chunk
+                self._buffer_pos += len(chunk)
             else:
                 # Chunk is bigger than remaining space → fill what we can, process, start new buffer
-                self.buffer[self.buffer_pos:] = chunk[:samples_needed]
-                await self.push_buffer_job()
+                self._buffer[self._buffer_pos:] = chunk[:samples_needed]
+                await self._push_buffer_job()
                 # Put the leftover part into the fresh buffer
                 leftover = chunk[samples_needed:]
-                self.buffer[:len(leftover)] = leftover
-                self.buffer_pos = len(leftover)
+                self._buffer[:len(leftover)] = leftover
+                self._buffer_pos = len(leftover)
             # Every time the buffer becomes full → process immediately
-            if self.buffer_pos >= self.config['buffer_samples']:
-                await self.push_buffer_job()
+            if self._buffer_pos >= self._config['buffer_samples']:
+                await self._push_buffer_job()
         elif isinstance(event, AudioStopEvent):
             await self.set_in_speech(False)
         
-    async def push_buffer_job(self):
-        if self.buffer_pos == 0:
+    def add_text_event_listener(self, e_listener: TextEventListener) -> None:
+        self._emitter.on(TextEvent, e_listener.on_text_event)
+        
+    async def stop(self):
+        self._shutdown_event.set()
+        res = await self._worker_task
+        if res:
+            logger.error("Worker task returned error %s", res)
+        self._worker_task = None
+        if self._sender_task:
+            try:
+                self._sender_task.cancel()
+            finally:
+                self._sender_task = None
+        if self._error_task:
+            try:
+                self._error_task.cancel()
+            finally:
+                self._error_task = None
+            
+
+    async def _push_buffer_job(self):
+        if self._buffer_pos == 0:
             return
-        size = self.buffer_pos
-        job =  ScriveJob(job_id=self.next_job_id,
+        size = self._buffer_pos
+        job =  ScriveJob(job_id=self._next_job_id,
                          data=np.zeros(size, dtype=np.float32),
-                         first_chunk = self.first_chunk,
-                         last_chunk = self.last_chunk)
-        job.data[:] = self.buffer[:size]
-        self.next_job_id += 1
-        self.buffer_pos = 0
-        self.first_chunk = None
-        self.last_chunk = None
-        self.job_queue.put_nowait(job)
+                         first_chunk = self._first_chunk,
+                         last_chunk = self._last_chunk)
+        job.data[:] = self._buffer[:size]
+        self._next_job_id += 1
+        self._buffer_pos = 0
+        self._first_chunk = None
+        self._last_chunk = None
+        self._job_queue.put_nowait(job)
         if PRINTING:
             print('\n\n---------------\n')
             print(f"job_id={job.job_id}, ")
@@ -266,16 +287,16 @@ class WhisperThread:
             print(f"datasize={len(job.data)}")
             print('\n---------------\n\n')
         
-    async def sender(self):
+    async def _sender(self):
         try:
-            while self.worker_task:
-                while self.result_queue.qsize() == 0:
+            while self._worker_task:
+                while self._result_queue.qsize() == 0:
                     try:
                         await asyncio.sleep(0.001)
                     except asyncio.exceptions.CancelledError:
                         break
-                if self.result_queue.qsize() > 0:                
-                    job = self.result_queue.get()
+                if self._result_queue.qsize() > 0:                
+                    job = self._result_queue.get()
                     logger.info("Dequeued finished job %d in %f seconds with segment count %d",
                                 job.job_id, job.duration, len(job.text_segments))
                     if len(job.text_segments) == 1 and job.text_segments[0].text == "[BLANK_AUDIO]":
@@ -291,49 +312,29 @@ class WhisperThread:
                                           audio_start_time=job.first_chunk.timestamp,
                                           audio_end_time=job.last_chunk.timestamp)
                         logger.info("Emitting event %s", event)
-                        await self.emitter.emit(TextEvent, event)
+                        await self._emitter.emit(TextEvent, event)
         except:
             logger.error("sender task got error: \n%s", traceback.format_exc())
         finally:
-            self.sender_task = None
+            self._sender_task = None
 
-    async def error_watcher(self):
+    async def _error_watcher(self):
         # Raise exception in main thread when an error block arrives from woker thread
         try:
-            while self.worker_task:
-                while self.error_queue.qsize() == 0:
+            while self._worker_task:
+                while self._error_queue.qsize() == 0:
                     try:
                         await asyncio.sleep(0.01)
                     except asyncio.exceptions.CancelledError:
                         break
-                if self.error_queue.qsize() > 0:
-                    error_dict = self.error_queue.get()
-                    self.error_callaback(error_dict)
+                if self._error_queue.qsize() > 0:
+                    error_dict = self._error_queue.get()
+                    self._error_callaback(error_dict)
         except Exception as e:
             error_dict = dict(exception=e,
                               traceback=traceback.format_exc())
             logger.error("error_watcher task got error: \n%s", traceback.format_exc())
         finally:
-            self.error_task = None
+            self._error_task = None
             
-    async def stop(self):
-        self.shutdown_event.set()
-        res = await self.worker_task
-        if res:
-            logger.error("Worker task returned error %s", res)
-        self.worker_task = None
-        if self.sender_task:
-            try:
-                self.sender_task.cancel()
-            finally:
-                self.sender_task = None
-        if self.error_task:
-            try:
-                self.error_task.cancel()
-            finally:
-                self.error_task = None
-            
-    def add_text_event_listener(self, e_listener: TextEventListener) -> None:
-        self.emitter.on(TextEvent, e_listener.on_text_event)
-
         

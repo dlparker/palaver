@@ -35,6 +35,8 @@ class DownSampler(AudioEventListener):
         data = event.data
         src_sr = event.sample_rate
         src_ch = event.channels
+        if not isinstance(src_ch, int):
+            src_ch = src_ch[1]
 
         if src_sr != self.target_sr and self.target_sr is not None:
             data = resampy.resample(data, src_sr, self.target_sr, filter=self.quality, axis=0)
