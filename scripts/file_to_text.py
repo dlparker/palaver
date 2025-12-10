@@ -25,7 +25,7 @@ from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.scriven.whisper_thread import WhisperThread
 
 
-logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+logging.basicConfig(stream=sys.stdout, level=logging.WARNING)
 logger = logging.getLogger("CLI")
 
 CHUNK_SEC = 0.03
@@ -34,13 +34,23 @@ note1_wave = Path(__file__).parent.parent / "tests_slow" / "audio_samples" / "no
 
 class TextPrinter(TextEventListener):
 
+    def __init__(self, print_progress=False):
+        self.full_text = ""
+        self.print_progress = print_progress
+
     async def on_text_event(self, event):
-        print("*"*100)
-        print("--------Text received---------")
+        logger.info("*"*100)
+        logger.info("--------Text received---------")
         for seg in event.segments:
-            print(seg.text)
-        print("--------END Text received---------")
-        print("*"*100)
+            logger.info(seg.text)
+            if self.print_progress:
+                print(seg.text+ " ")
+            self.full_text += seg.text + " "
+        logger.info("--------END Text received---------")
+        logger.info("*"*100)
+
+    def finish(self):
+        print(self.full_text)
 
 class Player:
 
@@ -118,9 +128,13 @@ async def main(path, simulate_timing, model):
     # play it
     vadfilter.add_event_listener(player)
     # transcribe it
-    whisper_thread = WhisperThread(model)
+    def error_callback(error_dict:dict):
+        from pprint import pformat
+        raise Exception(pformat(error_dict))
+    
+    whisper_thread = WhisperThread(model, error_callback)
     vadfilter.add_event_listener(whisper_thread)
-    text_printer = TextPrinter()
+    text_printer = TextPrinter(print_progress=True)
     whisper_thread.add_text_event_listener(text_printer)
     await whisper_thread.start()
 
@@ -132,8 +146,8 @@ async def main(path, simulate_timing, model):
             await asyncio.sleep(0.1)
 
     player.stop()
-    await asyncio.sleep(1.0)
-    await whisper_thread.stop()
+    await whisper_thread.gracefull_shutdown(3.0)
+    text_printer.finish()
     print("Playback finished.")
     
 if __name__ == "__main__":
