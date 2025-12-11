@@ -1,15 +1,17 @@
-from typing import Protocol, Any, Optional, ClassVar, List
+from typing import Protocol, Any, Optional, ClassVar, List, Callable
 from enum import Enum
 import socket
 from datetime import datetime
 import time
 import uuid
+import logging
+import traceback
 from dataclasses import dataclass, field
 from collections import deque
 import numpy as np
 from eventemitter import AsyncIOEventEmitter
 
-from palaver.scribe.audio_events import AudioEvent, AudioEventListener
+from palaver.scribe.audio_events import AudioEvent, AudioEventListener, AudioErrorEvent
 
 class Listener(Protocol):
 
@@ -24,15 +26,40 @@ class Listener(Protocol):
 
 class ListenerCCSMixin:
 
-    def __init__(self, chunk_duration) -> None:
+    def __init__(self, chunk_duration, error_callback: Optional[Callable[[dict], None]] = None) -> None:
         self.chunk_duration = chunk_duration
         self.emitter = AsyncIOEventEmitter()
+        self._error_callback = error_callback
+        self._logger = logging.getLogger(self.__class__.__name__)
 
     def add_event_listener(self, e_listener: AudioEventListener) -> None:
         self.emitter.on(AudioEvent, e_listener.on_audio_event)
 
     async def emit_event(self, event: AudioEvent) -> None:
         await self.emitter.emit(AudioEvent, event)
+
+    async def _handle_background_error(self, exception: Exception, source: str) -> None:
+        """
+        Handle errors that occur in background tasks.
+
+        Args:
+            exception: The exception that was caught
+            source: String identifying where the error occurred (e.g., "MicListener._reader")
+        """
+        error_dict = dict(
+            exception=exception,
+            traceback=traceback.format_exc(),
+            source=source
+        )
+        self._logger.error("%s task got error: \n%s", source, traceback.format_exc())
+
+        if self._error_callback:
+            self._error_callback(error_dict)
+        else:
+            # If no error callback, emit an AudioErrorEvent as fallback
+            if hasattr(self, 'source_id'):
+                event = AudioErrorEvent(source_id=self.source_id, message=str(exception))
+                await self.emit_event(event)
 
 def create_source_id(source_type: str, start_datetime: datetime, port: int) -> str:
     """

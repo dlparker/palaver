@@ -43,7 +43,7 @@ based on command prefixes. The techniques uses are preliminary:
 2. Supports simple note catalog management to collect notes into
    taxonomies (maybe only one, but maybe multiple, not sure)
 3. Supports the process of prompt engineering for prompting LLMs directly
-   and through agentic interfaces such as Claude Code.
+   to review generated text and provide further processing.
 4. Supports dictate/review/edit cycles to let human speak freely but
    still avoid LLM context polution.
 

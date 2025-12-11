@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Optional, Callable, List
 from pathlib import Path
 import os
 import time
@@ -26,8 +26,8 @@ class FileListener(ListenerCCSMixin, Listener):
     realword application for refining transcription via playback.
     """
 
-    def __init__(self, chunk_duration: float = 0.03, simulate_timing: bool = True, files: Optional[list[Path | str]] = None):
-        super().__init__(chunk_duration)
+    def __init__(self, chunk_duration: float = 0.03, simulate_timing: bool = True, files: Optional[list[Path | str]] = None, error_callback: Optional[Callable[[dict], None]] = None):
+        super().__init__(chunk_duration, error_callback)
         self._simulate_timing = simulate_timing
         self.files: List[Path] = [Path(p) for p in (files or [])]
         self.current_file = None
@@ -68,14 +68,15 @@ class FileListener(ListenerCCSMixin, Listener):
     async def _reader(self):
         try:
             await self._reader_inner()
-        except Exception:
-            await self.emit_event(AudioErrorEvent(source_id=self.source_id, message=traceback.format_exc()))
+        except asyncio.CancelledError:
+            # Normal cancellation during shutdown
+            logger.info("FileListener _reader task cancelled")
+            raise
+        except Exception as e:
+            await self._handle_background_error(e, "FileListener._reader")
         finally:
             self._reader_task = None
-            try:
-                await self.stop_recording()
-            except Exception:
-                await self.emit_event(AudioErrorEvent(source_id=self.source_id, message=traceback.format_exc()))
+            await self._cleanup()
             
             
     async def _reader_inner(self):

@@ -27,7 +27,7 @@ class MicListener(ListenerCCSMixin, Listener):
     """ Implements the Listener interface by pulling audio data
     from the default audio input device on the machine"""
     def __init__(self, chunk_duration: float = 0.03, error_callback: Optional[Callable[[dict], None]] = None):
-        super().__init__(chunk_duration)
+        super().__init__(chunk_duration, error_callback)
         self._running = False
         self._reader_task = None
         self._blocksize = BLOCKSIZE
@@ -36,7 +36,6 @@ class MicListener(ListenerCCSMixin, Listener):
         self._dtype = 'float32'
         self._q_out = asyncio.Queue()
         self._stream = None
-        self._error_callback = error_callback
         self.source_id = create_source_id("default_mic", datetime.utcnow(), 10000)
 
     async def start_recording(self) -> None:
@@ -99,18 +98,7 @@ class MicListener(ListenerCCSMixin, Listener):
             logger.info("MicListener _reader task cancelled")
             raise
         except Exception as e:
-            error_dict = dict(
-                exception=e,
-                traceback=traceback.format_exc(),
-                source="MicListener._reader"
-            )
-            logger.error("MicListener _reader task got error: \n%s", traceback.format_exc())
-            if self._error_callback:
-                self._error_callback(error_dict)
-            else:
-                # If no error callback, emit an AudioErrorEvent
-                event = AudioErrorEvent(source_id=self.source_id, message=str(e))
-                await self.emit_event(event)
+            await self._handle_background_error(e, "MicListener._reader")
         finally:
             self._reader_task = None
             await self._cleanup()
