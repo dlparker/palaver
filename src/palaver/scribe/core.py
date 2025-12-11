@@ -28,6 +28,7 @@ class PipelineConfig:
     use_multiprocessing: bool = False
     text_event_listener: Optional[TextEventListener] = None
     whisper_shutdown_timeout: float = 3.0
+    recording_output_dir: Optional[Path] = None
 
 
 class ScribePipeline:
@@ -62,6 +63,9 @@ class ScribePipeline:
         self.downsampler: Optional[DownSampler] = None
         self.vadfilter: Optional[VADFilter] = None
         self.whisper_thread: Optional[WhisperThread] = None
+        self.audio_merge = None
+        self.wav_recorder = None
+        self.text_logger = None
         self._pipeline_setup_complete = False
 
     def _error_callback(self, error_dict: dict):
@@ -91,6 +95,44 @@ class ScribePipeline:
             audio_source = self.vadfilter
         else:
             audio_source = self.downsampler
+
+        # Setup recording if output_dir provided
+        if self.config.recording_output_dir:
+            from palaver.scribe.listener.audio_merge import AudioMerge
+            from palaver.scribe.recorders.wav_save import WavSaveRecorder, TextEventLogger
+
+            # Create AudioMerge if VAD enabled (to combine full-rate audio with VAD events)
+            if self.config.use_vad:
+                self.audio_merge = AudioMerge()
+                full, vad = self.audio_merge.get_shims()
+                self.listener.add_event_listener(full)
+                self.vadfilter.add_event_listener(vad)
+                await self.audio_merge.start()
+
+            # Create WAV recorder
+            self.wav_recorder = WavSaveRecorder(self.config.recording_output_dir)
+
+            # Connect recorder to appropriate audio source
+            if self.audio_merge:
+                self.audio_merge.add_event_listener(self.wav_recorder)
+            else:
+                self.listener.add_event_listener(self.wav_recorder)
+
+            await self.wav_recorder.start()
+
+            # Wrap text event listener to log TextEvents
+            if self.config.text_event_listener:
+                self.text_logger = TextEventLogger(self.wav_recorder)
+                original_listener = self.config.text_event_listener
+
+                class CompositeTextListener:
+                    async def on_text_event(slf, event):
+                        await original_listener.on_text_event(event)
+                        await self.text_logger.on_text_event(event)
+
+                self.config.text_event_listener = CompositeTextListener()
+
+            logger.info(f"Recording enabled: {self.config.recording_output_dir}")
 
         # Create whisper transcription thread
         self.whisper_thread = WhisperThread(
@@ -136,6 +178,14 @@ class ScribePipeline:
         Gracefully shutdown the pipeline.
         Must be called inside the listener's context manager, before it exits.
         """
+        # Shutdown recording first to ensure all audio is saved
+        if self.audio_merge:
+            await self.audio_merge.flush()
+
+        if self.wav_recorder:
+            await self.wav_recorder.stop()
+
+        # Then shutdown whisper and text listener
         if self.whisper_thread:
             await self.whisper_thread.gracefull_shutdown(self.config.whisper_shutdown_timeout)
 

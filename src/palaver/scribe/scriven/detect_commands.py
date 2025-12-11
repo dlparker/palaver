@@ -19,7 +19,7 @@ class DetectCommands:
                    'error_callback': "Callable that accepts a dictionary of error info when a background error occurs",
                    }
 
-    def __init__(self, on_command: Awaitable[int],  error_callback: Callable[[dict], None]):
+    def __init__(self, on_command: Awaitable[CommandMatch],  error_callback: Callable[[dict], None]):
         self._config = dict(self.default_config)
         self._config['error_callback'] = error_callback
         self._config['on_command'] = on_command

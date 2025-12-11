@@ -25,6 +25,7 @@ async def run_playback_server(
     simulate_timing: bool = True,
     use_vad: bool = True,
     use_multiprocessing: bool = False,
+    recording_output_dir: Optional[Path] = None,
 ) -> None:
     """
     Run the file playback transcription server.
@@ -37,6 +38,7 @@ async def run_playback_server(
         simulate_timing: Simulate real-time audio timing
         use_vad: Enable Voice Activity Detection
         use_multiprocessing: Use multiprocessing for Whisper (vs threading)
+        recording_output_dir: Optional directory to save WAV recordings and event logs
     """
     logger.info("Starting playback server")
     logger.info(f"Model: {model_path}")
@@ -51,6 +53,7 @@ async def run_playback_server(
         use_vad=use_vad,
         use_multiprocessing=use_multiprocessing,
         text_event_listener=text_event_listener,
+        recording_output_dir=recording_output_dir,
     )
 
     # Create file listener

@@ -131,6 +131,13 @@ Examples:
         help='Set logging level'
     )
 
+    parser.add_argument(
+        '--output-dir',
+        type=Path,
+        default=None,
+        help='Enable recording and save WAV files to this directory (disabled if not provided)'
+    )
+
     # Subcommands for different modes
     subparsers = parser.add_subparsers(dest='mode', required=True, help='Server mode')
 
@@ -187,6 +194,7 @@ async def run_mic_mode(args):
         chunk_duration=args.chunk_duration,
         use_vad=not args.no_vad,
         use_multiprocessing=args.multiprocess,
+        recording_output_dir=args.output_dir,
     )
 
 
@@ -207,6 +215,7 @@ async def run_playback_mode(args):
         simulate_timing=not args.no_simulate_timing,
         use_vad=not args.no_vad,
         use_multiprocessing=args.multiprocess,
+        recording_output_dir=args.output_dir,
     )
 
 
