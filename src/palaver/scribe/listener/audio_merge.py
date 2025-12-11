@@ -13,7 +13,7 @@ logger = logging.getLogger("AudioMerge")
 
 class AudioMerge(AudioEventListener):
     """
-    Merges full-rate audio chunks from a MicListener with speech detection signals
+    Merges full-rate audio chunks from a Listener with speech detection signals
     from a VADFilter. Emits full-rate AudioChunkEvents with in_speech flag set
     based on VAD, along with speech start/stop events.
     
