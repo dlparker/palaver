@@ -168,24 +168,28 @@ async def run_mic_mode(args):
     )
 
     await mic_server.run()
+    print("MicServer.run() complete")
 
 async def run_playback_mode(args):
     """Run file playback transcription mode."""
-    from palaver.scribe.playback_server import run_playback_server
+    from palaver.scribe.playback_server import PlaybackServer
 
     text_printer = TextPrinter(print_progress=not args.no_progress)
+    command_printer = CommandPrinter()
 
-    await run_playback_server(
+    playback_server = PlaybackServer(
         model_path=args.model,
         audio_files=args.files,
         text_event_listener=text_printer,
+        command_event_listener=command_printer,
         chunk_duration=args.chunk_duration,
         simulate_timing=not args.no_simulate_timing,
-        use_vad=not args.no_vad,
         use_multiprocessing=args.multiprocess,
         recording_output_dir=args.output_dir,
     )
 
+    await playback_server.run()
+    print("PlaybackServer.run() complete")
 
 def main():
     """Main entry point."""

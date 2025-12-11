@@ -30,7 +30,8 @@ class MicServer:
         """
         Args:
         model_path: Path to the Whisper model file
-        text_event_listener: Optional listener for transcribed text events
+        text_event_listener: listener for transcribed text events
+        command_event_listener: listener for transcribed text events
         chunk_duration: Audio chunk duration in seconds
         use_multiprocessing: Use multiprocessing for Whisper (vs threading)
         recording_output_dir: Optional directory to save WAV recordings and event logs
@@ -45,7 +46,6 @@ class MicServer:
             model_path=model_path,
             target_samplerate=16000,
             target_channels=1,
-            use_vad=True,
             use_multiprocessing=use_multiprocessing,
             text_event_listener=text_event_listener,
             command_event_listener=command_event_listener,
@@ -71,4 +71,4 @@ class MicServer:
                     print("\nControl-C detected. Shutting down...")
                 # Pipeline shutdown happens automatically in __aexit__
 
-        logger.warning("Microphone server exiting.")
+        logger.info("Microphone server exiting.")

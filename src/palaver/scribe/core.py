@@ -27,7 +27,6 @@ class PipelineConfig:
     command_event_listener: CommandEventListener
     target_samplerate: int = 16000
     target_channels: int = 1
-    use_vad: bool = True
     use_multiprocessing: bool = False
     whisper_shutdown_timeout: float = 3.0
     recording_output_dir: Optional[Path] = None
@@ -92,12 +91,9 @@ class ScribePipeline:
         self.listener.add_event_listener(self.downsampler)
 
         # Create VAD filter if enabled
-        if self.config.use_vad:
-            self.vadfilter = VADFilter(self.listener)
-            self.downsampler.add_event_listener(self.vadfilter)
-            audio_source = self.vadfilter
-        else:
-            audio_source = self.downsampler
+        self.vadfilter = VADFilter(self.listener)
+        self.downsampler.add_event_listener(self.vadfilter)
+        audio_source = self.vadfilter
 
         # Setup recording if output_dir provided
         if self.config.recording_output_dir:
@@ -105,12 +101,11 @@ class ScribePipeline:
             from palaver.scribe.recorders.wav_save import WavSaveRecorder, TextEventLogger
 
             # Create AudioMerge if VAD enabled (to combine full-rate audio with VAD events)
-            if self.config.use_vad:
-                self.audio_merge = AudioMerge()
-                full, vad = self.audio_merge.get_shims()
-                self.listener.add_event_listener(full)
-                self.vadfilter.add_event_listener(vad)
-                await self.audio_merge.start()
+            self.audio_merge = AudioMerge()
+            full, vad = self.audio_merge.get_shims()
+            self.listener.add_event_listener(full)
+            self.vadfilter.add_event_listener(vad)
+            await self.audio_merge.start()
 
             # Create WAV recorder
             self.wav_recorder = WavSaveRecorder(self.config.recording_output_dir)
@@ -153,7 +148,6 @@ class ScribePipeline:
         self.whisper_thread.add_text_event_listener(self.command_dispatch)
         self.command_dispatch.add_event_listener(self)
         self.command_dispatch.add_event_listener(self.config.command_event_listener)
-
         
         self.whisper_thread.add_text_event_listener(self.config.text_event_listener)
 
@@ -185,7 +179,7 @@ class ScribePipeline:
             raise
 
     async def on_command_event(self, event: ScribeCommandEvent):
-        print(f"scribe core got command event {event}")
+        pass
         
     async def shutdown(self):
         """
