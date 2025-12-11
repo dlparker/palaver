@@ -20,14 +20,15 @@ DEFAULT_CHUNK_DURATION = 0.03
 
 class PlaybackServer:
     def __init__(self,
-                 model_path, 
+                 model_path,
                  audio_files: List[Path],
                  text_event_listener: TextEventListener,
                  command_event_listener: CommandEventListener,
                  use_multiprocessing: bool = False,
                  chunk_duration=DEFAULT_CHUNK_DURATION,
                  simulate_timing=False,
-                 recording_output_dir: Optional[Path] = None):
+                 recording_output_dir: Optional[Path] = None,
+                 mqtt_config: Optional[dict] = None):
 
         """
         Run the file playback transcription server.
@@ -40,6 +41,7 @@ class PlaybackServer:
             chunk_duration: Audio chunk duration in seconds
             use_multiprocessing: Use multiprocessing for Whisper (vs threading)
             recording_output_dir: Optional directory to save WAV recordings and event logs
+            mqtt_config: Optional MQTT configuration dict
         """
         logger.info("Starting playback server")
         logger.info(f"Model: {model_path}")
@@ -56,6 +58,7 @@ class PlaybackServer:
             text_event_listener=text_event_listener,
             command_event_listener=command_event_listener,
             recording_output_dir=recording_output_dir,
+            mqtt_config=mqtt_config,
         )
 
         # Create file listener

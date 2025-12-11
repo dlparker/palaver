@@ -110,6 +110,41 @@ Examples:
         help='Enable recording and save WAV files to this directory (disabled if not provided)'
     )
 
+    parser.add_argument(
+        '--mqtt-broker',
+        type=str,
+        default=None,
+        help='MQTT broker address (enables MQTT publishing if provided)'
+    )
+
+    parser.add_argument(
+        '--mqtt-port',
+        type=int,
+        default=1883,
+        help='MQTT broker port (default: 1883)'
+    )
+
+    parser.add_argument(
+        '--mqtt-topic',
+        type=str,
+        default='palaver/scribe',
+        help='MQTT base topic (default: palaver/scribe)'
+    )
+
+    parser.add_argument(
+        '--mqtt-username',
+        type=str,
+        default=None,
+        help='MQTT username (optional)'
+    )
+
+    parser.add_argument(
+        '--mqtt-password',
+        type=str,
+        default=None,
+        help='MQTT password (optional)'
+    )
+
     # Subcommands for different modes
     subparsers = parser.add_subparsers(dest='mode', required=True, help='Server mode')
 
@@ -158,6 +193,17 @@ async def run_mic_mode(args):
     text_printer = TextPrinter(print_progress=not args.no_progress)
     command_printer = CommandPrinter()
 
+    # Prepare MQTT config if broker provided
+    mqtt_config = None
+    if args.mqtt_broker:
+        mqtt_config = {
+            'broker': args.mqtt_broker,
+            'port': args.mqtt_port,
+            'base_topic': args.mqtt_topic,
+            'username': args.mqtt_username,
+            'password': args.mqtt_password,
+        }
+
     mic_server = MicServer(
         model_path=args.model,
         text_event_listener=text_printer,
@@ -165,6 +211,7 @@ async def run_mic_mode(args):
         chunk_duration=args.chunk_duration,
         use_multiprocessing=args.multiprocess,
         recording_output_dir=args.output_dir,
+        mqtt_config=mqtt_config,
     )
 
     await mic_server.run()
@@ -177,6 +224,17 @@ async def run_playback_mode(args):
     text_printer = TextPrinter(print_progress=not args.no_progress)
     command_printer = CommandPrinter()
 
+    # Prepare MQTT config if broker provided
+    mqtt_config = None
+    if args.mqtt_broker:
+        mqtt_config = {
+            'broker': args.mqtt_broker,
+            'port': args.mqtt_port,
+            'base_topic': args.mqtt_topic,
+            'username': args.mqtt_username,
+            'password': args.mqtt_password,
+        }
+
     playback_server = PlaybackServer(
         model_path=args.model,
         audio_files=args.files,
@@ -186,6 +244,7 @@ async def run_playback_mode(args):
         simulate_timing=not args.no_simulate_timing,
         use_multiprocessing=args.multiprocess,
         recording_output_dir=args.output_dir,
+        mqtt_config=mqtt_config,
     )
 
     await playback_server.run()

@@ -20,12 +20,13 @@ DEFAULT_CHUNK_DURATION = 0.03
 class MicServer:
 
     def __init__(self,
-                 model_path, 
+                 model_path,
                  text_event_listener: TextEventListener,
                  command_event_listener: CommandEventListener,
                  use_multiprocessing: bool = False,
                  chunk_duration=DEFAULT_CHUNK_DURATION,
-                 recording_output_dir: Optional[Path] = None):
+                 recording_output_dir: Optional[Path] = None,
+                 mqtt_config: Optional[dict] = None):
 
         """
         Args:
@@ -35,6 +36,7 @@ class MicServer:
         chunk_duration: Audio chunk duration in seconds
         use_multiprocessing: Use multiprocessing for Whisper (vs threading)
         recording_output_dir: Optional directory to save WAV recordings and event logs
+        mqtt_config: Optional MQTT configuration dict
     """
                  
         logger.info("Starting microphone server")
@@ -50,6 +52,7 @@ class MicServer:
             text_event_listener=text_event_listener,
             command_event_listener=command_event_listener,
             recording_output_dir=recording_output_dir,
+            mqtt_config=mqtt_config,
         )
 
         # Create microphone listener

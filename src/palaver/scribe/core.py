@@ -30,6 +30,7 @@ class PipelineConfig:
     use_multiprocessing: bool = False
     whisper_shutdown_timeout: float = 3.0
     recording_output_dir: Optional[Path] = None
+    mqtt_config: Optional[dict] = None
 
 
 class ScribePipeline:
@@ -68,6 +69,7 @@ class ScribePipeline:
         self.audio_merge = None
         self.wav_recorder = None
         self.text_logger = None
+        self.mqtt_publisher = None
         self._pipeline_setup_complete = False
 
     def _error_callback(self, error_dict: dict):
@@ -151,6 +153,32 @@ class ScribePipeline:
         
         self.whisper_thread.add_text_event_listener(self.config.text_event_listener)
 
+        # Setup MQTT publisher if configured
+        if self.config.mqtt_config:
+            try:
+                from palaver.scribe.comms.mqtt_publisher import MQTTPublisher
+
+                self.mqtt_publisher = MQTTPublisher(
+                    broker=self.config.mqtt_config['broker'],
+                    port=self.config.mqtt_config['port'],
+                    base_topic=self.config.mqtt_config['base_topic'],
+                    username=self.config.mqtt_config.get('username'),
+                    password=self.config.mqtt_config.get('password'),
+                )
+                await self.mqtt_publisher.connect()
+
+                # Wire MQTT to receive all events
+                #self.listener.add_event_listener(self.mqtt_publisher)
+                self.vadfilter.add_event_listener(self.mqtt_publisher)
+                self.whisper_thread.add_text_event_listener(self.mqtt_publisher)
+                self.command_dispatch.add_event_listener(self.mqtt_publisher)
+
+                logger.info(f"MQTT publishing enabled: {self.config.mqtt_config['broker']}")
+            except ImportError as e:
+                logger.warning(f"MQTT requested but paho-mqtt not installed: {e}")
+            except Exception as e:
+                logger.error(f"Failed to setup MQTT publisher: {e}")
+
         # Start the whisper thread
         await self.whisper_thread.start()
 
@@ -210,6 +238,11 @@ class ScribePipeline:
 
         if self.config.text_event_listener and hasattr(self.config.text_event_listener, 'finish'):
             self.config.text_event_listener.finish()
+
+        # Disconnect MQTT if enabled
+        if self.mqtt_publisher:
+            await self.mqtt_publisher.disconnect()
+
 
         logger.info("Pipeline shutdown complete")
 
