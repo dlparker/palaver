@@ -14,8 +14,7 @@ from pprint import pprint
 import argparse
 
 from palaver.scribe.text_events import TextEvent, TextEventListener
-from palaver.scribe.scriven.detect_commands import DetectCommands
-from palaver.scribe.command_match import CommandMatch
+from palaver.scribe.scriven.wire_commands import ScribeCommandEvent, CommandEventListener
 
 
 # Setup logging
@@ -23,31 +22,19 @@ logging.basicConfig(stream=sys.stdout, level=logging.WARNING)
 logger = logging.getLogger("ScribeServer")
 
 
+class CommandPrinter(CommandEventListener):
+    
+    async def on_command_event(self, event:ScribeCommandEvent):
+        pprint(event)
+        
 class TextPrinter(TextEventListener):
     """
     Text event listener that prints transcribed text and detects commands.
     """
 
-    def __init__(self, print_progress=False, enable_commands=True):
+    def __init__(self, print_progress=False):
         self.full_text = ""
         self.print_progress = print_progress
-        self.enable_commands = enable_commands
-
-        if self.enable_commands:
-            self.command_matcher = DetectCommands(
-                self.on_command,
-                self.command_error_callback
-            )
-        else:
-            self.command_matcher = None
-
-    async def on_command(self, command_match: CommandMatch):
-        """Called when a command is detected in transcribed text."""
-        pprint(command_match.__dict__)
-
-    def command_error_callback(self, error):
-        """Called when command matcher encounters an error."""
-        print(f"Command matcher error: {error}")
 
     async def on_text_event(self, event: TextEvent):
         """Called when new transcribed text is available."""
@@ -62,9 +49,6 @@ class TextPrinter(TextEventListener):
 
         logger.info("--------END Text received---------")
         logger.info("*" * 100)
-
-        if self.command_matcher:
-            await self.command_matcher.on_text_event(event)
 
     def finish(self):
         """Called at the end to print accumulated text."""
@@ -104,18 +88,6 @@ Examples:
         '--no-progress',
         action='store_true',
         help='Disable real-time progress printing (print only at end)'
-    )
-
-    parser.add_argument(
-        '--no-commands',
-        action='store_true',
-        help='Disable command detection'
-    )
-
-    parser.add_argument(
-        '--no-vad',
-        action='store_true',
-        help='Disable Voice Activity Detection'
     )
 
     parser.add_argument(
@@ -181,31 +153,27 @@ Examples:
 
 async def run_mic_mode(args):
     """Run microphone transcription mode."""
-    from palaver.scribe.mic_server import run_mic_server
+    from palaver.scribe.mic_server import MicServer
 
-    text_printer = TextPrinter(
-        print_progress=not args.no_progress,
-        enable_commands=not args.no_commands
-    )
+    text_printer = TextPrinter(print_progress=not args.no_progress)
+    command_printer = CommandPrinter()
 
-    await run_mic_server(
+    mic_server = MicServer(
         model_path=args.model,
         text_event_listener=text_printer,
+        command_event_listener=command_printer,
         chunk_duration=args.chunk_duration,
-        use_vad=not args.no_vad,
         use_multiprocessing=args.multiprocess,
         recording_output_dir=args.output_dir,
     )
 
+    await mic_server.run()
 
 async def run_playback_mode(args):
     """Run file playback transcription mode."""
     from palaver.scribe.playback_server import run_playback_server
 
-    text_printer = TextPrinter(
-        print_progress=not args.no_progress,
-        enable_commands=not args.no_commands
-    )
+    text_printer = TextPrinter(print_progress=not args.no_progress)
 
     await run_playback_server(
         model_path=args.model,

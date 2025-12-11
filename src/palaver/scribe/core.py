@@ -13,6 +13,7 @@ from palaver.scribe.listen_api import Listener
 from palaver.scribe.listener.downsampler import DownSampler
 from palaver.scribe.listener.vad_filter import VADFilter
 from palaver.scribe.scriven.whisper_thread import WhisperThread
+from palaver.scribe.scriven.wire_commands import CommandDispatch, ScribeCommandEvent, CommandEventListener
 from palaver.scribe.text_events import TextEventListener
 
 logger = logging.getLogger("ScribeCore")
@@ -22,11 +23,12 @@ logger = logging.getLogger("ScribeCore")
 class PipelineConfig:
     """Configuration for the Scribe pipeline."""
     model_path: Path
+    text_event_listener: TextEventListener
+    command_event_listener: CommandEventListener
     target_samplerate: int = 16000
     target_channels: int = 1
     use_vad: bool = True
     use_multiprocessing: bool = False
-    text_event_listener: Optional[TextEventListener] = None
     whisper_shutdown_timeout: float = 3.0
     recording_output_dir: Optional[Path] = None
 
@@ -63,6 +65,7 @@ class ScribePipeline:
         self.downsampler: Optional[DownSampler] = None
         self.vadfilter: Optional[VADFilter] = None
         self.whisper_thread: Optional[WhisperThread] = None
+        self.command_dispatch: Optional[CommandDispatch]  = None
         self.audio_merge = None
         self.wav_recorder = None
         self.text_logger = None
@@ -142,9 +145,17 @@ class ScribePipeline:
         )
         audio_source.add_event_listener(self.whisper_thread)
 
-        # Attach text event listener if provided
-        if self.config.text_event_listener:
-            self.whisper_thread.add_text_event_listener(self.config.text_event_listener)
+        # Attach the command listener 
+        self.command_dispatch = CommandDispatch(self._error_callback)
+        from palaver.scribe.commands import default_commands
+        for patterns, command in default_commands:
+            self.command_dispatch.register_command(command, patterns)
+        self.whisper_thread.add_text_event_listener(self.command_dispatch)
+        self.command_dispatch.add_event_listener(self)
+        self.command_dispatch.add_event_listener(self.config.command_event_listener)
+
+        
+        self.whisper_thread.add_text_event_listener(self.config.text_event_listener)
 
         # Start the whisper thread
         await self.whisper_thread.start()
@@ -173,6 +184,9 @@ class ScribePipeline:
             logger.info("Shutdown signal received")
             raise
 
+    async def on_command_event(self, event: ScribeCommandEvent):
+        print(f"scribe core got command event {event}")
+        
     async def shutdown(self):
         """
         Gracefully shutdown the pipeline.
