@@ -15,8 +15,6 @@ class ScribeCommand:
     ends_text_block: bool = False
     starts_recording_session: bool = False
     ends_recording_session: bool = False
-    starts_recording: bool = False
-    stops_recording: bool = False
     stops_audio: bool = False
     starts_audio: bool = False
     stops_audio: bool = False

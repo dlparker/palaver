@@ -11,7 +11,8 @@ JSON Format:
   "segments": [
     {"text": "Clerk, start a new note", "silence_after": 1.0},
     {"text": "This is the title", "silence_after": 1.0},
-    {"text": "This is the body", "silence_after": 6.0}
+    {"text": "This is the body", "silence_after": 1.0}
+    {"text": "Break, Break, Break", "silence_after": 6.0}
   ]
 }
 

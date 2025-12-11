@@ -116,7 +116,7 @@ class ScribePipeline:
             else:
                 self.listener.add_event_listener(self.wav_recorder)
 
-            await self.wav_recorder.start()
+            # Note: Don't start recording here - wait for starts_recording_session command
 
             # Wrap text event listener to log TextEvents
             if self.config.text_event_listener:
@@ -179,7 +179,18 @@ class ScribePipeline:
             raise
 
     async def on_command_event(self, event: ScribeCommandEvent):
-        pass
+        """Handle command events for recording session control."""
+        # Handle recording session control
+        if self.wav_recorder:
+            if event.command.starts_recording_session:
+                logger.info(f"Command '{event.command.name}' starting new recording session")
+                # Stop existing recording if active
+                await self.wav_recorder.stop()
+                # Start new recording session
+                await self.wav_recorder.start()
+            elif event.command.ends_recording_session:
+                logger.info(f"Command '{event.command.name}' ending recording session")
+                await self.wav_recorder.stop()
         
     async def shutdown(self):
         """
