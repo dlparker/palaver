@@ -1,0 +1,43 @@
+
+**Research Project Title:** “Building a Command System for Narrative Exploration: Leveraging Voice, Emacs, and a Future-Forward Interface”
+
+**I. Core Command Recognition – Iterative Prototype (Weeks 1-6)**
+
+*   **Goal:** Develop a robust command recognition system, moving beyond simple triggers and into a potentially adaptable “prompt-based” workflow.
+*   **Tasks:**
+    *   **Prompting Strategy Deep Dive:** (Week 1) –  Explore various prompt styles – “describe the character” - “generate a setting” - “list resources” – and their effect on recognition.  Experiment with different prompt structures.
+    *   **Rapid Prototype Iteration:** (Weeks 2-4) – Build a core prototype focusing on “start a new note” and “break break break.”  Record all prompts and the resulting recognition results in Emacs.  Focus on *consistency* – how does each prompt elicit the same output?
+    *   **Prompt Database Creation:** (Week 5) –  Create a small, easily extensible database of common prompt phrases and associated recognition targets (character names, settings, objects, etc.).
+    *   **Error Handling & Contextual Analysis:** (Week 6) – Implement basic error handling – logging invalid prompts – and analyze the types of errors that occur.
+
+**II. Voice Integration & Emacs Enhancement (Weeks 7-12)**
+
+*   **Goal:** Seamlessly integrate voice interaction with Emacs and expand the command recognition to include more complex operations.
+*   **Tasks:**
+    *   **Voice Input Mapping:** (Week 7) -  Map voice commands (e.g., “start a new note,” “break break break”) to specific Emacs commands (e.g., `C-c t` to start a new note).
+    *   **Voice-to-Text Refinement:** (Week 8) –  Implement a basic voice-to-text engine – potentially using WhisperCPP – to handle variations in voice and accents.  Fine-tuning.
+    *   **Emacs Command Extension:** (Week 9) – Extend existing Emacs commands (e.g., using `M-x` commands) with voice-activated trigger actions.  Focus on quick, dynamic edits.
+    *   **Dialogue Integration:** (Week 10) – Introduce a rudimentary dialogue system. When the system detects a specific dialogue pattern (e.g., “describe character”), trigger a specific action in Emacs.
+
+**III.  Worldbuilding & Taxonomy – Iterative Expansion (Weeks 13-20)**
+
+*   **Goal:**  Develop a flexible, extensible taxonomy for story development, integrating voice-guided annotation.
+*   **Tasks:**
+    *   **Taxonomy Structure Design:** (Week 13) – Define a hierarchy of themes, concepts, and elements. Start with a manageable set – focusing on worldbuilding - history, cultures, and factions.
+    *   **Iterative Annotation Loop:** (Week 14) - Create a basic annotation loop that uses voice input to suggest new notes to add to the taxonomy. Focus on initial suggestions
+    *   **Cross-referencing with Existing Data:** (Week 15) - Begin to incorporate external worldbuilding data – existing story descriptions, character details – into the taxonomy to connect different parts of the world.
+    *   **“Concept Mapping” – Preliminary Exploration:** (Week 16) – Start exploring concept mapping – linking worldbuilding elements to character motivations and plot outcomes.
+
+**IV. Device Integration & Future Expansion (Weeks 21-24)**
+
+*   **Goal:** Prepare for a future “ESP32” device, incorporating the command recognition system.
+*   **Tasks:**
+    *   **Basic Device Communication Interface:** (Week 22) –  Research and design a minimal device interface – focusing on a simple command to trigger the system.
+    *   **Command Recognition for Device Control:** (Week 23) - Design a limited, focused command set to control device (e.g., "display notes," "save notes").
+    *   **Data Storage – Preliminary Structure:** (Week 24) - Plan the initial storage structure for notes – focusing on key categories and metadata.
+
+**V.  Long-Term Considerations (Ongoing - Weeks 25+)**
+
+*   **User Interface Design:** (Ongoing) – Begin sketching out a rudimentary user interface – a text-based view of the command recognition output.
+*   **Expansion of the Taxonomy:** (Ongoing) – Continue building complexity in the taxonomy by adding more levels of categorization.
+

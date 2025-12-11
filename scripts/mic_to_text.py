@@ -126,33 +126,46 @@ class Player:
 
 
 async def main(model):
-    listener = MicListener(chunk_duration=CHUNK_SEC)
+
+    background_error = None
     
+    def error_callback(error_dict:dict):
+        nonlocal background_error
+        background_error = error_dict
+
+    listener = MicListener(chunk_duration=CHUNK_SEC, error_callback=error_callback)
+
     downsampler = DownSampler(target_samplerate=16000, target_channels=1)
     listener.add_event_listener(downsampler)
     vadfilter = VADFilter(listener)
     downsampler.add_event_listener(vadfilter)
     # transcribe it
-    def error_callback(error_dict:dict):
-        from pprint import pformat
-        raise Exception(pformat(error_dict))
     whisper_thread = WhisperThread(model, error_callback)
     vadfilter.add_event_listener(whisper_thread)
     text_printer = TextPrinter(print_progress=True)
     whisper_thread.add_text_event_listener(text_printer)
     await whisper_thread.start()
 
-    async with listener:          
+    async def stop_all():
+        
+        await listener.stop()
+        
+    async with listener:
         await listener.start_recording()
         try:
             while True:
                 await asyncio.sleep(0.1)
+                if background_error:
+                    from pprint import pformat
+                    logger.error("Error callback triggered: %s", pformat(background_error))
+                    raise Exception(pformat(background_error))
         except KeyboardInterrupt:
-            listener.stop()
-            print("\nListener stopped.")
+            print("\nControl-C detected. Shutting down...")
+        finally:
+            # Cleanup must happen inside the context manager, before listener exits
+            await whisper_thread.gracefull_shutdown(3.0)
+            text_printer.finish()
 
-    await whisper_thread.gracefull_shutdown(3.0)
-    text_printer.finish()
     print("Playback finished.")
     
 if __name__ == "__main__":

@@ -320,7 +320,7 @@ class WhisperThread:
                 # We collected some while not in speech, get those
                 # and process those first. Helps avoid dropped
                 # words at the beginning when doing VAD
-                print(f"\nPrepending {len(self._pre_buffer.buffer)}\n")
+                #print(f"\nPrepending {len(self._pre_buffer.buffer)}\n")
                 for pre_event in self._pre_buffer.get_all(clear=True):
                     await self._handle_chunk(pre_event)
             await self._handle_chunk(event)
