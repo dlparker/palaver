@@ -159,7 +159,7 @@ async def main(model):
                     from pprint import pformat
                     logger.error("Error callback triggered: %s", pformat(background_error))
                     raise Exception(pformat(background_error))
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, asyncio.CancelledError):
             print("\nControl-C detected. Shutting down...")
         finally:
             # Cleanup must happen inside the context manager, before listener exits
