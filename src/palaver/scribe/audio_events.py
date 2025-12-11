@@ -10,6 +10,8 @@ class AudioEventType(str, Enum):
     audio_stop = "AUDIO_STOP"
     audio_chunk = "AUDIO_CHUNK"
     audio_input_error = "AUDIO_INPUT_ERROR"
+    audio_speech_start = "AUDIO_SPEECH_START"
+    audio_speech_stop = "AUDIO_SPEECH_STOP"
 
 @dataclass(kw_only=True)
 class AudioEvent:
@@ -49,7 +51,7 @@ class AudioChunkEvent(AudioEvent):
 
 @dataclass(kw_only=True)
 class AudioSpeechStartEvent(AudioEvent):
-    event_type: ClassVar[AudioEventType] = AudioEventType.audio_start
+    event_type: ClassVar[AudioEventType] = AudioEventType.audio_speech_start
     silence_period_ms: int
     vad_threshold: float
     sampling_rate: float
@@ -57,7 +59,7 @@ class AudioSpeechStartEvent(AudioEvent):
 
 @dataclass(kw_only=True)
 class AudioSpeechStopEvent(AudioEvent):
-    event_type: ClassVar[AudioEventType] = AudioEventType.audio_stop
+    event_type: ClassVar[AudioEventType] = AudioEventType.audio_speech_stop
     
 class AudioEventListener(Protocol):
 

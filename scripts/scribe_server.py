@@ -66,13 +66,13 @@ def create_parser() -> argparse.ArgumentParser:
         epilog="""
 Examples:
   # Transcribe from microphone
-  %(prog)s mic --model models/ggml-base.en.bin
+  %(prog)s mic --model models/ggml-medium.en.bin
 
   # Transcribe from audio file
-  %(prog)s playback --model models/ggml-base.en.bin audio.wav
+  %(prog)s playback --model models/ggml-medium.en.bin audio.wav
 
   # Multiple files with simulated timing
-  %(prog)s playback --model models/ggml-base.en.bin file1.wav file2.wav
+  %(prog)s playback --model models/ggml-medium.en.bin file1.wav file2.wav
         """
     )
 
@@ -80,8 +80,8 @@ Examples:
     parser.add_argument(
         '--model',
         type=Path,
-        default=Path("models/ggml-base.en.bin"),
-        help='Path to Whisper model file (default: models/ggml-base.en.bin)'
+        default=Path("models/ggml-medium.en.bin"),
+        help='Path to Whisper model file (default: models/ggml-medium.en.bin)'
     )
 
     parser.add_argument(
