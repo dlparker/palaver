@@ -60,7 +60,7 @@ class Worker:
             try:
                 job = self.job_queue.get(timeout=0.25)
             except Empty:
-                logger.debug("Worker got empty job_queue")
+                #logger.debug("Worker got empty job_queue")
                 continue
             if job.job_id == -1:
                 logger.info("Worker got negative job id, shutting down")

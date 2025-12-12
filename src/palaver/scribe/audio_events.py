@@ -2,6 +2,7 @@ from typing import Any, Optional, ClassVar, Protocol
 from enum import Enum
 import time
 import uuid
+import inspect
 from dataclasses import dataclass, field
 import numpy as np
 
@@ -13,12 +14,20 @@ class AudioEventType(str, Enum):
     audio_speech_start = "AUDIO_SPEECH_START"
     audio_speech_stop = "AUDIO_SPEECH_STOP"
 
+def get_creation_location():
+    # Get the frame two levels up: skip the factory func and dataclass __init__
+    frame = inspect.currentframe().f_back.f_back
+    filename = frame.f_code.co_filename
+    lineno = frame.f_lineno
+    return f"{filename}:{lineno}"
+
 @dataclass(kw_only=True)
 class AudioEvent:
     event_type: AudioEventType
     source_id: str
     timestamp: float = field(default_factory=time.time)
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    creation_location: str = field(default_factory=get_creation_location, repr=True)
 
 @dataclass(kw_only=True)
 class AudioErrorEvent(AudioEvent):

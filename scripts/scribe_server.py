@@ -15,8 +15,10 @@ from pprint import pprint
 import argparse
 
 from palaver.scribe.text_events import TextEvent, TextEventListener
+from palaver.scribe.audio_events import AudioEvent, AudioStopEvent
 from palaver.scribe.scriven.wire_commands import ScribeCommandEvent, CommandEventListener
 from palaver.scribe.api import ScribeAPIListener
+from palaver.scribe.recorders.wav_save import WavSaveRecorder, TextEventLogger
 
 
 # Setup logging
@@ -25,15 +27,15 @@ logger = logging.getLogger("ScribeServer")
 
 class APIWrapper(ScribeAPIListener):
 
-    def __init__(self):
+    def __init__(self, done_callback):
         super().__init__()
+        self.done_callback = done_callback
         self.server = None
         self.server_type = None
         self.full_text = ""
         self.blocks = []
         self.mqtt_publisher = None
         self.wav_recorder = None
-
 
     async def add_mqtt_publisher(self, args):
         from palaver.scribe.comms.mqtt_publisher import MQTTPublisher
@@ -49,7 +51,6 @@ class APIWrapper(ScribeAPIListener):
 
     async def add_recorder(self, args):
         # Setup recording if output_dir provided
-        from palaver.scribe.recorders.wav_save import WavSaveRecorder, TextEventLogger
         self.wav_recorder = WavSaveRecorder(args.output_dir)
         logger.info(f"Recording enabled but not yet wired: {args.output_dir}")
 
@@ -63,7 +64,9 @@ class APIWrapper(ScribeAPIListener):
             logger.info("MQTT publishing wired")
         if self.wav_recorder:
             parts['audio_merge'].add_event_listener(self.wav_recorder)
-            parts['transcription'].TextEventLogger(self.wav_recorder)
+            tel = TextEventLogger(self.wav_recorder)
+            parts['transcription'].add_text_event_listener(tel)
+            await self.wav_recorder.start()
             logger.info(f"Recording wired")
 
     async def on_pipeline_shutdown(self):
@@ -74,6 +77,8 @@ class APIWrapper(ScribeAPIListener):
                 print(traceback.format_exc())
             finally:
                 self.self.mqtt_publisher = None
+        if self.wav_recorder:
+            await self.wav_recorder.stop()
             
     def set_server(self, server, server_type):
         self.server = server
@@ -119,6 +124,12 @@ class APIWrapper(ScribeAPIListener):
         logger.info("--------END Text received---------")
         logger.info("*" * 100)
         
+    async def on_audio_event(self, event:AudioEvent):
+        if isinstance(event, AudioStopEvent):
+            logger.info("Got audio stop event %s", event)
+            if self.done_callback:
+                await self.done_callback(event)
+    
 
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser for scribe_server."""
@@ -250,10 +261,10 @@ Examples:
     return parser
 
 
-async def setup_mic_mode(args):
+async def setup_mic_mode(args, done_callback):
     from palaver.scribe.mic_server import MicServer
 
-    api_wrapper = APIWrapper()
+    api_wrapper = APIWrapper(done_callback)
     if args.mqtt_broker:
         await api_wrapper.add_mqtt_publisher(args)
     if args.output_dir:
@@ -269,11 +280,11 @@ async def setup_mic_mode(args):
     return api_wrapper
 
 
-async def setup_playback_mode(args):
+async def setup_playback_mode(args, done_callback):
 
     from palaver.scribe.playback_server import PlaybackServer
     
-    api_wrapper = APIWrapper()
+    api_wrapper = APIWrapper(done_callback)
     if args.mqtt_broker:
         await api_wrapper.add_mqtt_publisher(args)
     if args.output_dir:
@@ -312,19 +323,28 @@ def main():
     # Run the appropriate mode
     try:
         api_wrapper = None
+        done_noted = False
+        async def done_callback(event):
+            nonlocal done_noted
+            done_noted = done_noted
         async def final_setup():
             nonlocal api_wrapper
             if args.mode == 'mic':
-                api_wrapper = await setup_mic_mode(args)
+                api_wrapper = await setup_mic_mode(args, done_callback)
             else:
-                api_wrapper = await setup_playback_mode(args)
-
+                api_wrapper = await setup_playback_mode(args, done_callback)
             try:
                 await api_wrapper.server.run()
+                await asyncio.sleep(0.1)
             except:
+                logger.error(traceback.format_exc())
                 pipeline = api_wrapper.server.get_pipeline()
                 if pipeline:
-                    await pipeline.shutdown()
+                    try:
+                        await pipeline.shutdown()
+                    except:
+                        logger.error(traceback.format_exc())
+                        
                 raise
             
         asyncio.run(final_setup())

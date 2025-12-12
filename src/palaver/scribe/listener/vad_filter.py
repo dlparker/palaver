@@ -25,7 +25,6 @@ from palaver.scribe.audio_events import (
 _vad_model = load_silero_vad()
 
 
-
 VAD_THRESHOLD = 0.5          # Default threshold
 MIN_SILENCE_MS = 2000         # Default 1.0 seconds
 SPEECH_PAD_MS = 1500

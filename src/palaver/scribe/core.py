@@ -8,6 +8,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional, Callable
 from pathlib import Path
+import traceback
 
 from palaver.scribe.listen_api import Listener
 from palaver.scribe.listener.downsampler import DownSampler
@@ -144,8 +145,9 @@ class ScribePipeline:
         try:
             await self.config.api_listener.on_pipeline_ready(self)
         except:
-            logger.error("pipeline callback to api_listener on startup got error\n{traceback.format_exc()}")
-
+            logger.error("pipeline callback to api_listener on startup got error\n%s",
+                         traceback.format_exc())
+            
     async def start_listener(self):
         """Start the listener streaming audo."""
         await self.listener.start_recording()
@@ -181,15 +183,6 @@ class ScribePipeline:
         Gracefully shutdown the pipeline.
         Must be called inside the listener's context manager, before it exits.
         """
-        # Shutdown recording first to ensure all audio is saved
-        if self.audio_merge:
-            await self.audio_merge.flush()
-            self.audio_merge = None
-            
-        if self.wav_recorder:
-            await self.wav_recorder.stop()
-            self.wav_recorder = None
-            
         # Then shutdown whisper and text listener
         if self.whisper_thread:
             await self.whisper_thread.gracefull_shutdown(self.config.whisper_shutdown_timeout)
@@ -198,7 +191,9 @@ class ScribePipeline:
         try:
             await self.config.api_listener.on_pipeline_shutdown()
         except:
-            logger.error("pipleline shutdown callback to api_listener error\n{traceback.format_exc()}")
+            logger.error("pipleline shutdown callback to api_listener error\n%s",
+                         traceback.format_exc())
+
         finally:
             logger.info("Pipeline shutdown complete")
 

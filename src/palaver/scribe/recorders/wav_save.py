@@ -51,43 +51,35 @@ class WavSaveRecorder(AudioEventListener):
         self._events_log: list = []
         self._recording = False
         self._buffer_lock = threading.Lock()
-        self._sample_rate: Optional[int] = None
-        self._channels: Optional[int] = None
-        self._session_started = False
+        self._in_text_block = False
 
     async def start(self):
-        """Start the recorder or start a new recording session."""
+        """Start the recorder."""
         self._recording = True
-
-        # If this is a session restart (not initial start), create new files
-        if self._session_started and self._sample_rate and self._channels:
-            await self._create_new_files()
-            logger.info(f"Started new recording session: {self._wav_path}")
-        else:
-            logger.info("WavSaveRecorder started (waiting for AudioStartEvent)")
+        logger.info("WavSaveRecorder started")
 
     async def on_audio_event(self, event: AudioEvent):
         """Handle audio events - record chunks and log events."""
-        # Always capture AudioStartEvent to get audio parameters, even if not recording yet
-        if isinstance(event, AudioStartEvent):
-            # Store audio parameters for session restarts
-            self._sample_rate = event.sample_rate
-            self._channels = event.channels
-            self._session_started = True
-            logger.info(f"Captured audio params: {self._sample_rate}Hz, {self._channels}ch")
-
-            # Only create files if recording is active
-            if self._recording:
-                await self._create_new_files()
-                await self._log_event(event)
-                logger.info(f"Recording to {self._wav_path}")
-            return
-
-        # For all other events, skip if not recording
         if not self._recording:
             return
 
-        if isinstance(event, AudioChunkEvent):
+        if isinstance(event, AudioStartEvent):
+            # Create files with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self._wav_path = self.output_dir / f"segment_{timestamp}.wav"
+            self._events_path = self.output_dir / f"segment_{timestamp}.events.json"
+
+            # Open WAV with PCM_16 (not PCM_24) to save space
+            self._wav_file = sf.SoundFile(
+                self._wav_path, mode='w',
+                samplerate=event.sample_rate,
+                channels=event.channels,
+                subtype='PCM_16'
+            )
+            await self._log_event(event)
+            logger.info(f"Recording to {self._wav_path}")
+
+        elif isinstance(event, AudioChunkEvent):
             if self._wav_file:
                 with self._buffer_lock:
                     # Write audio data to WAV file
@@ -107,31 +99,6 @@ class WavSaveRecorder(AudioEventListener):
             await self._close_files()
             logger.error(f"Recording error: {event.message}")
 
-    async def _create_new_files(self):
-        """Create new WAV and events files with current timestamp."""
-        # Close any existing files first
-        if self._wav_file:
-            with self._buffer_lock:
-                self._wav_file.close()
-                self._wav_file = None
-
-        # Create files with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self._wav_path = self.output_dir / f"segment_{timestamp}.wav"
-        self._events_path = self.output_dir / f"segment_{timestamp}.events.json"
-
-        # Open WAV with PCM_16 (not PCM_24) to save space
-        self._wav_file = sf.SoundFile(
-            self._wav_path, mode='w',
-            samplerate=self._sample_rate,
-            channels=self._channels,
-            subtype='PCM_16'
-        )
-
-        # Reset events log for new session
-        self._events_log = []
-        logger.info(f"Created new recording files: {self._wav_path}")
-
     async def _log_event(self, event: AudioEvent):
         """Extract relevant fields from event and add to log."""
         event_dict = {
@@ -150,6 +117,7 @@ class WavSaveRecorder(AudioEventListener):
             event_dict['message'] = event.message
 
         self._events_log.append(event_dict)
+        print(f"\nlogged\n{event_dict} from {event}\n")
 
     async def _close_files(self):
         """Close WAV file and write events log to JSON."""
@@ -212,3 +180,4 @@ class TextEventLogger(TextEventListener):
             event_dict['audio_end_time'] = event.audio_end_time
 
         self.recorder._events_log.append(event_dict)
+        print(f"\nlogged\n{event_dict}\n")
