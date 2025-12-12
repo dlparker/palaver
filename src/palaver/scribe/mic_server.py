@@ -22,10 +22,7 @@ class MicServer:
                  model_path,
                  api_listener: ScribeAPIListener,
                  use_multiprocessing: bool = False,
-                 chunk_duration=DEFAULT_CHUNK_DURATION,
-                 recording_output_dir: Optional[Path] = None,
-                 mqtt_config: Optional[dict] = None):
-
+                 chunk_duration=DEFAULT_CHUNK_DURATION):
         """
         Args:
         model_path: Path to the Whisper model file
@@ -33,8 +30,6 @@ class MicServer:
         command_event_listener: listener for transcribed text events
         chunk_duration: Audio chunk duration in seconds
         use_multiprocessing: Use multiprocessing for Whisper (vs threading)
-        recording_output_dir: Optional directory to save WAV recordings and event logs
-        mqtt_config: Optional MQTT configuration dict
     """
         self._background_error = None
                  
@@ -49,8 +44,6 @@ class MicServer:
             target_channels=1,
             use_multiprocessing=use_multiprocessing,
             api_listener=api_listener,
-            recording_output_dir=recording_output_dir,
-            mqtt_config=mqtt_config,
         )
 
         # Create microphone listener
@@ -67,7 +60,7 @@ class MicServer:
         # Use nested context managers: listener first, then pipeline
         async with self.mic_listener:
             async with ScribePipeline(self.mic_listener, self.config, self.error_callback) as pipeline:
-                await pipeline.start_recording()
+                await pipeline.start_listener()
 
                 try:
                     await pipeline.run_until_error_or_interrupt()

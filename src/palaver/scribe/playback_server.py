@@ -25,9 +25,7 @@ class PlaybackServer:
                  api_listener: ScribeAPIListener,
                  use_multiprocessing: bool = False,
                  chunk_duration=DEFAULT_CHUNK_DURATION,
-                 simulate_timing=False,
-                 recording_output_dir: Optional[Path] = None,
-                 mqtt_config: Optional[dict] = None):
+                 simulate_timing=False):
 
         """
         Run the file playback transcription server.
@@ -38,10 +36,9 @@ class PlaybackServer:
             api_listener: listener for core events
             chunk_duration: Audio chunk duration in seconds
             use_multiprocessing: Use multiprocessing for Whisper (vs threading)
-            recording_output_dir: Optional directory to save WAV recordings and event logs
-            mqtt_config: Optional MQTT configuration dict
         """
         self._background_error = None
+        self.pipeline = None
         logger.info("Starting playback server")
         logger.info(f"Model: {model_path}")
         logger.info(f"Multiprocessing: {use_multiprocessing}")
@@ -56,8 +53,6 @@ class PlaybackServer:
             target_channels=1,
             use_multiprocessing=use_multiprocessing,
             api_listener=api_listener,
-            recording_output_dir=recording_output_dir,
-            mqtt_config=mqtt_config,
         )
 
         # Create file listener
@@ -74,8 +69,8 @@ class PlaybackServer:
     async def run(self):
         # Use nested context managers: listener first, then pipeline
         async with self.file_listener:
-            async with ScribePipeline(self.file_listener, self.config, self.error_callback) as pipeline:
-                await pipeline.start_recording()
+            async with ScribePipeline(self.file_listener, self.config, self.error_callback) as self.pipeline:
+                await self.pipeline.start_listener()
 
                 # For file playback, wait until the listener completes
                 # (FileListener stops when files are exhausted)
@@ -84,8 +79,12 @@ class PlaybackServer:
 
                     # Still check for background errors
                     if self._background_error:
-                        logger.error("Error during playback: %s", pformat(pipeline.background_error))
+                        logger.error("Error during playback: %s", pformat(self.pipeline.background_error))
                         raise Exception(pformat(self._background_error))
                 # Pipeline shutdown happens automatically in __aexit__
 
         logger.info("Playback server finished.")
+        self.pipeline = None
+
+    def get_pipeline(self):
+        return self.pipeline

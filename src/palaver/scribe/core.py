@@ -32,8 +32,6 @@ class PipelineConfig:
     target_channels: int = 1
     use_multiprocessing: bool = False
     whisper_shutdown_timeout: float = 3.0
-    recording_output_dir: Optional[Path] = None
-    mqtt_config: Optional[dict] = None
 
 
 class ScribePipeline:
@@ -72,16 +70,17 @@ class ScribePipeline:
         self.audio_merge = None
         self.wav_recorder = None
         self.text_logger = None
-        self.mqtt_publisher = None
         self._pipeline_setup_complete = False
         self.error_callback = error_callback
 
-    def _error_callback(self, error_dict: dict):
-        """Internal error callback to track background errors."""
-        self.background_error = error_dict
-        logger.error("Background error occurred: %s", error_dict)
-        self.error_callback(error_dict)
-
+    def get_pipeline_parts(self):
+        return dict(audio_source=self.listener,
+                    downsampler=self.downsampler,
+                    vadfilter=self.vadfilter,
+                    transcription=self.whisper_thread,
+                    audio_merge=self.audio_merge,
+                    command_dispatch=self.command_dispatch)
+    
     def add_api_listener(self, api_listener:ScribeAPIListener,
                                to_source: bool=False, to_VAD: bool=False, to_merge: bool=False):
         if sum((to_source, to_VAD, to_merge)) > 1:
@@ -120,18 +119,6 @@ class ScribePipeline:
         self.listener.add_event_listener(full)
         self.vadfilter.add_event_listener(vad)
 
-        # Setup recording if output_dir provided
-        if self.config.recording_output_dir:
-            # Create WAV recorder
-            from palaver.scribe.recorders.wav_save import WavSaveRecorder, TextEventLogger
-            self.wav_recorder = WavSaveRecorder(self.config.recording_output_dir)
-            self.audio_merge.add_event_listener(self.wav_recorder)
-            # Note: Don't start recording here - wait for starts_recording_session command
-            # Wrap text event listener to log TextEvents
-            self.text_logger = TextEventLogger(self.wav_recorder)
-            await self.text_logger.on_text_event(event)
-            logger.info(f"Recording enabled: {self.config.recording_output_dir}")
-
         # Create whisper transcription thread
         self.whisper_thread = WhisperThread(
             self.config.model_path,
@@ -149,40 +136,18 @@ class ScribePipeline:
 
         self.add_api_listener(self.config.api_listener)
 
-        # Setup MQTT publisher if configured
-        if self.config.mqtt_config:
-            try:
-                from palaver.scribe.comms.mqtt_publisher import MQTTPublisher
-
-                self.mqtt_publisher = MQTTPublisher(
-                    broker=self.config.mqtt_config['broker'],
-                    port=self.config.mqtt_config['port'],
-                    base_topic=self.config.mqtt_config['base_topic'],
-                    username=self.config.mqtt_config.get('username'),
-                    password=self.config.mqtt_config.get('password'),
-                )
-                await self.mqtt_publisher.connect()
-
-                # Wire MQTT to receive all events
-                #self.listener.add_event_listener(self.mqtt_publisher)
-                self.vadfilter.add_event_listener(self.mqtt_publisher)
-                self.whisper_thread.add_text_event_listener(self.mqtt_publisher)
-                self.command_dispatch.add_event_listener(self.mqtt_publisher)
-
-                logger.info(f"MQTT publishing enabled: {self.config.mqtt_config['broker']}")
-            except ImportError as e:
-                logger.warning(f"MQTT requested but paho-mqtt not installed: {e}")
-            except Exception as e:
-                logger.error(f"Failed to setup MQTT publisher: {e}")
-
         # Start the whisper thread
         await self.whisper_thread.start()
 
         self._pipeline_setup_complete = True
         logger.info("Pipeline setup complete")
+        try:
+            await self.config.api_listener.on_pipeline_ready(self)
+        except:
+            logger.error("pipeline callback to api_listener on startup got error\n{traceback.format_exc()}")
 
-    async def start_recording(self):
-        """Start the listener recording."""
+    async def start_listener(self):
+        """Start the listener streaming audo."""
         await self.listener.start_recording()
         logger.info("Recording started")
 
@@ -203,19 +168,14 @@ class ScribePipeline:
             raise
 
     async def on_command_event(self, event: ScribeCommandEvent):
-        """Handle command events for recording session control."""
-        # Handle recording session control
-        if self.wav_recorder:
-            if event.command.starts_recording_session:
-                logger.info(f"Command '{event.command.name}' starting new recording session")
-                # Stop existing recording if active
-                await self.wav_recorder.stop()
-                # Start new recording session
-                await self.wav_recorder.start()
-            elif event.command.ends_recording_session:
-                logger.info(f"Command '{event.command.name}' ending recording session")
-                await self.wav_recorder.stop()
+        pass
         
+    def _error_callback(self, error_dict: dict):
+        """Internal error callback to track background errors."""
+        self.background_error = error_dict
+        logger.error("Background error occurred: %s", error_dict)
+        self.error_callback(error_dict)
+
     async def shutdown(self):
         """
         Gracefully shutdown the pipeline.
@@ -235,12 +195,12 @@ class ScribePipeline:
             await self.whisper_thread.gracefull_shutdown(self.config.whisper_shutdown_timeout)
             self.whisper_thread = None
                 
-        # Disconnect MQTT if enabled
-        if self.mqtt_publisher:
-            await self.mqtt_publisher.disconnect()
-            self.mqtt_publisher = None
-
-        logger.info("Pipeline shutdown complete")
+        try:
+            await self.config.api_listener.on_pipeline_shutdown()
+        except:
+            logger.error("pipleline shutdown callback to api_listener error\n{traceback.format_exc()}")
+        finally:
+            logger.info("Pipeline shutdown complete")
 
     async def __aenter__(self):
         """Enter the async context manager."""

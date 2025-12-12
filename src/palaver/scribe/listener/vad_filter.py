@@ -27,7 +27,7 @@ _vad_model = load_silero_vad()
 
 
 VAD_THRESHOLD = 0.5          # Default threshold
-MIN_SILENCE_MS = 1000         # Default 1.0 seconds
+MIN_SILENCE_MS = 2000         # Default 1.0 seconds
 SPEECH_PAD_MS = 1500
 VAD_SR = 16000
 

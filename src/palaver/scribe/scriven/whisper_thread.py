@@ -353,7 +353,6 @@ class WhisperThread:
                 self._error_task.cancel()
             finally:
                 self._error_task = None
-            
 
     async def _push_buffer_job(self):
         if self._buffer_pos == 0:
@@ -403,7 +402,10 @@ class WhisperThread:
                                           audio_end_time=job.last_chunk.timestamp)
                         logger.info("Emitting event %s", event)
                         await self._emitter.emit(TextEvent, event)
-        except:
+        except Exception as e:
+            error_dict = dict(exception=e,
+                              traceback=traceback.format_exc())
+            self._error_callback(error_dict)
             logger.error("sender task got error: \n%s", traceback.format_exc())
         finally:
             self._sender_task = None
