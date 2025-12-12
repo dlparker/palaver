@@ -9,8 +9,7 @@ from typing import Optional
 
 from palaver.scribe.listener.mic_listener import MicListener
 from palaver.scribe.core import ScribePipeline, PipelineConfig
-from palaver.scribe.text_events import TextEventListener
-from palaver.scribe.scriven.wire_commands import CommandEventListener
+from palaver.scribe.api import ScribeAPIListener
 
 logger = logging.getLogger("MicServer")
 
@@ -21,8 +20,7 @@ class MicServer:
 
     def __init__(self,
                  model_path,
-                 text_event_listener: TextEventListener,
-                 command_event_listener: CommandEventListener,
+                 api_listener: ScribeAPIListener,
                  use_multiprocessing: bool = False,
                  chunk_duration=DEFAULT_CHUNK_DURATION,
                  recording_output_dir: Optional[Path] = None,
@@ -49,8 +47,7 @@ class MicServer:
             target_samplerate=16000,
             target_channels=1,
             use_multiprocessing=use_multiprocessing,
-            text_event_listener=text_event_listener,
-            command_event_listener=command_event_listener,
+            api_listener=api_listener,
             recording_output_dir=recording_output_dir,
             mqtt_config=mqtt_config,
         )

@@ -13,8 +13,12 @@ from palaver.scribe.listen_api import Listener
 from palaver.scribe.listener.downsampler import DownSampler
 from palaver.scribe.listener.vad_filter import VADFilter
 from palaver.scribe.scriven.whisper_thread import WhisperThread
-from palaver.scribe.scriven.wire_commands import CommandDispatch, ScribeCommandEvent, CommandEventListener
+from palaver.scribe.scriven.wire_commands import CommandDispatch
+from palaver.scribe.command_events import ScribeCommandEvent, CommandEventListener
 from palaver.scribe.text_events import TextEventListener
+from palaver.scribe.listener.audio_merge import AudioMerge
+from palaver.scribe.api import ScribeAPIListener
+from palaver.scribe.api import default_commands
 
 logger = logging.getLogger("ScribeCore")
 
@@ -23,8 +27,7 @@ logger = logging.getLogger("ScribeCore")
 class PipelineConfig:
     """Configuration for the Scribe pipeline."""
     model_path: Path
-    text_event_listener: TextEventListener
-    command_event_listener: CommandEventListener
+    api_listener:ScribeAPIListener
     target_samplerate: int = 16000
     target_channels: int = 1
     use_multiprocessing: bool = False
@@ -99,10 +102,6 @@ class ScribePipeline:
 
         # Setup recording if output_dir provided
         if self.config.recording_output_dir:
-            from palaver.scribe.listener.audio_merge import AudioMerge
-            from palaver.scribe.recorders.wav_save import WavSaveRecorder, TextEventLogger
-
-            # Create AudioMerge if VAD enabled (to combine full-rate audio with VAD events)
             self.audio_merge = AudioMerge()
             full, vad = self.audio_merge.get_shims()
             self.listener.add_event_listener(full)
@@ -110,28 +109,13 @@ class ScribePipeline:
             await self.audio_merge.start()
 
             # Create WAV recorder
+            from palaver.scribe.recorders.wav_save import WavSaveRecorder, TextEventLogger
             self.wav_recorder = WavSaveRecorder(self.config.recording_output_dir)
-
-            # Connect recorder to appropriate audio source
-            if self.audio_merge:
-                self.audio_merge.add_event_listener(self.wav_recorder)
-            else:
-                self.listener.add_event_listener(self.wav_recorder)
-
+            self.audio_merge.add_event_listener(self.wav_recorder)
             # Note: Don't start recording here - wait for starts_recording_session command
-
             # Wrap text event listener to log TextEvents
-            if self.config.text_event_listener:
-                self.text_logger = TextEventLogger(self.wav_recorder)
-                original_listener = self.config.text_event_listener
-
-                class CompositeTextListener:
-                    async def on_text_event(slf, event):
-                        await original_listener.on_text_event(event)
-                        await self.text_logger.on_text_event(event)
-
-                self.config.text_event_listener = CompositeTextListener()
-
+            self.text_logger = TextEventLogger(self.wav_recorder)
+            await self.text_logger.on_text_event(event)
             logger.info(f"Recording enabled: {self.config.recording_output_dir}")
 
         # Create whisper transcription thread
@@ -141,17 +125,16 @@ class ScribePipeline:
             use_mp=self.config.use_multiprocessing
         )
         audio_source.add_event_listener(self.whisper_thread)
+        self.whisper_thread.add_text_event_listener(self.config.api_listener)
 
-        # Attach the command listener 
+        # Attach the command listener
         self.command_dispatch = CommandDispatch(self._error_callback)
-        from palaver.scribe.commands import default_commands
+        self.whisper_thread.add_text_event_listener(self.command_dispatch)
         for patterns, command in default_commands:
             self.command_dispatch.register_command(command, patterns)
-        self.whisper_thread.add_text_event_listener(self.command_dispatch)
         self.command_dispatch.add_event_listener(self)
-        self.command_dispatch.add_event_listener(self.config.command_event_listener)
+        self.command_dispatch.add_event_listener(self.config.api_listener)
         
-        self.whisper_thread.add_text_event_listener(self.config.text_event_listener)
 
         # Setup MQTT publisher if configured
         if self.config.mqtt_config:
@@ -228,21 +211,21 @@ class ScribePipeline:
         # Shutdown recording first to ensure all audio is saved
         if self.audio_merge:
             await self.audio_merge.flush()
-
+            self.audio_merge = None
+            
         if self.wav_recorder:
             await self.wav_recorder.stop()
-
+            self.wav_recorder = None
+            
         # Then shutdown whisper and text listener
         if self.whisper_thread:
             await self.whisper_thread.gracefull_shutdown(self.config.whisper_shutdown_timeout)
-
-        if self.config.text_event_listener and hasattr(self.config.text_event_listener, 'finish'):
-            self.config.text_event_listener.finish()
-
+            self.whisper_thread = None
+                
         # Disconnect MQTT if enabled
         if self.mqtt_publisher:
             await self.mqtt_publisher.disconnect()
-
+            self.mqtt_publisher = None
 
         logger.info("Pipeline shutdown complete")
 

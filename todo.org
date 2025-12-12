@@ -1,0 +1,30 @@
+
+Core API updates:
+1. [] Build an interface to the core that accepts a config dataclass
+   and provides helper functions for initializing the Listener (File,
+   Mic, etc), possibly other stuff
+2. [] Allow caller to select the Listener, the VAD, or the AudioMerge as the audio event source
+   
+
+Main architecture
+1. [] Move the recorder code out of the core and:
+   1. [] make it configurable
+   2. [] fix the listener name
+   3. [] Change it to store text blocks in directory
+   4. [] Add a DB for tracking, listing, deleteting, etc
+   5. [] Add a method to add text revisions by ID (maybe using the json meta data)
+2. Move MQTT out of core
+   1. Add a combined event stream
+   2. Add substreams to replicate original audio split
+
+      
+
+
+
+
+
+
+
+3. Add dynamic command loading code and call it during startup
+   
+   

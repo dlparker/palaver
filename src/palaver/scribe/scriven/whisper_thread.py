@@ -60,6 +60,7 @@ class Worker:
             try:
                 job = self.job_queue.get(timeout=0.25)
             except Empty:
+                logger.debug("Worker got empty job_queue")
                 continue
             if job.job_id == -1:
                 logger.info("Worker got negative job id, shutting down")
@@ -242,14 +243,14 @@ class WhisperThread:
                 logger.error(msg)
                 raise Exception(msg)
             if self._process and self._process.is_alive():
-                msg = f"Whisper worker did not shutdown within requested timeout {timeout}s"
+                msg = f"Whisper worker process did not shutdown within requested timeout {timeout}s"
                 logger.error(msg)
                 raise Exception(msg)
         else:
             try:
                 await asyncio.wait_for(self._worker_task, timeout=timeout)
             except asyncio.TimeoutError:
-                msg = f"Whisper worker did not shutdown within requested timeout {timeout}s"
+                msg = f"Whisper worker thread did not shutdown within requested timeout {timeout}s"
                 logger.error(msg)
                 raise Exception(msg)
         

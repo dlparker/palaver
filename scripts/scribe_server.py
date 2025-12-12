@@ -15,26 +15,34 @@ import argparse
 
 from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.scriven.wire_commands import ScribeCommandEvent, CommandEventListener
+from palaver.scribe.api import ScribeAPIListener
 
 
 # Setup logging
 logging.basicConfig(stream=sys.stdout, level=logging.WARNING)
 logger = logging.getLogger("ScribeServer")
 
+class MyListener(ScribeAPIListener):
 
-class CommandPrinter(CommandEventListener):
-    
+    def __init__(self):
+        self.full_text = ""
+        self.blocks = []
+
     async def on_command_event(self, event:ScribeCommandEvent):
         pprint(event)
-        
-class TextPrinter(TextEventListener):
-    """
-    Text event listener that prints transcribed text and detects commands.
-    """
-
-    def __init__(self, print_progress=False):
-        self.full_text = ""
-        self.print_progress = print_progress
+        if event.command.starts_text_block:
+            self.blocks.append("")
+            print("-------------------------------------------")
+            print(f"MyListener starting block {len(self.blocks)}")
+            print("-------------------------------------------")
+        elif event.command.ends_text_block:
+            print("-------------------------------------------")
+            print(f"MyListener ending block {len(self.blocks)}")
+            print("-------------------------------------------")
+            print("++++++=++++++++++++++++++++++++++++++++++++")
+            if len(self.blocks) > 0:
+                print(self.blocks[-1])
+            print("++++++=++++++++++++++++++++++++++++++++++++")
 
     async def on_text_event(self, event: TextEvent):
         """Called when new transcribed text is available."""
@@ -43,20 +51,13 @@ class TextPrinter(TextEventListener):
 
         for seg in event.segments:
             logger.info(seg.text)
-            if self.print_progress:
-                print(seg.text + " ", end="", flush=True)
+            print(seg.text + " ", end="", flush=True)
             self.full_text += seg.text + " "
-
+            if len(self.blocks) > 0:
+                self.blocks[-1] += seg.text + " "
         logger.info("--------END Text received---------")
         logger.info("*" * 100)
-
-    def finish(self):
-        """Called at the end to print accumulated text."""
-        if not self.print_progress:
-            print(self.full_text)
-        else:
-            print()  # Newline after progress printing
-
+        
 
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser for scribe_server."""
@@ -190,8 +191,7 @@ async def run_mic_mode(args):
     """Run microphone transcription mode."""
     from palaver.scribe.mic_server import MicServer
 
-    text_printer = TextPrinter(print_progress=not args.no_progress)
-    command_printer = CommandPrinter()
+    api_listener = MyListener()
 
     # Prepare MQTT config if broker provided
     mqtt_config = None
@@ -206,8 +206,7 @@ async def run_mic_mode(args):
 
     mic_server = MicServer(
         model_path=args.model,
-        text_event_listener=text_printer,
-        command_event_listener=command_printer,
+        api_listener=api_listener,
         chunk_duration=args.chunk_duration,
         use_multiprocessing=args.multiprocess,
         recording_output_dir=args.output_dir,
@@ -221,8 +220,7 @@ async def run_playback_mode(args):
     """Run file playback transcription mode."""
     from palaver.scribe.playback_server import PlaybackServer
 
-    text_printer = TextPrinter(print_progress=not args.no_progress)
-    command_printer = CommandPrinter()
+    api_listener = MyListener()
 
     # Prepare MQTT config if broker provided
     mqtt_config = None
@@ -235,11 +233,11 @@ async def run_playback_mode(args):
             'password': args.mqtt_password,
         }
 
+        
     playback_server = PlaybackServer(
         model_path=args.model,
         audio_files=args.files,
-        text_event_listener=text_printer,
-        command_event_listener=command_printer,
+        api_listener=api_listener,
         chunk_duration=args.chunk_duration,
         simulate_timing=not args.no_simulate_timing,
         use_multiprocessing=args.multiprocess,

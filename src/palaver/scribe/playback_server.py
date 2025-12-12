@@ -9,8 +9,7 @@ from typing import Optional, List
 
 from palaver.scribe.listener.file_listener import FileListener
 from palaver.scribe.core import ScribePipeline, PipelineConfig
-from palaver.scribe.text_events import TextEventListener
-from palaver.scribe.scriven.wire_commands import CommandEventListener
+from palaver.scribe.api import ScribeAPIListener
 
 logger = logging.getLogger("PlaybackServer")
 
@@ -22,8 +21,7 @@ class PlaybackServer:
     def __init__(self,
                  model_path,
                  audio_files: List[Path],
-                 text_event_listener: TextEventListener,
-                 command_event_listener: CommandEventListener,
+                 api_listener: ScribeAPIListener,
                  use_multiprocessing: bool = False,
                  chunk_duration=DEFAULT_CHUNK_DURATION,
                  simulate_timing=False,
@@ -36,8 +34,7 @@ class PlaybackServer:
         Args:
             model_path: Path to the Whisper model file
             audio_files: List of audio file paths to process
-            text_event_listener: listener for transcribed text events
-            command_event_listener: listener for transcribed text events
+            api_listener: listener for core events
             chunk_duration: Audio chunk duration in seconds
             use_multiprocessing: Use multiprocessing for Whisper (vs threading)
             recording_output_dir: Optional directory to save WAV recordings and event logs
@@ -55,8 +52,7 @@ class PlaybackServer:
             target_samplerate=16000,
             target_channels=1,
             use_multiprocessing=use_multiprocessing,
-            text_event_listener=text_event_listener,
-            command_event_listener=command_event_listener,
+            api_listener=api_listener,
             recording_output_dir=recording_output_dir,
             mqtt_config=mqtt_config,
         )
