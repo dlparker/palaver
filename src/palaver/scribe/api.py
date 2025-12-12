@@ -18,7 +18,7 @@ class ScribeAPIListener(AudioEventListener,
         pass
 
     async def on_audio_event(self, event):
-        if split_audio:
+        if self.split_audio:
             if isinstance(event, AudioChunkEvent):
                 await self.on_audio_chunk_event(event)
             else:

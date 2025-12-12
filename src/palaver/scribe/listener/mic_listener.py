@@ -26,7 +26,7 @@ BLOCKSIZE=int((SAMPLE_RATE * CHANNELS) * .03)
 class MicListener(ListenerCCSMixin, Listener):
     """ Implements the Listener interface by pulling audio data
     from the default audio input device on the machine"""
-    def __init__(self, chunk_duration: float = 0.03, error_callback: Optional[Callable[[dict], None]] = None):
+    def __init__(self, error_callback: Callable[[dict], None], chunk_duration: float = 0.03):
         super().__init__(chunk_duration, error_callback)
         self._running = False
         self._reader_task = None
@@ -98,7 +98,15 @@ class MicListener(ListenerCCSMixin, Listener):
             logger.info("MicListener _reader task cancelled")
             raise
         except Exception as e:
-            await self._handle_background_error(e, "MicListener._reader")
+            try:
+                error_dict = dict(
+                    exception=e,
+                    traceback=traceback.format_exc(),
+                    source=self,
+                )
+                self.error_callback(error_dict)
+            except:
+                pass
         finally:
             self._reader_task = None
             await self._cleanup()

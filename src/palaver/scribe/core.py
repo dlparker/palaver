@@ -51,7 +51,7 @@ class ScribePipeline:
             await pipeline.run_until_error_or_interrupt()
     """
 
-    def __init__(self, listener: Listener, config: PipelineConfig):
+    def __init__(self, listener: Listener, config: PipelineConfig, error_callback: Callable[dict, None]):
         """
         Initialize the pipeline with a configured listener.
 
@@ -74,12 +74,27 @@ class ScribePipeline:
         self.text_logger = None
         self.mqtt_publisher = None
         self._pipeline_setup_complete = False
+        self.error_callback = error_callback
 
     def _error_callback(self, error_dict: dict):
         """Internal error callback to track background errors."""
         self.background_error = error_dict
         logger.error("Background error occurred: %s", error_dict)
+        self.error_callback(error_dict)
 
+    def add_api_listener(self, api_listener:ScribeAPIListener,
+                               to_source: bool=False, to_VAD: bool=False, to_merge: bool=False):
+        if sum((to_source, to_VAD, to_merge)) > 1:
+            raise Exception('You can supply at most one value for audio event attachement')
+        if to_merge:
+            self.audio_merge.add_event_listener(api_listener)
+        elif to_VAD:
+            self.vadfilter.add_event_listener(api_listener)
+        else:
+            self.listener.add_event_listener(api_listener)
+        self.whisper_thread.add_text_event_listener(api_listener)
+        self.command_dispatch.add_event_listener(api_listener)
+        
     async def setup_pipeline(self):
         """
         Assemble and start the processing pipeline.
@@ -99,15 +114,14 @@ class ScribePipeline:
         self.vadfilter = VADFilter(self.listener)
         self.downsampler.add_event_listener(self.vadfilter)
         audio_source = self.vadfilter
+        self.audio_merge = AudioMerge()
+        await self.audio_merge.start()
+        full, vad = self.audio_merge.get_shims()
+        self.listener.add_event_listener(full)
+        self.vadfilter.add_event_listener(vad)
 
         # Setup recording if output_dir provided
         if self.config.recording_output_dir:
-            self.audio_merge = AudioMerge()
-            full, vad = self.audio_merge.get_shims()
-            self.listener.add_event_listener(full)
-            self.vadfilter.add_event_listener(vad)
-            await self.audio_merge.start()
-
             # Create WAV recorder
             from palaver.scribe.recorders.wav_save import WavSaveRecorder, TextEventLogger
             self.wav_recorder = WavSaveRecorder(self.config.recording_output_dir)
@@ -125,7 +139,6 @@ class ScribePipeline:
             use_mp=self.config.use_multiprocessing
         )
         audio_source.add_event_listener(self.whisper_thread)
-        self.whisper_thread.add_text_event_listener(self.config.api_listener)
 
         # Attach the command listener
         self.command_dispatch = CommandDispatch(self._error_callback)
@@ -133,8 +146,8 @@ class ScribePipeline:
         for patterns, command in default_commands:
             self.command_dispatch.register_command(command, patterns)
         self.command_dispatch.add_event_listener(self)
-        self.command_dispatch.add_event_listener(self.config.api_listener)
-        
+
+        self.add_api_listener(self.config.api_listener)
 
         # Setup MQTT publisher if configured
         if self.config.mqtt_config:

@@ -26,11 +26,16 @@ class FileListener(ListenerCCSMixin, Listener):
     realword application for refining transcription via playback.
     """
 
-    def __init__(self, chunk_duration: float = 0.03, simulate_timing: bool = True, files: Optional[list[Path | str]] = None, error_callback: Optional[Callable[[dict], None]] = None):
+    def __init__(self, 
+                 error_callback: Callable[[dict], None],
+                 files: list[Path | str],
+                 chunk_duration: float = 0.03, 
+                 simulate_timing: bool = True):
         super().__init__(chunk_duration, error_callback)
-        self._simulate_timing = simulate_timing
         self.files: List[Path] = [Path(p) for p in (files or [])]
+        self.error_callback = error_callback
         self.current_file = None
+        self._simulate_timing = simulate_timing
         self._sound_file: Optional[sf.SoundFile] = None
         self._running = False
         self._reader_task = None
@@ -71,9 +76,16 @@ class FileListener(ListenerCCSMixin, Listener):
         except asyncio.CancelledError:
             # Normal cancellation during shutdown
             logger.info("FileListener _reader task cancelled")
-            raise
         except Exception as e:
-            await self._handle_background_error(e, "FileListener._reader")
+            try:
+                error_dict = dict(
+                    exception=e,
+                    traceback=traceback.format_exc(),
+                    source=self,
+                )
+                self.error_callback(error_dict)
+            except:
+                pass
         finally:
             self._reader_task = None
             await self._cleanup()

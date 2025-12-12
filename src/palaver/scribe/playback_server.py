@@ -5,6 +5,7 @@ File playback server for audio transcription from files.
 import asyncio
 import logging
 from pathlib import Path
+from pprint import pformat
 from typing import Optional, List
 
 from palaver.scribe.listener.file_listener import FileListener
@@ -40,12 +41,14 @@ class PlaybackServer:
             recording_output_dir: Optional directory to save WAV recordings and event logs
             mqtt_config: Optional MQTT configuration dict
         """
+        self._background_error = None
         logger.info("Starting playback server")
         logger.info(f"Model: {model_path}")
         logger.info(f"Multiprocessing: {use_multiprocessing}")
         logger.info(f"Simulate timing: {simulate_timing}")
         logger.info(f"Files: {audio_files}")
 
+        
         # Create pipeline configuration
         self.config = PipelineConfig(
             model_path=model_path,
@@ -59,16 +62,19 @@ class PlaybackServer:
 
         # Create file listener
         self.file_listener = FileListener(
+            files=audio_files,
+            error_callback=self.error_callback,
             chunk_duration=chunk_duration,
             simulate_timing=simulate_timing,
-            files=audio_files,
-            error_callback=None
         )
 
+    def error_callback(self, error_data):
+        self._background_error = error_data
+        
     async def run(self):
         # Use nested context managers: listener first, then pipeline
         async with self.file_listener:
-            async with ScribePipeline(self.file_listener, self.config) as pipeline:
+            async with ScribePipeline(self.file_listener, self.config, self.error_callback) as pipeline:
                 await pipeline.start_recording()
 
                 # For file playback, wait until the listener completes
@@ -77,10 +83,9 @@ class PlaybackServer:
                     await asyncio.sleep(0.1)
 
                     # Still check for background errors
-                    if pipeline.background_error:
-                        from pprint import pformat
+                    if self._background_error:
                         logger.error("Error during playback: %s", pformat(pipeline.background_error))
-                        raise Exception(pformat(pipeline.background_error))
+                        raise Exception(pformat(self._background_error))
                 # Pipeline shutdown happens automatically in __aexit__
 
         logger.info("Playback server finished.")

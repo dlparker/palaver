@@ -25,6 +25,7 @@ logger = logging.getLogger("ScribeServer")
 class MyListener(ScribeAPIListener):
 
     def __init__(self):
+        super().__init__()
         self.full_text = ""
         self.blocks = []
 

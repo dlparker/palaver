@@ -5,6 +5,7 @@ from datetime import datetime
 import time
 import uuid
 import logging
+from pprint import pformat
 import traceback
 from dataclasses import dataclass, field
 from collections import deque
@@ -26,7 +27,7 @@ class Listener(Protocol):
 
 class ListenerCCSMixin:
 
-    def __init__(self, chunk_duration, error_callback: Optional[Callable[[dict], None]] = None) -> None:
+    def __init__(self, chunk_duration, error_callback: Callable[[dict], None] = None) -> None:
         self.chunk_duration = chunk_duration
         self.emitter = AsyncIOEventEmitter()
         self._error_callback = error_callback
@@ -52,14 +53,16 @@ class ListenerCCSMixin:
             source=source
         )
         self._logger.error("%s task got error: \n%s", source, traceback.format_exc())
-
-        if self._error_callback:
-            self._error_callback(error_dict)
-        else:
-            # If no error callback, emit an AudioErrorEvent as fallback
-            if hasattr(self, 'source_id'):
-                event = AudioErrorEvent(source_id=self.source_id, message=str(exception))
+        self._error_callback(error_dict)
+        if hasattr(self, 'source_id'):
+            event = AudioErrorEvent(source_id=self.source_id, message=str(exception))
+            try:
                 await self.emit_event(event)
+            except:
+                self._logger.error("Trying to handle background error failed!!!!\n%s\nOriginal_error\n%s",
+                                   traceback.format_exc(),
+                                   pformat(error_dict))
+            
 
 def create_source_id(source_type: str, start_datetime: datetime, port: int) -> str:
     """

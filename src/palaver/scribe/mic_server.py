@@ -36,6 +36,7 @@ class MicServer:
         recording_output_dir: Optional directory to save WAV recordings and event logs
         mqtt_config: Optional MQTT configuration dict
     """
+        self._background_error = None
                  
         logger.info("Starting microphone server")
         logger.info(f"Model: {model_path}")
@@ -56,13 +57,16 @@ class MicServer:
         # Error callback is captured by the pipeline
         self.mic_listener = MicListener(
             chunk_duration=chunk_duration,
-            error_callback=None
+            error_callback=self.error_callback
         )
 
+    def error_callback(self, error_data):
+        self._background_error = error_data
+        
     async def run(self):
         # Use nested context managers: listener first, then pipeline
         async with self.mic_listener:
-            async with ScribePipeline(self.mic_listener, self.config) as pipeline:
+            async with ScribePipeline(self.mic_listener, self.config, self.error_callback) as pipeline:
                 await pipeline.start_recording()
 
                 try:
@@ -70,5 +74,7 @@ class MicServer:
                 except (KeyboardInterrupt, asyncio.CancelledError):
                     print("\nControl-C detected. Shutting down...")
                 # Pipeline shutdown happens automatically in __aexit__
-
+                if self._background_error:
+                    logger.error("Error during playback: %s", pformat(pipeline.background_error))
+                    raise Exception(pformat(self._background_error))
         logger.info("Microphone server exiting.")
