@@ -30,6 +30,7 @@ logger = logging.getLogger("BlockAudioRecorder")
 class TextBlock:
     directory: Path
     sound_path: Path
+    text_path: Path
     full_events_path: Path
     meta_events_path: Path
     wav_file: Optional[sf.SoundFile] = None
@@ -83,7 +84,7 @@ class BlockAudioRecorder(ScribeAPIListener):
         self._buffer_lock = threading.Lock()
         self._last_speech_start_event = None # only set when no current block 
         self._chunk_ring = AudioRingBuffer(max_seconds=3)
-        self._block_open_event = None
+        self._full_text = ""
 
     async def on_pipeline_ready(self, pipeline):
         pass
@@ -102,11 +103,13 @@ class BlockAudioRecorder(ScribeAPIListener):
         directory = self._output_dir / f"block-{timestr}"
         directory.mkdir()
         sound_path = directory / "block.wav"
+        text_path = directory / "first_draft.txt"
         full_events_path = directory / "full_events.json"
         meta_events_path = directory / "meta_events.json"
         # Open WAV with PCM_16 (not PCM_24) to save space
         self._current_block = TextBlock(directory,
                                         sound_path,
+                                        text_path,
                                         full_events_path,
                                         meta_events_path,
                                         None,
@@ -115,40 +118,29 @@ class BlockAudioRecorder(ScribeAPIListener):
         
     async def on_command_event(self, event:ScribeCommandEvent):
         command = event.command
-        if self._current_block is None:
-            if command.starts_text_block:
-                self._block_open_event = event
-                self.make_new_block(event)
-                if self._last_speech_start_event:
-                    self._current_block.events.append(self._last_speech_start_event)
-                    self._current_block.meta_events.append(self._last_speech_start_event)
-                    if self._chunk_ring.has_data():
-                        for event in self._chunk_ring.get_from(self._last_speech_start_event.timestamp):
-                            await self.on_audio_chunk_event(event)
-                            self._current_block.events.append(event)
-                        self._chunk_ring.clear()
-                self._current_block.events.append(event)
-                self._current_block.meta_events.append(event)
-                self._last_speech_start_event = None
-        else:
-            if self._block_open_event:
-                if self._block_open_event.event_id == event.event_id:
-                    raise Exception("duplicate event!!!")
-            self._block_open_event = event
-            if command.starts_text_block or command.ends_text_block:
-                try:
-                    await self._save_block()
-                    await self._close_block()
-                except:
-                    logger.error(traceback.format_exc())
-                finally:
-                    self._current_block = None
-            if command.starts_text_block:
-                self._current_block = self.make_new_block(event)
+        if command.ends_text_block or command.starts_text_block and self._current_block is None:
+            await self._save_block()
+            await self._close_block()
+            self._full_text = ""
+        if command.starts_text_block:
+            self.make_new_block(event)
+            if self._last_speech_start_event:
+                self._current_block.events.append(self._last_speech_start_event)
+                self._current_block.meta_events.append(self._last_speech_start_event)
+                if self._chunk_ring.has_data():
+                    for event in self._chunk_ring.get_from(self._last_speech_start_event.timestamp):
+                        await self.on_audio_chunk_event(event)
+                        self._current_block.events.append(event)
+                    self._chunk_ring.clear()
+            self._current_block.events.append(event)
+            self._current_block.meta_events.append(event)
+            self._last_speech_start_event = None
                                             
     async def on_text_event(self, event: TextEvent):
         if self._current_block:
             self._current_block.meta_events.append(event)
+            for seg in event.segments:
+                self._full_text += seg.text + " "
 
     async def on_audio_event(self, event: AudioEvent):
         if not self._current_block:
@@ -190,6 +182,8 @@ class BlockAudioRecorder(ScribeAPIListener):
         if not self._current_block:
             return
         block = self._current_block
+        with open(block.text_path, 'w') as f:
+            f.write(self._full_text)
         with open(block.meta_events_path, 'w') as f:
             json.dump(pre_serialize_events(block.meta_events), f, indent=2)
         with open(block.full_events_path, 'w') as f:
@@ -199,11 +193,12 @@ class BlockAudioRecorder(ScribeAPIListener):
     async def _close_block(self):
         if not self._current_block:
             return
-        try:
-            self._current_block.wav_file.close()
-        except:
-            logger.error(traceback.format_exc())
+        self._current_block.wav_file.close()
+        self._full_text = ""
+        self.events = []
+        self.meta_events = []
         self._current_block = None
+        
 
     async def stop(self):
         await self._save_block()
