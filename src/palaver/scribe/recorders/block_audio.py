@@ -83,7 +83,6 @@ class BlockAudioRecorder(ScribeAPIListener):
         self._buffer_lock = threading.Lock()
         self._last_speech_start_event = None # only set when no current block 
         self._chunk_ring = AudioRingBuffer(max_seconds=3)
-        
 
     async def on_pipeline_ready(self, pipeline):
         pass

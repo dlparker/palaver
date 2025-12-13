@@ -10,6 +10,7 @@ from datetime import datetime
 import numpy as np
 import soundfile as sf
 
+from palaver.utils.top_error import get_error_handler
 from palaver.scribe.listen_api import Listener, ListenerCCSMixin, create_source_id
 from palaver.scribe.audio_events import (AudioEvent,
                                        AudioErrorEvent,
@@ -49,7 +50,8 @@ class FileListener(ListenerCCSMixin, Listener):
             return
 
         if len(self.files) > 0:
-            self._reader_task = asyncio.create_task(self._reader())
+            
+            self._reader_task = get_error_handler().wrap_task(self._reader)
             self._running = True
 
     async def _load_next_file(self) -> bool:

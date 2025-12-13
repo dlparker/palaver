@@ -9,6 +9,7 @@ import traceback
 from datetime import datetime
 import numpy as np
 import sounddevice as sd
+from palaver.utils.top_error import get_error_handler
 from palaver.scribe.listen_api import Listener, ListenerCCSMixin, create_source_id
 from palaver.scribe.audio_events import (AudioEvent,
                                        AudioErrorEvent,
@@ -43,7 +44,7 @@ class MicListener(ListenerCCSMixin, Listener):
             return
         if self._reader_task:
             return
-        self._reader_task = asyncio.create_task(self._reader())
+        self._reader_task = get_error_handler().wrap_task(self._reader)
         self._running = True
 
     async def _reader(self):

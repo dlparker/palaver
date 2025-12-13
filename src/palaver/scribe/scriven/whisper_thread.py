@@ -14,6 +14,7 @@ from multiprocessing import Process, Queue as MPQueue, Event as MPEvent
 import numpy as np
 from pywhispercpp.model import Model
 from eventemitter import AsyncIOEventEmitter
+from palaver.utils.top_error import get_error_handler
 from palaver.scribe.audio_events import (AudioEvent,
                                          AudioStartEvent,
                                          AudioStopEvent,
@@ -220,11 +221,11 @@ class WhisperThread:
                                      self._error_queue,
                                      self._shutdown_event,
                                      self._model_path)
-                           
             self._worker_task = asyncio.create_task(coro)
+
             self._worker_running = True
-        self._sender_task = asyncio.create_task(self._sender())
-        self._error_task = asyncio.create_task(self._error_watcher())
+        self._sender_task = get_error_handler().wrap_task(self._sender)
+        self._error_task = get_error_handler().wrap_task(self._error_watcher)
 
     async def gracefull_shutdown(self, timeout=3.0):
         job =  ScriveJob(job_id=-1,

@@ -19,6 +19,7 @@ from palaver.scribe.audio_events import AudioEvent, AudioStopEvent
 from palaver.scribe.scriven.wire_commands import ScribeCommandEvent, CommandEventListener
 from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.recorders.block_audio import BlockAudioRecorder
+from palaver.utils.top_error import TopLevelCallback, TopErrorHandler
 
 # Setup logging
 logging.basicConfig(stream=sys.stdout, level=logging.WARNING)
@@ -310,7 +311,14 @@ def main():
             if not file_path.exists():
                 parser.error(f"Audio file does not exist: {file_path}")
 
-    # Run the appropriate mode
+
+    background_error_dict = None
+    class MyTLC(TopLevelCallback):
+        
+        async def on_error(self, error_dict: dict):
+            nonlocal background_error_dict 
+            background_error_dict  = error_dict
+            
     try:
         api_wrapper = None
         done_noted = False
@@ -337,7 +345,9 @@ def main():
                         
                 raise
             
-        asyncio.run(final_setup())
+        tlc = MyTLC()
+        top_error_handler = TopErrorHandler(top_level_callback=tlc, logger=logger)
+        top_error_handler.run(final_setup)
         print(f"{api_wrapper.server_type}.run() complete")
     except KeyboardInterrupt:
         print("\nShutdown complete.")
