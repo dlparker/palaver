@@ -69,7 +69,7 @@ class TopErrorHandler:
         self.sync_error_handled = False
 
     async def handle_error(self, task: asyncio.Task, exc: Exception):
-        trace_string = traceback.print_exc()
+        trace_string = traceback.format_exception(exc)
         error_dict = dict(exception=exc, trace_string=trace_string, task=task)
         self.async_error_dict = error_dict
         msg = f"Task {task} raised exception\n{trace_string}"

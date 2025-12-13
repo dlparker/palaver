@@ -133,21 +133,17 @@ class WhisperThread:
                       'require_speech': True,
                       'model_path': None,
                       'pre_buffer_seconds': 1.0,
-                      'error_callback': None,
                       }
     config_help = {'buffer_samples': "The number of samples that will be collected before sending to speech transcriber, max",
                    'require_speech': "If true, then transcription will be turned on and off by audio events for speech start and stop",
                    'model_path': "Required path to the whispercpp compatible speech transcription model, e.g. ggml-basic.en.bin",
                    'pre_buffer_seconds': "If require_speech is true, extra samples will be pulled from pre-start history this far back in time",
-                   'error_callback': "Callable that accepts a dictionary of error info when a background error occurs",
                    }
     
-    def __init__(self, model_path: os.PathLike[str], error_callback: Callable[[dict], None], use_mp=False):
+    def __init__(self, model_path: os.PathLike[str], use_mp=False):
         self._model_path = model_path
-        self._error_callback = error_callback
         self._config = dict(self.default_config)
         self._config['model_path'] = self._model_path
-        self._config['error_callback'] = self._error_callback
         self._buffer = np.zeros(self._config['buffer_samples'], dtype=np.float32)
         self._buffer_pos = 0
         self._pre_buffer = None
@@ -192,9 +188,6 @@ class WhisperThread:
         if new_config['require_speech'] != self._config['require_speech'] and self._worker_running:
             self._config['require_speech'] = new_config['require_speech']
             await self.set_in_speech(new_config['require_speech'])
-        if new_config['error_callback'] != self._config['error_callback'] and self._worker_running:
-            self._config['error_callback'] = new_config['error_callback']
-            self._error_callback = new_config['error_callback']
         
     async def start(self):
         if self._config['pre_buffer_seconds']  > 0:
@@ -378,57 +371,47 @@ class WhisperThread:
             print('\n---------------\n\n')
         
     async def _sender(self):
-        try:
-            while self._worker_running:
-                while self._result_queue.qsize() == 0:
-                    try:
-                        await asyncio.sleep(0.001)
-                    except asyncio.exceptions.CancelledError:
-                        break
-                if self._result_queue.qsize() > 0:                
-                    job = self._result_queue.get()
-                    logger.info("Dequeued finished job %d in %f seconds with segment count %d",
-                                job.job_id, job.duration, len(job.text_segments))
-                    if len(job.text_segments) == 1 and job.text_segments[0].text == "[BLANK_AUDIO]":
-                        logger.info("\n-- blank segment ---\n")
-                    elif len(job.text_segments) > 0:
-                        segments = []
-                        for segment in job.text_segments:
-                            segments.append(VTTSegment(start_ms=segment.t0,
-                                                       end_ms=segment.t1,
-                                                       text=segment.text))
-                        event = TextEvent(segments=segments,
-                                          audio_source_id=job.first_chunk.source_id,
-                                          audio_start_time=job.first_chunk.timestamp,
-                                          audio_end_time=job.last_chunk.timestamp)
-                        logger.info("Emitting event %s", event)
-                        await self._emitter.emit(TextEvent, event)
-        except Exception as e:
-            error_dict = dict(exception=e,
-                              traceback=traceback.format_exc())
-            self._error_callback(error_dict)
-            logger.error("sender task got error: \n%s", traceback.format_exc())
-        finally:
-            self._sender_task = None
+        # this is wrapped in an error handler when created, so just let
+        # errors propogate
+        while self._worker_running:
+            while self._result_queue.qsize() == 0:
+                try:
+                    await asyncio.sleep(0.001)
+                except asyncio.exceptions.CancelledError:
+                    break
+            if self._result_queue.qsize() > 0:                
+                job = self._result_queue.get()
+                logger.info("Dequeued finished job %d in %f seconds with segment count %d",
+                            job.job_id, job.duration, len(job.text_segments))
+                if len(job.text_segments) == 1 and job.text_segments[0].text == "[BLANK_AUDIO]":
+                    logger.info("\n-- blank segment ---\n")
+                elif len(job.text_segments) > 0:
+                    segments = []
+                    for segment in job.text_segments:
+                        segments.append(VTTSegment(start_ms=segment.t0,
+                                                   end_ms=segment.t1,
+                                                   text=segment.text))
+                    event = TextEvent(segments=segments,
+                                      audio_source_id=job.first_chunk.source_id,
+                                      audio_start_time=job.first_chunk.timestamp,
+                                      audio_end_time=job.last_chunk.timestamp)
+                    logger.info("Emitting event %s", event)
+                    await self._emitter.emit(TextEvent, event)
+
+        self._sender_task = None
 
     async def _error_watcher(self):
-        # Raise exception in main thread when an error block arrives from woker thread
-        try:
-            while self._worker_running:
-                while self._error_queue.qsize() == 0:
-                    try:
-                        await asyncio.sleep(0.01)
-                    except asyncio.exceptions.CancelledError:
-                        break
-                if self._error_queue.qsize() > 0:
-                    error_dict = self._error_queue.get()
-                    self._error_callback(error_dict)
-        except Exception as e:
-            error_dict = dict(exception=e,
-                              traceback=traceback.format_exc())
-            logger.error("error_watcher task got error: \n%s", traceback.format_exc())
-        finally:
-            self._error_task = None
+        # this is wrapped in an error handler when created, so just let
+        # errors propogate
+        while self._worker_running:
+            while self._error_queue.qsize() == 0:
+                try:
+                    await asyncio.sleep(0.01)
+                except asyncio.exceptions.CancelledError:
+                    break
+            if self._error_queue.qsize() > 0:
+                error_dict = self._error_queue.get()
+                raise error_dict['exception']
             
         
 class AudioRingBuffer:

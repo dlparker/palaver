@@ -1,6 +1,8 @@
 from typing import Protocol
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from palaver.scribe.text_events import TextEvent
+import time
+import uuid
 
 @dataclass
 class ScribeCommand:
@@ -19,6 +21,8 @@ class ScribeCommandEvent:
     pattern: str
     text_event: TextEvent
     segment_number: int
+    timestamp: float = field(default_factory=time.time)
+    event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
 @dataclass
 class ScribeCommandDef:

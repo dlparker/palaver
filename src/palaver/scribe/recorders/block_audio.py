@@ -83,6 +83,7 @@ class BlockAudioRecorder(ScribeAPIListener):
         self._buffer_lock = threading.Lock()
         self._last_speech_start_event = None # only set when no current block 
         self._chunk_ring = AudioRingBuffer(max_seconds=3)
+        self._block_open_event = None
 
     async def on_pipeline_ready(self, pipeline):
         pass
@@ -116,6 +117,7 @@ class BlockAudioRecorder(ScribeAPIListener):
         command = event.command
         if self._current_block is None:
             if command.starts_text_block:
+                self._block_open_event = event
                 self.make_new_block(event)
                 if self._last_speech_start_event:
                     self._current_block.events.append(self._last_speech_start_event)
@@ -129,6 +131,10 @@ class BlockAudioRecorder(ScribeAPIListener):
                 self._current_block.meta_events.append(event)
                 self._last_speech_start_event = None
         else:
+            if self._block_open_event:
+                if self._block_open_event.event_id == event.event_id:
+                    raise Exception("duplicate event!!!")
+            self._block_open_event = event
             if command.starts_text_block or command.ends_text_block:
                 try:
                     await self._save_block()
@@ -167,6 +173,7 @@ class BlockAudioRecorder(ScribeAPIListener):
                 channels=event.channels,
                 subtype='PCM_16'
             )
+
             self._current_block.wav_file = wav_file
             
         with self._buffer_lock:
@@ -174,6 +181,7 @@ class BlockAudioRecorder(ScribeAPIListener):
             data_to_write = np.concatenate(event.data)
             self._current_block.wav_file.write(data_to_write)
         
+
     async def _save_block(self):
         if not self._current_block:
             return

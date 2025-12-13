@@ -1,4 +1,4 @@
-from typing import Protocol, Any, Optional, ClassVar, List, Callable
+from typing import Protocol, Any, Optional, ClassVar, List
 from enum import Enum
 import socket
 from datetime import datetime
@@ -27,10 +27,9 @@ class Listener(Protocol):
 
 class ListenerCCSMixin:
 
-    def __init__(self, chunk_duration, error_callback: Callable[[dict], None] = None) -> None:
+    def __init__(self, chunk_duration, None] = None) -> None:
         self.chunk_duration = chunk_duration
         self.emitter = AsyncIOEventEmitter()
-        self._error_callback = error_callback
         self._logger = logging.getLogger(self.__class__.__name__)
 
     def add_event_listener(self, e_listener: AudioEventListener) -> None:

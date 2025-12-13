@@ -312,13 +312,6 @@ def main():
                 parser.error(f"Audio file does not exist: {file_path}")
 
 
-    background_error_dict = None
-    class MyTLC(TopLevelCallback):
-        
-        async def on_error(self, error_dict: dict):
-            nonlocal background_error_dict 
-            background_error_dict  = error_dict
-            
     try:
         api_wrapper = None
         done_noted = False
@@ -335,15 +328,24 @@ def main():
                 await api_wrapper.server.run()
                 await asyncio.sleep(0.1)
             except:
-                logger.error(traceback.format_exc())
+                logger.error("One:" + traceback.format_exc())
                 pipeline = api_wrapper.server.get_pipeline()
                 if pipeline:
                     try:
                         await pipeline.shutdown()
                     except:
-                        logger.error(traceback.format_exc())
+                        logger.error("Two" + traceback.format_exc())
                         
                 raise
+            
+        background_error_dict = None
+        class MyTLC(TopLevelCallback):
+            
+            async def on_error(self, error_dict: dict):
+                nonlocal background_error_dict
+                nonlocal api_wrapper
+                background_error_dict  = error_dict
+                api_wrapper.server.set_background_error(error_dict)
             
         tlc = MyTLC()
         top_error_handler = TopErrorHandler(top_level_callback=tlc, logger=logger)

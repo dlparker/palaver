@@ -66,10 +66,14 @@ class PlaybackServer:
     def error_callback(self, error_data):
         self._background_error = error_data
         
+    def set_background_error(self, error_dict):
+        self._background_error = error_dict
+        self.pipeline.set_background_error(error_dict)
+        
     async def run(self):
         # Use nested context managers: listener first, then pipeline
         async with self.file_listener:
-            async with ScribePipeline(self.file_listener, self.config, self.error_callback) as self.pipeline:
+            async with ScribePipeline(self.file_listener, self.config) as self.pipeline:
                 await self.pipeline.start_listener()
 
                 # For file playback, wait until the listener completes

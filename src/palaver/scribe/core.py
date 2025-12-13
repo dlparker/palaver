@@ -36,21 +36,8 @@ class PipelineConfig:
 
 
 class ScribePipeline:
-    """
-    Manages the complete audio transcription pipeline.
 
-    Architecture:
-        Listener → DownSampler → VADFilter → WhisperThread → TextEventListener
-
-    Usage:
-        config = PipelineConfig(model_path=Path("model.bin"))
-        listener = MicListener(chunk_duration=0.03, error_callback=error_callback)
-
-        async with ScribePipeline(listener, config) as pipeline:
-            await pipeline.run_until_error_or_interrupt()
-    """
-
-    def __init__(self, listener: Listener, config: PipelineConfig, error_callback: Callable[dict, None]):
+    def __init__(self, listener: Listener, config: PipelineConfig):
         """
         Initialize the pipeline with a configured listener.
 
@@ -72,7 +59,6 @@ class ScribePipeline:
         self.wav_recorder = None
         self.text_logger = None
         self._pipeline_setup_complete = False
-        self.error_callback = error_callback
 
     def get_pipeline_parts(self):
         return dict(audio_source=self.listener,
@@ -123,13 +109,12 @@ class ScribePipeline:
         # Create whisper transcription thread
         self.whisper_thread = WhisperThread(
             self.config.model_path,
-            self._error_callback,
             use_mp=self.config.use_multiprocessing
         )
         audio_source.add_event_listener(self.whisper_thread)
 
         # Attach the command listener
-        self.command_dispatch = CommandDispatch(self._error_callback)
+        self.command_dispatch = CommandDispatch()
         self.whisper_thread.add_text_event_listener(self.command_dispatch)
         for patterns, command in default_commands:
             self.command_dispatch.register_command(command, patterns)
@@ -147,7 +132,10 @@ class ScribePipeline:
         except:
             logger.error("pipeline callback to api_listener on startup got error\n%s",
                          traceback.format_exc())
-            
+
+    def set_background_error(self, error_dict):
+        self.background_error = error_dict
+        
     async def start_listener(self):
         """Start the listener streaming audo."""
         await self.listener.start_recording()
@@ -172,12 +160,6 @@ class ScribePipeline:
     async def on_command_event(self, event: ScribeCommandEvent):
         pass
         
-    def _error_callback(self, error_dict: dict):
-        """Internal error callback to track background errors."""
-        self.background_error = error_dict
-        logger.error("Background error occurred: %s", error_dict)
-        self.error_callback(error_dict)
-
     async def shutdown(self):
         """
         Gracefully shutdown the pipeline.
