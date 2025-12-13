@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Optional, Callable
+from typing import Optional
 from pathlib import Path
 import os
 import time
@@ -27,8 +27,8 @@ BLOCKSIZE=int((SAMPLE_RATE * CHANNELS) * .03)
 class MicListener(ListenerCCSMixin, Listener):
     """ Implements the Listener interface by pulling audio data
     from the default audio input device on the machine"""
-    def __init__(self, error_callback: Callable[[dict], None], chunk_duration: float = 0.03):
-        super().__init__(chunk_duration, error_callback)
+    def __init__(self, chunk_duration: float = 0.03):
+        super().__init__(chunk_duration)
         self._running = False
         self._reader_task = None
         self._blocksize = BLOCKSIZE
@@ -38,6 +38,7 @@ class MicListener(ListenerCCSMixin, Listener):
         self._q_out = asyncio.Queue()
         self._stream = None
         self.source_id = create_source_id("default_mic", datetime.utcnow(), 10000)
+        self._background_error = None
 
     async def start_recording(self) -> None:
         if self._running:
@@ -47,6 +48,9 @@ class MicListener(ListenerCCSMixin, Listener):
         self._reader_task = get_error_handler().wrap_task(self._reader)
         self._running = True
 
+    def set_background_error(self, error_dict):
+        self._background_error = error_dict
+        
     async def _reader(self):
         if not self._running:
             return
@@ -91,24 +95,17 @@ class MicListener(ListenerCCSMixin, Listener):
                     await self.emit_event(event)
                     #wait_time = (self._stream.blocksize / self._stream.samplerate)
                     #await asyncio.sleep(wait_time)
+                    if self._background_error:
+                        logger.info("MicListener _reader task background error")
+                        self._reader_task = None
+                        await self._cleanup()
+                        break
             await self.emit_event(AudioStopEvent(source_id=self.source_id))
             await self._queue.put(None)  # signal EOF
             self._stream = None
         except asyncio.CancelledError:
             # Normal cancellation during shutdown
             logger.info("MicListener _reader task cancelled")
-            raise
-        except Exception as e:
-            try:
-                error_dict = dict(
-                    exception=e,
-                    traceback=traceback.format_exc(),
-                    source=self,
-                )
-                self.error_callback(error_dict)
-            except:
-                pass
-        finally:
             self._reader_task = None
             await self._cleanup()
         

@@ -27,7 +27,7 @@ class Listener(Protocol):
 
 class ListenerCCSMixin:
 
-    def __init__(self, chunk_duration, None] = None) -> None:
+    def __init__(self, chunk_duration) -> None:
         self.chunk_duration = chunk_duration
         self.emitter = AsyncIOEventEmitter()
         self._logger = logging.getLogger(self.__class__.__name__)

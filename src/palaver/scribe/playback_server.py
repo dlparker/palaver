@@ -58,13 +58,10 @@ class PlaybackServer:
         # Create file listener
         self.file_listener = FileListener(
             files=audio_files,
-            error_callback=self.error_callback,
             chunk_duration=chunk_duration,
             simulate_timing=simulate_timing,
         )
 
-    def error_callback(self, error_data):
-        self._background_error = error_data
         
     def set_background_error(self, error_dict):
         self._background_error = error_dict

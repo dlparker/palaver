@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Optional, Callable, List
+from typing import Optional, List
 from pathlib import Path
 import os
 import time
@@ -28,13 +28,11 @@ class FileListener(ListenerCCSMixin, Listener):
     """
 
     def __init__(self, 
-                 error_callback: Callable[[dict], None],
                  files: list[Path | str],
                  chunk_duration: float = 0.03, 
                  simulate_timing: bool = True):
-        super().__init__(chunk_duration, error_callback)
+        super().__init__(chunk_duration)
         self.files: List[Path] = [Path(p) for p in (files or [])]
-        self.error_callback = error_callback
         self.current_file = None
         self._simulate_timing = simulate_timing
         self._sound_file: Optional[sf.SoundFile] = None
@@ -73,27 +71,7 @@ class FileListener(ListenerCCSMixin, Listener):
         return True
         
     async def _reader(self):
-        try:
-            await self._reader_inner()
-        except asyncio.CancelledError:
-            # Normal cancellation during shutdown
-            logger.info("FileListener _reader task cancelled")
-        except Exception as e:
-            try:
-                error_dict = dict(
-                    exception=e,
-                    traceback=traceback.format_exc(),
-                    source=self,
-                )
-                self.error_callback(error_dict)
-            except:
-                pass
-        finally:
-            self._reader_task = None
-            await self._cleanup()
-            
-            
-    async def _reader_inner(self):
+        # this gets wraped with get_error_handler so let the errors fly
         if not self._running:
             return
 

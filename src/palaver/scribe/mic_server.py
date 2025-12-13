@@ -32,6 +32,7 @@ class MicServer:
         use_multiprocessing: Use multiprocessing for Whisper (vs threading)
     """
         self._background_error = None
+        self.pipeline = None
                  
         logger.info("Starting microphone server")
         logger.info(f"Model: {model_path}")
@@ -50,16 +51,21 @@ class MicServer:
         # Error callback is captured by the pipeline
         self.mic_listener = MicListener(
             chunk_duration=chunk_duration,
-            error_callback=self.error_callback
         )
 
-    def error_callback(self, error_data):
-        self._background_error = error_data
-        
+    def set_background_error(self, error_dict):
+        self._background_error = error_dict
+        self.pipeline.set_background_error(error_dict)
+        self.mic_listener.set_background_error(error_dict)
+
+    def get_pipeline(self):
+        return self.pipeline
+    
     async def run(self):
         # Use nested context managers: listener first, then pipeline
         async with self.mic_listener:
-            async with ScribePipeline(self.mic_listener, self.config, self.error_callback) as pipeline:
+            async with ScribePipeline(self.mic_listener, self.config) as pipeline:
+                self.pipeline = pipeline
                 await pipeline.start_listener()
 
                 try:

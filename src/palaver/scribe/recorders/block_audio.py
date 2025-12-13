@@ -165,12 +165,16 @@ class BlockAudioRecorder(ScribeAPIListener):
 
     async def on_audio_chunk_event(self, event):
         self._current_block.events.append(event)
+        if isinstance(event.channels, tuple):
+            channels = event.channels[1]
+        else:
+            channels = event.channels
         if self._current_block.wav_file is None:
             wav_file = sf.SoundFile(
                 self._current_block.sound_path,
                 mode='w',
-                samplerate=event.sample_rate,
-                channels=event.channels,
+                samplerate=int(event.sample_rate),
+                channels=channels,
                 subtype='PCM_16'
             )
 
