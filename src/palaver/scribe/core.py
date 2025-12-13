@@ -99,7 +99,6 @@ class ScribePipeline:
         # Create VAD filter if enabled
         self.vadfilter = VADFilter(self.listener)
         self.downsampler.add_event_listener(self.vadfilter)
-        audio_source = self.vadfilter
         self.audio_merge = AudioMerge()
         await self.audio_merge.start()
         full, vad = self.audio_merge.get_shims()
@@ -111,7 +110,7 @@ class ScribePipeline:
             self.config.model_path,
             use_mp=self.config.use_multiprocessing
         )
-        audio_source.add_event_listener(self.whisper_thread)
+        self.vadfilter.add_event_listener(self.whisper_thread)
 
         # Attach the command listener
         self.command_dispatch = CommandDispatch()

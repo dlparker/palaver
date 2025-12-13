@@ -34,6 +34,8 @@ class TextBlock:
     full_events_path: Path
     meta_events_path: Path
     wav_file: Optional[sf.SoundFile] = None
+    samplerate: Optional[int] = None
+    channels: Optional[int] = None
     timestamp: float = field(default_factory=time.time)
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     events: list[AudioEvent | TextEvent | ScribeCommandEvent] =   field(
@@ -81,6 +83,7 @@ class BlockAudioRecorder(ScribeAPIListener):
         self._output_dir = Path(output_dir)
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._current_block = None
+        self._last_block = None
         self._buffer_lock = threading.Lock()
         self._last_speech_start_event = None # only set when no current block 
         self._chunk_ring = AudioRingBuffer(max_seconds=3)
@@ -115,10 +118,14 @@ class BlockAudioRecorder(ScribeAPIListener):
                                         None,
                                         timestamp)
         logger.info("\nOpened new text block save directory %s\n", str(directory))
-        
+
+    def get_last_block(self):
+        return self._last_block
+    
     async def on_command_event(self, event:ScribeCommandEvent):
         command = event.command
         if command.ends_text_block or command.starts_text_block and self._current_block is None:
+            self._last_block = self._current_block
             await self._save_block()
             await self._close_block()
             self._full_text = ""
@@ -161,15 +168,21 @@ class BlockAudioRecorder(ScribeAPIListener):
             channels = event.channels[1]
         else:
             channels = event.channels
+        self._current_block.channels  = channels
+        samplerate = int(int(event.sample_rate))
+        self._current_block.samplerate = samplerate
         if self._current_block.wav_file is None:
             wav_file = sf.SoundFile(
                 self._current_block.sound_path,
                 mode='w',
-                samplerate=int(event.sample_rate),
+                samplerate=samplerate,
                 channels=channels,
                 subtype='PCM_16'
             )
-
+            leading_seconds = 0.4
+            leading_frames = int(samplerate * leading_seconds)
+            silence_block = np.zeros((leading_frames, channels), dtype=np.float32)
+            wav_file.write(silence_block)
             self._current_block.wav_file = wav_file
             
         with self._buffer_lock:
@@ -193,7 +206,13 @@ class BlockAudioRecorder(ScribeAPIListener):
     async def _close_block(self):
         if not self._current_block:
             return
-        self._current_block.wav_file.close()
+        if self._current_block.wav_file:
+            trailing_seconds = 0.4
+            trailing_frames = int(self._current_block.samplerate * trailing_seconds)
+            silence_block = np.zeros((trailing_frames, self._current_block.channels), dtype=np.float32)
+            self._current_block.wav_file.write(silence_block)
+            self._current_block.wav_file.close()
+            
         self._full_text = ""
         self.events = []
         self.meta_events = []
@@ -204,4 +223,6 @@ class BlockAudioRecorder(ScribeAPIListener):
         await self._save_block()
         await self._close_block()
         logger.info("BlockAudioRecorder stopped")
+
+
 

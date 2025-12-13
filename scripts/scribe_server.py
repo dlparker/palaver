@@ -19,7 +19,7 @@ from palaver.scribe.audio_events import AudioEvent, AudioStopEvent
 from palaver.scribe.scriven.wire_commands import ScribeCommandEvent, CommandEventListener
 from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.recorders.block_audio import BlockAudioRecorder
-from palaver.utils.top_error import TopLevelCallback, TopErrorHandler
+from palaver.utils.top_error import TopLevelCallback, TopErrorHandler, get_error_handler
 
 # Setup logging
 logging.basicConfig(stream=sys.stdout, level=logging.WARNING)
@@ -35,7 +35,7 @@ class APIWrapper(ScribeAPIListener):
         self.full_text = ""
         self.blocks = []
         self.mqtt_publisher = None
-        self.wav_recorder = None
+        self.block_recorder = None
 
     async def add_mqtt_publisher(self, args):
         from palaver.scribe.comms.mqtt_publisher import MQTTPublisher
@@ -51,7 +51,7 @@ class APIWrapper(ScribeAPIListener):
 
     async def add_recorder(self, args):
         # Setup recording if output_dir provided
-        self.wav_recorder = BlockAudioRecorder(args.output_dir)
+        self.block_recorder = BlockAudioRecorder(args.output_dir)
         logger.info(f"Recording enabled but not yet wired: {args.output_dir}")
         
     async def on_pipeline_ready(self, pipeline):
@@ -61,8 +61,8 @@ class APIWrapper(ScribeAPIListener):
             parts['transcription'].add_text_event_listener(self.mqtt_publisher)
             parts['command_dispatch'].add_event_listener(self.mqtt_publisher)
             logger.info("MQTT publishing wired")
-        if self.wav_recorder:
-            pipeline.add_api_listener(self.wav_recorder, to_merge=True)
+        if self.block_recorder:
+            pipeline.add_api_listener(self.block_recorder, to_merge=True)
             logger.info(f"Recording wired")
 
     async def on_pipeline_shutdown(self):
@@ -73,8 +73,8 @@ class APIWrapper(ScribeAPIListener):
                 print(traceback.format_exc())
             finally:
                 self.self.mqtt_publisher = None
-        if self.wav_recorder:
-            await self.wav_recorder.stop()
+        if self.block_recorder:
+            await self.block_recorder.stop()
             
     def set_server(self, server, server_type):
         self.server = server
@@ -95,11 +95,22 @@ class APIWrapper(ScribeAPIListener):
             if len(self.blocks) > 0:
                 print(self.blocks[-1])
             print("++++++=++++++++++++++++++++++++++++++++++++")
-        if self.wav_recorder:
-            if event.command.starts_recording_session:
-                logger.info(f"Command '{event.command.name}' starting new recording session")
-            elif event.command.ends_recording_session:
-                logger.info(f"Command '{event.command.name}' ending recording session")
+            # give time for block recorder to act
+            await asyncio.sleep(0.1)
+            if self.block_recorder and False:
+                last_record_block = self.block_recorder.get_last_block()
+                if last_record_block:
+                    print("\n\nRescanning!\n\n")
+                    pipeline = self.server.get_pipeline()
+                    parts = pipeline.get_pipeline_parts()
+                    downsampler = parts['downsampler']
+                    transcriber = parts['transcription']
+                    async def rescan(block):
+                        await transcriber.rescan_direct(block.events, downsampler)
+                    get_error_handler().wrap_task(rescan, last_record_block)
+                else:
+                    print("\n\nCANNOT RESCAN!!! no block\n\n")
+                
 
     async def on_text_event(self, event: TextEvent):
         """Called when new transcribed text is available."""
@@ -210,6 +221,11 @@ Examples:
         default=None,
         help='MQTT password (optional)'
     )
+    parser.add_argument(
+        '--rescan',
+        action='store_true',
+        help='Rescan a file with best transcription settings (only playback mode)',
+    )
 
     # Subcommands for different modes
     subparsers = parser.add_subparsers(dest='mode', required=True, help='Server mode')
@@ -278,13 +294,14 @@ async def setup_playback_mode(args, done_callback):
     api_wrapper = APIWrapper(done_callback)
     if args.mqtt_broker:
         await api_wrapper.add_mqtt_publisher(args)
-    if args.output_dir:
+    if args.output_dir and not args.rescan_mode:
         await api_wrapper.add_recorder(args)
 
     playback_server = PlaybackServer(
         model_path=args.model,
         audio_files=args.files,
         api_listener=api_wrapper,
+        rescan_mode=args.rescan,
         chunk_duration=args.chunk_duration,
         simulate_timing=not args.no_simulate_timing,
         use_multiprocessing=args.multiprocess,

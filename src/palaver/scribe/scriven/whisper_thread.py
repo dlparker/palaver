@@ -172,6 +172,12 @@ class WhisperThread:
     def get_config(self):
         return dict(self._config)
     
+    async def set_rescan_mode(self, new_samples):
+        if self._worker_running:
+            raise Exception("cannot do that when worker running")
+        self._config['buffer_samples'] = new_samples
+        self._buffer = np.zeros(new_samples, dtype=np.float32)
+        
     async def update_config(self, new_config):
         if new_config['model_path'] != self._model_path:
             if self._worker_running:
@@ -268,7 +274,8 @@ class WhisperThread:
     async def set_in_speech(self, value):
         if self._in_speech != value:
             self._in_speech = value
-            if not value and self._buffer_pos > 1000:
+            limit = 16000*0.03
+            if not value and self._buffer_pos > limit:
                 await self._push_buffer_job()
             else:
                 self._buffer = np.zeros(self._config['buffer_samples'], dtype=np.float32)
@@ -307,7 +314,7 @@ class WhisperThread:
         if isinstance(event, AudioSpeechStartEvent):
             await self.set_in_speech(True)
         elif isinstance(event, AudioSpeechStopEvent):
-            await self.set_in_speech(False)
+            await self.set_in_speech(False) # does push if needed
         elif isinstance(event, AudioChunkEvent) and not self._in_speech and self._pre_buffer is not None:
             self._pre_buffer.add(event)
         elif isinstance(event, AudioChunkEvent) and self._in_speech:
@@ -320,7 +327,7 @@ class WhisperThread:
                     await self._handle_chunk(pre_event)
             await self._handle_chunk(event)
         elif isinstance(event, AudioStopEvent):
-            await self.set_in_speech(False)
+            await self.set_in_speech(False) # does push if needed
         
     def add_text_event_listener(self, e_listener: TextEventListener) -> None:
         self._emitter.on(TextEvent, e_listener.on_text_event)
