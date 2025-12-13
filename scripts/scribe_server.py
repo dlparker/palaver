@@ -18,8 +18,7 @@ from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.audio_events import AudioEvent, AudioStopEvent
 from palaver.scribe.scriven.wire_commands import ScribeCommandEvent, CommandEventListener
 from palaver.scribe.api import ScribeAPIListener
-from palaver.scribe.recorders.wav_save import WavSaveRecorder, TextEventLogger
-
+from palaver.scribe.recorders.block_audio import BlockAudioRecorder
 
 # Setup logging
 logging.basicConfig(stream=sys.stdout, level=logging.WARNING)
@@ -51,9 +50,8 @@ class APIWrapper(ScribeAPIListener):
 
     async def add_recorder(self, args):
         # Setup recording if output_dir provided
-        self.wav_recorder = WavSaveRecorder(args.output_dir)
+        self.wav_recorder = BlockAudioRecorder(args.output_dir)
         logger.info(f"Recording enabled but not yet wired: {args.output_dir}")
-
         
     async def on_pipeline_ready(self, pipeline):
         parts = pipeline.get_pipeline_parts()
@@ -63,10 +61,7 @@ class APIWrapper(ScribeAPIListener):
             parts['command_dispatch'].add_event_listener(self.mqtt_publisher)
             logger.info("MQTT publishing wired")
         if self.wav_recorder:
-            parts['audio_merge'].add_event_listener(self.wav_recorder)
-            tel = TextEventLogger(self.wav_recorder)
-            parts['transcription'].add_text_event_listener(tel)
-            await self.wav_recorder.start()
+            pipeline.add_api_listener(self.wav_recorder, to_merge=True)
             logger.info(f"Recording wired")
 
     async def on_pipeline_shutdown(self):
@@ -102,13 +97,8 @@ class APIWrapper(ScribeAPIListener):
         if self.wav_recorder:
             if event.command.starts_recording_session:
                 logger.info(f"Command '{event.command.name}' starting new recording session")
-                # Stop existing recording if active
-                await self.wav_recorder.stop()
-                # Start new recording session
-                await self.wav_recorder.start()
             elif event.command.ends_recording_session:
                 logger.info(f"Command '{event.command.name}' ending recording session")
-                await self.wav_recorder.stop()
 
     async def on_text_event(self, event: TextEvent):
         """Called when new transcribed text is available."""

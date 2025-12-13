@@ -441,14 +441,14 @@ class AudioRingBuffer:
         if max_seconds <= 0:
             raise ValueError("max_seconds must be positive")
         self.max_seconds = max_seconds
-        self.buffer: deque[AudioChunkEvent] = deque()
+        self.buffer: deque[AudioEvent] = deque()
 
     def has_data(self):
         return len(self.buffer)
     
-    def add(self, event: AudioChunkEvent) -> None:
+    def add(self, event: AudioEvent) -> None:
         """
-        Add a new AudioChunkEvent to the buffer and prune old entries.
+        Add a new AudioEvent to the buffer and prune old entries.
         """
         self.buffer.append(event)
         self._prune()
@@ -464,10 +464,21 @@ class AudioRingBuffer:
         while self.buffer and (self.buffer[0].timestamp + self.buffer[0].duration < now - self.max_seconds):
             self.buffer.popleft()
 
-    def get_all(self, clear=False) -> list[AudioChunkEvent]:
+    def get_all(self, clear=False) -> list[AudioEvent]:
         """Return a list of all current events in the buffer (oldest to newest)."""
         res = list(self.buffer)
         if clear:
             self.buffer.clear()
+        return res
+
+    def clear(self):
+        self.buffer.clear()
+        
+    def get_from(self, start_time) -> list[AudioEvent]:
+        """Return a list of all current events in the buffer (oldest to newest)."""
+        res = []
+        for item in self.buffer:
+            if item.timestamp >= start_time:
+                res.append(item)
         return res
 

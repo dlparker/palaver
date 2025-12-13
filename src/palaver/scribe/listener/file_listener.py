@@ -125,7 +125,7 @@ class FileListener(ListenerCCSMixin, Listener):
                     blocksize=frames_per_chunk,
                     datatype='float32',
                     in_speech=False,
-                    meta_data={'file': self._current_file},
+                    meta_data={'file': str(self._current_file)},
                 ))
                 if self._simulate_timing:
                     # We want to simulate the timing of actual audio input
