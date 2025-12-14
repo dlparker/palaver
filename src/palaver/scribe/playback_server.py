@@ -141,23 +141,23 @@ class APIShim(AudioEventListener):
     async def on_pipeline_shutdown(self):
         await self.real_api_listener.on_pipeline_shutdown()
         print()
-        print()
+        print("------Shim--------")
         print(self.buff)
-        print()
+        print("------Shim End--------")
         print()
 
     def add_audio_listener(self, e_listener: AudioEventListener) -> None:
         self.audio_emitter.on(AudioEvent, e_listener.on_audio_event)
         
     def add_text_listener(self, e_listener: TextEvent) -> None:
-        self.text_emitter.on(AudioEvent, e_listener.on_text_event)
+        self.text_emitter.on(TextEvent, e_listener.on_text_event)
         
     def add_command_listener(self, e_listener: ScribeCommandEvent) -> None:
-        self.command_emitter.on(AudioEvent, e_listener.on_command_event)
+        self.command_emitter.on(ScribeCommandEvent, e_listener.on_command_event)
         
     async def on_audio_event(self, event):
         if self.first_audio_event is None:
-            print(event)
+            logger.debug(f"shim first catch {event}")
             self.first_audio_event = event
             speech_event = AudioSpeechStartEvent(timestamp=event.timestamp,
                                                  silence_period_ms=1000,
@@ -166,22 +166,24 @@ class APIShim(AudioEventListener):
                                                  speech_pad_ms=1.5,
                                                  source_id=event.source_id,
                                                  )
-            print(speech_event)
+            logger.debug(f"shim gen {speech_event}")
+            await self.audio_emitter.emit(AudioEvent, event)
             await self.audio_emitter.emit(AudioEvent, speech_event)
+            return
         if isinstance(event, AudioStopEvent):
             speech_event = AudioSpeechStopEvent(timestamp=event.timestamp,
                                                 source_id=event.source_id,
                                                 )
-            print(speech_event)
+            logger.debug(f"shim gen {speech_event}")
             await self.audio_emitter.emit(AudioEvent, speech_event)
             command_event = ScribeCommandEvent(text_event=self.last_text_event,
                                                command=stop_note_command,
                                                pattern="break break break",
                                                segment_number=1)
-            print(command_event)
+            logger.debug(f"shim gen {command_event}")
             await self.command_emitter.emit(ScribeCommandEvent, command_event)
         if not isinstance(event, AudioChunkEvent):
-            print(event)
+            logger.debug(event)
         await self.audio_emitter.emit(AudioEvent, event)
 
     async def on_text_event(self, event):
@@ -191,16 +193,16 @@ class APIShim(AudioEventListener):
                                                command=start_note_command,
                                                pattern="start new note",
                                                segment_number=1)
-            print(command_event)
+            logger.debug(f"shim gen {command_event}")
             await self.command_emitter.emit(ScribeCommandEvent, command_event)
-        print(event)
+        logger.debug(event)
         for seg in event.segments:
             self.buff += seg.text + " "
         await self.text_emitter.emit(TextEvent, event)
         self.last_text_event = event
         
     async def on_command_event(self, event):
-        print(event)
+        logger.debug(f"shim catch {event}")
         await self.command_emitter.emit(ScribeCommandEvent, event)
         
 class RescanPipeline(ScribePipeline):
@@ -208,10 +210,11 @@ class RescanPipeline(ScribePipeline):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.shim = APIShim(self.config.api_listener, self)
-        self.shim.add_audio_listener(self.config.api_listener)
-        self.shim.add_text_listener(self.config.api_listener)
-        self.shim.add_command_listener(self.config.api_listener)
+        self.orig_api_listener = self.config.api_listener
         self.config.api_listener = self.shim
+        self.shim.add_audio_listener(self.orig_api_listener)
+        self.shim.add_text_listener(self.orig_api_listener)
+        self.shim.add_command_listener(self.orig_api_listener)
 
         
     def add_api_listener(self, api_listener:ScribeAPIListener,

@@ -15,7 +15,7 @@ from pprint import pprint
 import argparse
 
 from palaver.scribe.text_events import TextEvent, TextEventListener
-from palaver.scribe.audio_events import AudioEvent, AudioStopEvent
+from palaver.scribe.audio_events import AudioEvent, AudioStopEvent, AudioStartEvent
 from palaver.scribe.scriven.wire_commands import ScribeCommandEvent, CommandEventListener
 from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.recorders.block_audio import BlockAudioRecorder
@@ -81,8 +81,8 @@ class APIWrapper(ScribeAPIListener):
         self.server_type = server_type
         
     async def on_command_event(self, event:ScribeCommandEvent):
-        pprint(event)
         if event.command.starts_text_block:
+            #import ipdb; ipdb.set_trace()
             self.blocks.append("")
             print("-------------------------------------------")
             print(f"APIWrapper starting block {len(self.blocks)}")
@@ -114,6 +114,7 @@ class APIWrapper(ScribeAPIListener):
 
     async def on_text_event(self, event: TextEvent):
         """Called when new transcribed text is available."""
+        #import ipdb; ipdb.set_trace()
         logger.info("*" * 100)
         logger.info("--------Text received---------")
 
@@ -127,6 +128,9 @@ class APIWrapper(ScribeAPIListener):
         logger.info("*" * 100)
         
     async def on_audio_event(self, event:AudioEvent):
+        if isinstance(event, AudioStartEvent):
+            #import ipdb; ipdb.set_trace()
+            pass
         if isinstance(event, AudioStopEvent):
             logger.info("Got audio stop event %s", event)
             if self.done_callback:
