@@ -301,13 +301,17 @@ async def setup_playback_mode(args, done_callback):
     if args.output_dir and not args.rescan_mode:
         await api_wrapper.add_recorder(args)
 
+    if args.rescan:
+        sim_time = False
+    else:
+        simulate_timing=not args.no_simulate_timing
     playback_server = PlaybackServer(
         model_path=args.model,
         audio_files=args.files,
         api_listener=api_wrapper,
         rescan_mode=args.rescan,
         chunk_duration=args.chunk_duration,
-        simulate_timing=not args.no_simulate_timing,
+        simulate_timing=sim_time,
         use_multiprocessing=args.multiprocess,
     )
     api_wrapper.set_server(playback_server, "File playback")

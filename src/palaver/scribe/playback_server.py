@@ -89,6 +89,7 @@ class PlaybackServer:
         # Use nested context managers: listener first, then pipeline
         async with self.file_listener:
             if self.rescan_mode:
+                self.config.whisper_shutdown_timeout = 20.0
                 self.pipeline = RescanPipeline(self.file_listener, self.config)
             else:
                 self.pipeline = ScribePipeline(self.file_listener, self.config)
@@ -241,7 +242,6 @@ class RescanPipeline(ScribePipeline):
         )
         self.downsampler.add_event_listener(self.whisper_thread)
         self.whisper_thread.add_text_event_listener(self.shim)
-
 
         self._pipeline_setup_complete = True
         logger.info("Pipeline setup complete")
