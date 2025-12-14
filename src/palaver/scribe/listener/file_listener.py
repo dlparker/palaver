@@ -30,11 +30,13 @@ class FileListener(ListenerCCSMixin, Listener):
     def __init__(self, 
                  files: list[Path | str],
                  chunk_duration: float = 0.03, 
-                 simulate_timing: bool = True):
+                 simulate_timing: bool = True,
+                 rescan_mode: bool = False):
         super().__init__(chunk_duration)
         self.files: List[Path] = [Path(p) for p in (files or [])]
         self.current_file = None
         self._simulate_timing = simulate_timing
+        self._rescan_mode = rescan_mode
         self._sound_file: Optional[sf.SoundFile] = None
         self._running = False
         self._reader_task = None
@@ -43,7 +45,7 @@ class FileListener(ListenerCCSMixin, Listener):
     async def add_file(self, filepath: os.PathLike[str]) -> None:
         self.files.append(filepath)
 
-    async def start_recording(self) -> None:
+    async def start_streaming(self) -> None:
         if self._running:
             return
 
@@ -118,22 +120,27 @@ class FileListener(ListenerCCSMixin, Listener):
                 break
 
         # All done
-        await self.emit_event(AudioStopEvent(source_id=self.source_id))
-        await self._cleanup()
-        self._reader_task = None
-        
-    async def stop_recording(self) -> None:
-        if not self._running:
-            return
+        if self._rescan_mode:
+            # in rescam mode we wait for caller to tell us to stop, this
+            # ensures that pipeline is not shutdown until all handlers ar done
+            while self._running:
+                await asyncio.sleep(0.01)
+            await self.emit_event(AudioStopEvent(source_id=self.source_id))
+            await self._cleanup()
+            self._reader_task = None
+        else:
+            await self.emit_event(AudioStopEvent(source_id=self.source_id))
+            await self._cleanup()
+            self._reader_task = None
 
-        self.current_file_path = None
-        await self._cleanup()
-        await self.emit_event(AudioStopEvent(source_id=self.source_id))
-
-    async def stop_recording(self) -> None:
+    async def stop_streaming(self) -> None:
         if not self._running:
             return
         self._running = False
+        if self._rescan_mode:
+            start_time = time.time()
+            while time.time() - start_time < 0.5 and self._reader_task:
+                await asyncio.sleep(0.01)
         if self._reader_task:
             self._reader_task.cancel()
             try:
@@ -156,7 +163,7 @@ class FileListener(ListenerCCSMixin, Listener):
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
-        await self.stop_recording()  # always runs, even on exception/cancellation
+        await self.stop_streaming()  # always runs, even on exception/cancellation
         await self._cleanup()  # in case stopped but not cleaned up yet, race
 
     # Optional: make it usable in sync `with` too (rare but nice)

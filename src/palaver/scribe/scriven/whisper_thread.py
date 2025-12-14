@@ -150,7 +150,8 @@ class WhisperThread:
         self._in_speech = False
         self._first_chunk = None
         self._last_chunk = None
-        self._next_job_id = 0
+        self._job_id_counter = 0
+        self._last_result_id = 0
         self._process = None
         self._use_mp = use_mp
         if self._use_mp:
@@ -171,7 +172,12 @@ class WhisperThread:
 
     def get_config(self):
         return dict(self._config)
-    
+
+    def is_busy(self):
+        if self._last_result_id == self._job_id_counter:
+            return False
+        return True
+            
     async def set_rescan_mode(self, new_samples):
         if self._worker_running:
             raise Exception("cannot do that when worker running")
@@ -359,12 +365,12 @@ class WhisperThread:
         if self._buffer_pos == 0:
             return
         size = self._buffer_pos
-        job =  ScriveJob(job_id=self._next_job_id,
+        self._job_id_counter += 1
+        job =  ScriveJob(job_id=self._job_id_counter,
                          data=np.zeros(size, dtype=np.float32),
                          first_chunk = self._first_chunk,
                          last_chunk = self._last_chunk)
         job.data[:] = self._buffer[:size]
-        self._next_job_id += 1
         self._buffer_pos = 0
         self._first_chunk = None
         self._last_chunk = None
@@ -388,6 +394,7 @@ class WhisperThread:
                     break
             if self._result_queue.qsize() > 0:                
                 job = self._result_queue.get()
+                self._last_result_id = job.job_id
                 logger.info("Dequeued finished job %d in %f seconds with segment count %d",
                             job.job_id, job.duration, len(job.text_segments))
                 if len(job.text_segments) == 1 and job.text_segments[0].text == "[BLANK_AUDIO]":

@@ -12,9 +12,9 @@ import traceback
 
 from palaver.scribe.listen_api import Listener
 from palaver.scribe.listener.downsampler import DownSampler
-from palaver.scribe.listener.vad_filter import VADFilter
+from palaver.scribe.listener.vad_filter import VADFilter, VADShim
 from palaver.scribe.scriven.whisper_thread import WhisperThread
-from palaver.scribe.scriven.wire_commands import CommandDispatch
+from palaver.scribe.scriven.wire_commands import CommandDispatch, CommandShim
 from palaver.scribe.command_events import ScribeCommandEvent, CommandEventListener
 from palaver.scribe.text_events import TextEventListener
 from palaver.scribe.listener.audio_merge import AudioMerge
@@ -33,6 +33,7 @@ class PipelineConfig:
     target_channels: int = 1
     use_multiprocessing: bool = False
     whisper_shutdown_timeout: float = 3.0
+    rescan_mode: bool = False
 
 
 class ScribePipeline:
@@ -96,8 +97,10 @@ class ScribePipeline:
         )
         self.listener.add_event_listener(self.downsampler)
 
-        # Create VAD filter if enabled
-        self.vadfilter = VADFilter(self.listener)
+        if self.config.rescan_mode:
+            self.vadfilter = VADShim(self.listener)
+        else:
+            self.vadfilter = VADFilter(self.listener)
         self.downsampler.add_event_listener(self.vadfilter)
         self.audio_merge = AudioMerge()
         await self.audio_merge.start()
@@ -113,7 +116,12 @@ class ScribePipeline:
         self.vadfilter.add_event_listener(self.whisper_thread)
 
         # Attach the command listener
-        self.command_dispatch = CommandDispatch()
+        if self.config.rescan_mode:
+            self.command_dispatch = CommandShim()
+            # needs audo start and stop 
+            self.vadfilter.add_event_listener(self.command_dispatch)
+        else:
+            self.command_dispatch = CommandDispatch()
         self.whisper_thread.add_text_event_listener(self.command_dispatch)
         for patterns, command in default_commands:
             self.command_dispatch.register_command(command, patterns)
@@ -122,6 +130,9 @@ class ScribePipeline:
         self.add_api_listener(self.config.api_listener)
 
         # Start the whisper thread
+        if self.config.rescan_mode:
+            samples_per_scan = 16000 * 5
+            await self.whisper_thread.set_rescan_mode(samples_per_scan)
         await self.whisper_thread.start()
 
         self._pipeline_setup_complete = True
@@ -132,14 +143,20 @@ class ScribePipeline:
             logger.error("pipeline callback to api_listener on startup got error\n%s",
                          traceback.format_exc())
 
+        
     def set_background_error(self, error_dict):
         self.background_error = error_dict
         
     async def start_listener(self):
         """Start the listener streaming audo."""
-        await self.listener.start_recording()
+        await self.listener.start_streaming()
         logger.info("Listener started")
 
+    async def listener_done(self):
+        if self.config.rescan_mode:
+            pass
+        return not self.listener._running
+        
     async def run_until_error_or_interrupt(self):
         """
         Main loop that runs until KeyboardInterrupt, CancelledError, or background error.

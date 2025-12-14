@@ -40,7 +40,7 @@ class MicListener(ListenerCCSMixin, Listener):
         self.source_id = create_source_id("default_mic", datetime.utcnow(), 10000)
         self._background_error = None
 
-    async def start_recording(self) -> None:
+    async def start_streaming(self) -> None:
         if self._running:
             return
         if self._reader_task:
@@ -109,7 +109,7 @@ class MicListener(ListenerCCSMixin, Listener):
             self._reader_task = None
             await self._cleanup()
         
-    async def stop_recording(self) -> None:
+    async def stop_streaming(self) -> None:
         if not self._running:
             return
 

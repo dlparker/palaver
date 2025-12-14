@@ -5,6 +5,7 @@ File playback server for audio transcription from files.
 import asyncio
 import logging
 import traceback
+import time
 from pathlib import Path
 from pprint import pformat
 from typing import Optional, List
@@ -71,6 +72,7 @@ class PlaybackServer:
             target_channels=1,
             use_multiprocessing=use_multiprocessing,
             api_listener=api_listener,
+            rescan_mode=self.rescan_mode,
         )
 
         # Create file listener
@@ -78,8 +80,8 @@ class PlaybackServer:
             files=audio_files,
             chunk_duration=chunk_duration,
             simulate_timing=simulate_timing,
+            rescan_mode=self.rescan_mode,
         )
-
         
     def set_background_error(self, error_dict):
         self._background_error = error_dict
@@ -88,185 +90,28 @@ class PlaybackServer:
     async def run(self):
         # Use nested context managers: listener first, then pipeline
         async with self.file_listener:
+            self.pipeline = ScribePipeline(self.file_listener, self.config)
             if self.rescan_mode:
                 self.config.whisper_shutdown_timeout = 20.0
-                self.pipeline = RescanPipeline(self.file_listener, self.config)
-            else:
-                self.pipeline = ScribePipeline(self.file_listener, self.config)
             async with self.pipeline:
                 await self.pipeline.start_listener()
 
-                if self.rescan_mode:
-                    samples_per_scan = 16000 * 5
-                    await self.pipeline.whisper_thread.set_rescan_mode(samples_per_scan)
-                    await self.pipeline.whisper_thread.start()
-                    await self.pipeline.whisper_thread.set_in_speech(True)
-                    
                 # For file playback, wait until the listener completes
                 # (FileListener stops when files are exhausted)
-                while self.file_listener._running:
+                start_time = time.time()
+                while not await self.pipeline.listener_done():
                     await asyncio.sleep(0.1)
-
+                    if self.rescan_mode:
+                        if time.time() - start_time > 1.0:
+                            if not self.pipeline.whisper_thread.is_busy():
+                                await asyncio.sleep(0.1)
+                                await self.file_listener.stop_streaming()
                     # Still check for background errors
                     if self._background_error:
                         logger.error("Error during playback: %s", pformat(self.pipeline.background_error))
                         raise Exception(pformat(self._background_error))
                 
-                if self.rescan_mode:
-                    await self.pipeline.whisper_thread.set_in_speech(False)
-                    await asyncio.sleep(0.1)
                 # Pipeline shutdown happens automatically in __aexit__
-
         logger.info("Playback server finished.")
         self.pipeline = None
-
-    def get_pipeline(self):
-        return self.pipeline
-
-class APIShim(AudioEventListener):
-
-
-    def __init__(self, real_api_listener, pipeline):
-        self.real_api_listener = real_api_listener
-        self.pipeline = pipeline
-        self.audio_emitter = AsyncIOEventEmitter()
-        self.command_emitter = AsyncIOEventEmitter()
-        self.text_emitter = AsyncIOEventEmitter()
-        self.first_audio_event = None
-        self.first_text_event = None
-        self.last_text_event = None
-        self.saved_stop_events = []
-        self.buff = ""
-
-    async def on_pipeline_ready(self, pipeline):
-        await self.real_api_listener.on_pipeline_ready(pipeline)
-    
-    async def on_pipeline_shutdown(self):
-        await self.real_api_listener.on_pipeline_shutdown()
-        for event in self.saved_stop_events:
-            if isinstance(event, AudioEvent):
-                await self.audio_emitter.emit(AudioEvent, event)
-            elif isinstance(event, TextEvent):
-                await self.text_emitter.emit(TextEvent, event)
-            elif isinstance(event, ScribeCommandEvent):
-                await self.command_emitter.emit(ScribeCommandEvent, event)
-        await asyncio.sleep(0.1)
-        print()
-        print("------Shim--------")
-        print(self.buff)
-        print("------Shim End--------")
-        print()
-
-    def add_audio_listener(self, e_listener: AudioEventListener) -> None:
-        self.audio_emitter.on(AudioEvent, e_listener.on_audio_event)
-        
-    def add_text_listener(self, e_listener: TextEvent) -> None:
-        self.text_emitter.on(TextEvent, e_listener.on_text_event)
-        
-    def add_command_listener(self, e_listener: ScribeCommandEvent) -> None:
-        self.command_emitter.on(ScribeCommandEvent, e_listener.on_command_event)
-        
-    async def on_audio_event(self, event):
-        if self.first_audio_event is None:
-            logger.info(f"shim first catch {event}")
-            self.first_audio_event = event
-            speech_event = AudioSpeechStartEvent(timestamp=event.timestamp,
-                                                 silence_period_ms=1000,
-                                                 vad_threshold=0.5,
-                                                 sampling_rate=16000.0,
-                                                 speech_pad_ms=1.5,
-                                                 source_id=event.source_id,
-                                                 )
-            logger.info(f"shim gen {speech_event}")
-            await self.audio_emitter.emit(AudioEvent, event)
-            await self.audio_emitter.emit(AudioEvent, speech_event)
-            return
-        if isinstance(event, AudioStopEvent):
-            command_event = ScribeCommandEvent(text_event=self.last_text_event,
-                                               command=stop_note_command,
-                                               pattern="break break break",
-                                               segment_number=1)
-            logger.info(f"shim gen {command_event}")
-            self.saved_stop_events.append(command_event)
-            speech_event = AudioSpeechStopEvent(timestamp=event.timestamp,
-                                                source_id=event.source_id,
-                                                )
-            logger.info(f"shim gen {speech_event}")
-            self.saved_stop_events.append(speech_event)
-            self.saved_stop_events.append(event)
-            return
-        if not isinstance(event, AudioChunkEvent):
-            logger.debug(event)
-        await self.audio_emitter.emit(AudioEvent, event)
-
-    async def on_text_event(self, event):
-        if self.first_text_event is None:
-            self.first_text_event  = event
-            command_event = ScribeCommandEvent(text_event=event,
-                                               command=start_rescan_command,
-                                               pattern="start rescan",
-                                               segment_number=1)
-            logger.info(f"shim gen {command_event}")
-            await self.command_emitter.emit(ScribeCommandEvent, command_event)
-            command_event = ScribeCommandEvent(text_event=event,
-                                               command=start_note_command,
-                                               pattern="start new note",
-                                               segment_number=1)
-            logger.info(f"shim gen {command_event}")
-            await self.command_emitter.emit(ScribeCommandEvent, command_event)
-        logger.info(event)
-        for seg in event.segments:
-            self.buff += seg.text + " "
-        await self.text_emitter.emit(TextEvent, event)
-        self.last_text_event = event
-        
-    async def on_command_event(self, event):
-        logger.info(f"shim catch {event}")
-        await self.command_emitter.emit(ScribeCommandEvent, event)
-        
-class RescanPipeline(ScribePipeline):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.shim = APIShim(self.config.api_listener, self)
-        self.orig_api_listener = self.config.api_listener
-        self.config.api_listener = self.shim
-        self.shim.add_audio_listener(self.orig_api_listener)
-        self.shim.add_text_listener(self.orig_api_listener)
-        self.shim.add_command_listener(self.orig_api_listener)
-
-        
-    def add_api_listener(self, api_listener:ScribeAPIListener,
-                               to_source: bool=False, to_VAD: bool=False, to_merge: bool=False):
-        self.listener.add_event_listener(api_listener)
-        self.whisper_thread.add_text_event_listener(api_listener)
-        
-    async def setup_pipeline(self):
-        if self._pipeline_setup_complete:
-            return
-        
-        # Create downsampler
-        self.downsampler = DownSampler(
-            target_samplerate=self.config.target_samplerate,
-            target_channels=self.config.target_channels
-        )
-        self.listener.add_event_listener(self.downsampler)
-        self.listener.add_event_listener(self.shim)
-  
-        # Create whisper transcription thread
-        self.whisper_thread = WhisperThread(
-            self.config.model_path,
-            use_mp=self.config.use_multiprocessing
-        )
-        self.downsampler.add_event_listener(self.whisper_thread)
-        self.whisper_thread.add_text_event_listener(self.shim)
-
-        self._pipeline_setup_complete = True
-        logger.info("Pipeline setup complete")
-        try:
-            await self.shim.on_pipeline_ready(self)
-        except:
-            logger.error("pipeline callback to api_listener on startup got error\n%s",
-                         traceback.format_exc())
-
 

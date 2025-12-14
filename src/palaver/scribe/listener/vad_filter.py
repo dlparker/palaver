@@ -74,9 +74,7 @@ class VADFilter(AudioEventListener):
     async def on_audio_event(self, event):
         if not isinstance(event, AudioChunkEvent):
             if isinstance(event, AudioStopEvent) and self._in_speech:
-                my_event = AudioSpeechStopEvent(
-                    source_id=event.source_id, 
-                )
+                my_event = AudioSpeechStopEvent(source_id=event.source_id)
                 await self.emitter.emit(AudioEvent, my_event)
                 logger.debug("[Speech end on audio end] %s", my_event)
             await self.emitter.emit(AudioEvent, event)
@@ -115,4 +113,42 @@ class VADFilter(AudioEventListener):
     def add_event_listener(self, e_listener: AudioEventListener) -> None:
         self.emitter.on(AudioEvent, e_listener.on_audio_event)
 
+
+class VADShim(AudioEventListener):
+    # Looks like VAD, but issues start and stop on
+    # receipt of audo start and stop
+    # Used for rescan so that the rest of the
+    # logic works just like an initial scan, things
+    # get the events that they need
+    
+    def __init__(self, sound_source):
+        self.sound_source = sound_source
+        self.emitter = AsyncIOEventEmitter()
+        # some fake values
+        self._silence_ms = 100
+        self._threshold = .05
+        self._sampling_rate = 16000
+        self._speech_pad_ms = 1.5
+        self.logger = logging.getLogger("VADShim")
+
+    async def on_audio_event(self, event):
+        if isinstance(event, AudioStartEvent):
+            my_event = AudioSpeechStartEvent(
+                source_id=event.source_id, 
+                    silence_period_ms=self._silence_ms,
+                    vad_threshold=self._threshold,
+                    sampling_rate=self._sampling_rate,
+                    speech_pad_ms=self._speech_pad_ms
+                )
+            await self.emitter.emit(AudioEvent, my_event)
+            logger.debug("[Speech start] %s", my_event)
+        if isinstance(event, AudioStopEvent):
+            my_event = AudioSpeechStopEvent(source_id=event.source_id)
+            await self.emitter.emit(AudioEvent, my_event)
+            logger.debug("[Speech end] %s", my_event)
+        await self.emitter.emit(AudioEvent, event)
+
+    def add_event_listener(self, e_listener: AudioEventListener) -> None:
+        self.emitter.on(AudioEvent, e_listener.on_audio_event)
+        
 
