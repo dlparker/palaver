@@ -138,7 +138,7 @@ class ScribePipeline:
     async def start_listener(self):
         """Start the listener streaming audo."""
         await self.listener.start_recording()
-        logger.info("Recording started")
+        logger.info("Listener started")
 
     async def run_until_error_or_interrupt(self):
         """

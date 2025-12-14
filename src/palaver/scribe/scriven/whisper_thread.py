@@ -208,12 +208,12 @@ class WhisperThread:
                     self._shutdown_event,
                     self._model_path,
                     ]
-            print("\n\nUsing process\n\n")
+            logger.info("Using process")
             self._process = Process(target=process_worker_wrapper, args=args)
             self._process.start()
             self._worker_running = True
         else:
-            print("\n\nUsing thread\n\n")
+            logger.info("Using thread")
             coro = asyncio.to_thread(thread_worker_wrapper,
                                      self._job_queue,
                                      self._result_queue,

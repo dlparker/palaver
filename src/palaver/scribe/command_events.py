@@ -4,7 +4,7 @@ from palaver.scribe.text_events import TextEvent
 import time
 import uuid
 
-@dataclass
+@dataclass(kw_only=True)
 class ScribeCommand:
     name: str
     starts_text_block: bool = False

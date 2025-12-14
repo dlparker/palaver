@@ -18,6 +18,7 @@ from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.audio_events import AudioEvent, AudioStopEvent, AudioStartEvent
 from palaver.scribe.scriven.wire_commands import ScribeCommandEvent, CommandEventListener
 from palaver.scribe.api import ScribeAPIListener
+from palaver.scribe.api import StartNoteCommand, StopNoteCommand, StartRescanCommand
 from palaver.scribe.recorders.block_audio import BlockAudioRecorder
 from palaver.utils.top_error import TopLevelCallback, TopErrorHandler, get_error_handler
 
@@ -36,6 +37,9 @@ class APIWrapper(ScribeAPIListener):
         self.blocks = []
         self.mqtt_publisher = None
         self.block_recorder = None
+        self.doing_rescan = False
+        self.auto_rescan = True
+        self.last_block_name = None
 
     async def add_mqtt_publisher(self, args):
         from palaver.scribe.comms.mqtt_publisher import MQTTPublisher
@@ -81,13 +85,19 @@ class APIWrapper(ScribeAPIListener):
         self.server_type = server_type
         
     async def on_command_event(self, event:ScribeCommandEvent):
-        if event.command.starts_text_block:
+        if isinstance(event.command, StartRescanCommand):
+            self.doing_rescan = True
+            print("-------------------------------------------")
+            print(f"APIWrapper starting rescan")
+            print("-------------------------------------------")
+            return
+        elif isinstance(event.command, StartNoteCommand):
             #import ipdb; ipdb.set_trace()
             self.blocks.append("")
             print("-------------------------------------------")
             print(f"APIWrapper starting block {len(self.blocks)}")
             print("-------------------------------------------")
-        elif event.command.ends_text_block:
+        elif isinstance(event.command, StopNoteCommand):
             print("-------------------------------------------")
             print(f"APIWrapper ending block {len(self.blocks)}")
             print("-------------------------------------------")
@@ -97,20 +107,20 @@ class APIWrapper(ScribeAPIListener):
             print("++++++=++++++++++++++++++++++++++++++++++++")
             # give time for block recorder to act
             await asyncio.sleep(0.1)
-            if self.block_recorder and False:
-                last_record_block = self.block_recorder.get_last_block()
-                if last_record_block:
-                    print("\n\nRescanning!\n\n")
-                    pipeline = self.server.get_pipeline()
-                    parts = pipeline.get_pipeline_parts()
-                    downsampler = parts['downsampler']
-                    transcriber = parts['transcription']
-                    async def rescan(block):
-                        await transcriber.rescan_direct(block.events, downsampler)
-                    get_error_handler().wrap_task(rescan, last_record_block)
-                else:
-                    print("\n\nCANNOT RESCAN!!! no block\n\n")
-                
+            if self.block_recorder:
+                if not self.doing_rescan and self.auto_rescan:
+                    wavfile = self.block_recorder.get_last_block_wav_path()
+                    print(f"\n\nNeed to rescan file {wavfile}\n\n")
+                if self.doing_rescan:
+                    print("----- Rescanned block, saving file in recorder dir -----")
+                    target_path = self.block_recorder.get_rescan_text_path()
+                    with open(target_path, 'w') as f:
+                        for block in self.blocks:
+                            f.write(block)
+                    print("----------------------------")
+                    print(f"\nWrote rescan file {target_path}")
+            elif self.doing_rescan:
+                print("----- Rescanned but no block recorder so not saved -----")
 
     async def on_text_event(self, event: TextEvent):
         """Called when new transcribed text is available."""
@@ -280,7 +290,7 @@ async def setup_mic_mode(args, done_callback):
         await api_wrapper.add_mqtt_publisher(args)
     if args.output_dir:
         await api_wrapper.add_recorder(args)
-        
+
     mic_server = MicServer(
         model_path=args.model,
         api_listener=api_wrapper,
@@ -298,13 +308,13 @@ async def setup_playback_mode(args, done_callback):
     api_wrapper = APIWrapper(done_callback)
     if args.mqtt_broker:
         await api_wrapper.add_mqtt_publisher(args)
-    if args.output_dir and not args.rescan_mode:
+    if args.output_dir:
         await api_wrapper.add_recorder(args)
 
     if args.rescan:
         sim_time = False
     else:
-        simulate_timing=not args.no_simulate_timing
+        sim_time = not args.no_simulate_timing
     playback_server = PlaybackServer(
         model_path=args.model,
         audio_files=args.files,

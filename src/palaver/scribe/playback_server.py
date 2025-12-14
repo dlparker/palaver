@@ -25,7 +25,7 @@ from palaver.scribe.audio_events import (AudioEvent,
                                          )
 from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.command_events import ScribeCommandEvent, CommandEventListener, ScribeCommand
-from palaver.scribe.api import start_note_command, stop_note_command, ScribeAPIListener
+from palaver.scribe.api import start_note_command, stop_note_command, start_rescan_command, ScribeAPIListener
 
 logger = logging.getLogger("PlaybackServer")
 
@@ -114,6 +114,7 @@ class PlaybackServer:
                 
                 if self.rescan_mode:
                     await self.pipeline.whisper_thread.set_in_speech(False)
+                    await asyncio.sleep(0.1)
                 # Pipeline shutdown happens automatically in __aexit__
 
         logger.info("Playback server finished.")
@@ -134,6 +135,7 @@ class APIShim(AudioEventListener):
         self.first_audio_event = None
         self.first_text_event = None
         self.last_text_event = None
+        self.saved_stop_events = []
         self.buff = ""
 
     async def on_pipeline_ready(self, pipeline):
@@ -141,6 +143,14 @@ class APIShim(AudioEventListener):
     
     async def on_pipeline_shutdown(self):
         await self.real_api_listener.on_pipeline_shutdown()
+        for event in self.saved_stop_events:
+            if isinstance(event, AudioEvent):
+                await self.audio_emitter.emit(AudioEvent, event)
+            elif isinstance(event, TextEvent):
+                await self.text_emitter.emit(TextEvent, event)
+            elif isinstance(event, ScribeCommandEvent):
+                await self.command_emitter.emit(ScribeCommandEvent, event)
+        await asyncio.sleep(0.1)
         print()
         print("------Shim--------")
         print(self.buff)
@@ -158,7 +168,7 @@ class APIShim(AudioEventListener):
         
     async def on_audio_event(self, event):
         if self.first_audio_event is None:
-            logger.debug(f"shim first catch {event}")
+            logger.info(f"shim first catch {event}")
             self.first_audio_event = event
             speech_event = AudioSpeechStartEvent(timestamp=event.timestamp,
                                                  silence_period_ms=1000,
@@ -167,22 +177,24 @@ class APIShim(AudioEventListener):
                                                  speech_pad_ms=1.5,
                                                  source_id=event.source_id,
                                                  )
-            logger.debug(f"shim gen {speech_event}")
+            logger.info(f"shim gen {speech_event}")
             await self.audio_emitter.emit(AudioEvent, event)
             await self.audio_emitter.emit(AudioEvent, speech_event)
             return
         if isinstance(event, AudioStopEvent):
-            speech_event = AudioSpeechStopEvent(timestamp=event.timestamp,
-                                                source_id=event.source_id,
-                                                )
-            logger.debug(f"shim gen {speech_event}")
-            await self.audio_emitter.emit(AudioEvent, speech_event)
             command_event = ScribeCommandEvent(text_event=self.last_text_event,
                                                command=stop_note_command,
                                                pattern="break break break",
                                                segment_number=1)
-            logger.debug(f"shim gen {command_event}")
-            await self.command_emitter.emit(ScribeCommandEvent, command_event)
+            logger.info(f"shim gen {command_event}")
+            self.saved_stop_events.append(command_event)
+            speech_event = AudioSpeechStopEvent(timestamp=event.timestamp,
+                                                source_id=event.source_id,
+                                                )
+            logger.info(f"shim gen {speech_event}")
+            self.saved_stop_events.append(speech_event)
+            self.saved_stop_events.append(event)
+            return
         if not isinstance(event, AudioChunkEvent):
             logger.debug(event)
         await self.audio_emitter.emit(AudioEvent, event)
@@ -191,19 +203,25 @@ class APIShim(AudioEventListener):
         if self.first_text_event is None:
             self.first_text_event  = event
             command_event = ScribeCommandEvent(text_event=event,
+                                               command=start_rescan_command,
+                                               pattern="start rescan",
+                                               segment_number=1)
+            logger.info(f"shim gen {command_event}")
+            await self.command_emitter.emit(ScribeCommandEvent, command_event)
+            command_event = ScribeCommandEvent(text_event=event,
                                                command=start_note_command,
                                                pattern="start new note",
                                                segment_number=1)
-            logger.debug(f"shim gen {command_event}")
+            logger.info(f"shim gen {command_event}")
             await self.command_emitter.emit(ScribeCommandEvent, command_event)
-        logger.debug(event)
+        logger.info(event)
         for seg in event.segments:
             self.buff += seg.text + " "
         await self.text_emitter.emit(TextEvent, event)
         self.last_text_event = event
         
     async def on_command_event(self, event):
-        logger.debug(f"shim catch {event}")
+        logger.info(f"shim catch {event}")
         await self.command_emitter.emit(ScribeCommandEvent, event)
         
 class RescanPipeline(ScribePipeline):

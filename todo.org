@@ -1,4 +1,8 @@
 
+Command rework:
+Needs to be easy and quick to add or change a command, and yet get some sort of
+static checking that references to command are correct, not just command.name == "foo".
+
 Core API updates:
 1. [] Build an interface to the core that accepts a config dataclass
    and provides helper functions for initializing the Listener (File,
@@ -7,15 +11,15 @@ Core API updates:
    
 
 Main architecture
-1. [] Move the recorder code out of the core and:
-   1. [] make it configurable
-   2. [] fix the listener name
-   3. [] Change it to store text blocks in directory
+1. [X] Move the recorder code out of the core and:
+   1. [x] make it configurable
+   2. [x] fix the listener name
+   3. [x] Change it to store text blocks in directory
    4. [] Add a DB for tracking, listing, deleteting, etc
    5. [] Add a method to add text revisions by ID (maybe using the json meta data)
-2. Move MQTT out of core
-   1. Add a combined event stream
-   2. Add substreams to replicate original audio split
+2. [x] Move MQTT out of core
+   1. [] Add a combined event stream
+   2. [] Add substreams to replicate original audio split
 
       
 
