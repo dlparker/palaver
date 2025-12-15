@@ -34,7 +34,6 @@ class PipelineConfig:
     target_channels: int = 1
     use_multiprocessing: bool = False
     whisper_shutdown_timeout: float = 3.0
-    rescan_mode: bool = False
 
 
 class ScribePipeline:
@@ -71,7 +70,7 @@ class ScribePipeline:
                     command_dispatch=self.command_dispatch)
     
     def add_api_listener(self, api_listener:ScribeAPIListener,
-                               to_source: bool=False, to_VAD: bool=False, to_merge: bool=False):
+                               to_source: bool=False, to_VAD: bool=False, to_merge: bool=True):
         if sum((to_source, to_VAD, to_merge)) > 1:
             raise Exception('You can supply at most one value for audio event attachement')
         if to_merge:
@@ -98,18 +97,16 @@ class ScribePipeline:
         )
         self.listener.add_event_listener(self.downsampler)
 
-        if self.config.rescan_mode:
-            self.vadfilter = VADShim(self.listener)
-        else:
-            self.vadfilter = VADFilter(self.listener)
+        self.vadfilter = VADFilter(self.listener)
         self.downsampler.add_event_listener(self.vadfilter)
+        # setup the merge layer to emit VAD signals
+        # but to send all original signals from listerner
+        # for other audio_event types
         self.audio_merge = AudioMerge()
         await self.audio_merge.start()
-        if not self.config.rescan_mode:
-            full, vad = self.audio_merge.get_shims()
-            self.listener.add_event_listener(full)
-            self.vadfilter.add_event_listener(vad)
-            
+        full_shim, vad_shim = self.audio_merge.get_shims()
+        self.listener.add_event_listener(full_shim)
+        self.vadfilter.add_event_listener(vad_shim)
         # Create whisper transcription thread
         self.whisper_thread = WhisperThread(
             self.config.model_path,
@@ -117,26 +114,17 @@ class ScribePipeline:
         )
         self.vadfilter.add_event_listener(self.whisper_thread)
 
-        # Attach the command listener
-        if self.config.rescan_mode:
-            self.command_dispatch = CommandShim()
-            # needs audo start and stop 
-            self.vadfilter.add_event_listener(self.command_dispatch)
-        else:
-            self.command_dispatch = CommandDispatch()
-        self.whisper_thread.add_text_event_listener(self.command_dispatch)
+        self.command_dispatch = CommandDispatch()
         for patterns, command in default_commands:
             self.command_dispatch.register_command(command, patterns)
+        # Attach the command listener
+        self.whisper_thread.add_text_event_listener(self.command_dispatch)
 
-        self.add_api_listener(self.config.api_listener, to_merge=not self.config.rescan_mode)
         self._stream_monitor = StreamMonitor(self)
         self.add_api_listener(self._stream_monitor, to_merge=True)
 
-        # Start the whisper thread
-        if self.config.rescan_mode:
-            samples_per_scan = 16000 * 10
-            await self.whisper_thread.set_rescan_mode(samples_per_scan)
-        await self.whisper_thread.start()
+        # Start the whisper thread on run, that gives caller a
+        # chance to config it
         
         self._pipeline_setup_complete = True
         logger.info("Pipeline setup complete")
@@ -152,8 +140,12 @@ class ScribePipeline:
         Checks for background errors every 100ms.
         """
         try:
+            await self.whisper_thread.start()
             while True:
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.01)
+                if self._stream_monitor.check_done():
+                    self._stream_monitor.check_done(dump=True)
+                    break
                 if self.background_error:
                     from pprint import pformat
                     logger.error("Error callback triggered: %s", pformat(self.background_error))
@@ -168,14 +160,10 @@ class ScribePipeline:
         
     async def start_listener(self):
         """Start the listener streaming audo."""
+        await self.whisper_thread.start()
         await self.listener.start_streaming()
         logger.info("Listener started")
 
-    async def listener_done(self):
-        if self.config.rescan_mode:
-            pass
-        return not self.listener._running
-        
     async def shutdown(self):
         """
         Gracefully shutdown the pipeline.
@@ -227,10 +215,11 @@ class StreamMonitor(ScribeAPIListener):
     async def on_pipeline_shutdown(self):
         pass
 
-    def check_done(self, why):
-        from pprint import pformat
-        print("----- DUMP DUMP DUMP DUMP DUMP ---------------")
-        print(f"reason: {why}")
+    def check_done(self, dump=False, why="check"):
+        if dump:
+            from pprint import pformat
+            print("----- DUMP DUMP DUMP DUMP DUMP ---------------")
+            print(f"reason: {why}")
         # everything good case is
         if self.audio_stop and self.in_block_event is None:
             self.all_done = True
@@ -238,18 +227,25 @@ class StreamMonitor(ScribeAPIListener):
             # this should always happen since the VAD (or shim)
             # issues a speech stop on audio stop if end of
             # speech has not been detected.
-            diff = self.audio_stop.timestamp - self.speech_stop.last_in_speech_chunk_time
-            print(f"sound between speech_stop and audio_stop = {diff}")
+            if dump:
+                diff = self.audio_stop.timestamp - self.speech_stop.last_in_speech_chunk_time
+                print(f"sound between speech_stop and audio_stop = {diff}")
             if self.last_text:
                 diff = self.speech_stop.last_in_speech_chunk_time - self.last_text.audio_end_time 
-                print(f"sound between last text and speech_stop = {diff}")
+                if dump:
+                    print(f"sound between last text and speech_stop = {diff}")
+                    print(f"last_chunk = {self.speech_stop.last_in_speech_chunk_time}")
+                    print(f"last_text  = {self.last_text.audio_end_time}")
                 if diff < 0.5:
                     # this is not going to be precise. The VAD does buffering andpadding,
                     # it will never report the exact last block
                     self.all_done = True
             else:
-                print(f"Never saw text and audio is stopped, need to check whisper for pending")
+                if dump:
+                    print(f"Never saw text and audio is stopped, need to check whisper for pending")
             
+        if not dump:
+            return self.all_done
         print(f"all_done: {self.all_done}")
         print("********")
         print("audio_stop:")
@@ -274,31 +270,32 @@ class StreamMonitor(ScribeAPIListener):
         print(pformat(self.in_block_event))
             
         print("----- END END END END DUMP ---------------")
+        return self.all_done
         
     async def on_audio_event(self, event):
         if isinstance(event, AudioSpeechStopEvent):
             self.speech_stop = event
             self.speech_start = None
-            self.check_done("speech stop")
+            self.check_done(dump=True, why="speech stop")
         if isinstance(event, AudioSpeechStartEvent):
             self.speech_start = event
             self.speech_stop = None
-            self.check_done("speech start")
+            self.check_done(dump=True, why="speech start")
         if isinstance(event, AudioStopEvent):
             # stream is shutdown, check to see if whisper
             # had done last chunk
             self.audio_stop = event
-            self.check_done("audio stop")
+            self.check_done(dump=True, why="audio stop")
         
     async def on_command_event(self, event:ScribeCommandEvent):
         from palaver.scribe.api import StartNoteCommand, StopNoteCommand, StartRescanCommand
         if isinstance(event.command, StartNoteCommand):
             self.in_block_event = event
-            self.check_done("note start")
+            self.check_done(dump=True, why="note start")
         elif isinstance(event.command, StopNoteCommand):
             self.in_block_event = None
-            self.check_done("note stop")
+            self.check_done(dump=True, why="note stop")
 
     async def on_text_event(self, event: TextEvent):
         self.last_text = event
-        self.check_done("text")
+        self.check_done(dump=True, why="text")

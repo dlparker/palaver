@@ -23,7 +23,9 @@ from palaver.scribe.recorders.block_audio import BlockAudioRecorder
 from palaver.utils.top_error import TopLevelCallback, TopErrorHandler, get_error_handler
 
 # Setup logging
-logging.basicConfig(stream=sys.stdout, level=logging.WARNING)
+log_format = '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s'
+logging.basicConfig(stream=sys.stdout, level=logging.WARNING,
+                    format=log_format)
 logger = logging.getLogger("ScribeServer")
 
 class APIWrapper(ScribeAPIListener):
@@ -310,15 +312,18 @@ async def setup_playback_mode(args, done_callback):
 
     if args.rescan:
         sim_time = False
+        rescan = True
     else:
         sim_time = not args.no_simulate_timing
         sim_time = True
-    sim_time = False
+        rescan = False
+    sim_time = True
+    rescan = False
     playback_server = PlaybackServer(
         model_path=args.model,
         audio_file=args.file,
         api_listener=api_wrapper,
-        rescan_mode=args.rescan,
+        rescan_mode=rescan,
         chunk_duration=args.chunk_duration,
         simulate_timing=sim_time,
         use_multiprocessing=args.multiprocess,

@@ -56,6 +56,10 @@ class VADFilter(AudioEventListener):
         self._speech_start_time = None
         self._last_in_speach_chunk = None
 
+    def reset(self, silence_ms=MIN_SILENCE_MS, threshold=VAD_THRESHOLD, speech_pad_ms=SPEECH_PAD_MS):
+        self._vad.reset_states()
+        self._vad = self.create_vad(silence_ms, threshold, speech_pad_ms)
+        
     def create_vad(self, silence_ms, threshold, speech_pad_ms):
         """
         Create VAD iterator with specified silence duration and threshold and speech padding,

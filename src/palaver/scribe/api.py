@@ -61,6 +61,5 @@ start_rescan_command = StartRescanCommand()
 default_commands = [
     (['start a note', 'begin note', 'start new note'], start_note_command),
     (['break break break', 'stop stop stop',], stop_note_command),
-    (['start rescan', 'rescan block'], start_rescan_command),
     ]
     

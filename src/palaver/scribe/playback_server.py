@@ -72,7 +72,6 @@ class PlaybackServer:
             target_channels=1,
             use_multiprocessing=use_multiprocessing,
             api_listener=api_listener,
-            rescan_mode=self.rescan_mode,
         )
 
         # Create file listener
@@ -93,21 +92,19 @@ class PlaybackServer:
         # Use nested context managers: listener first, then pipeline
         async with self.file_listener:
             self.pipeline = ScribePipeline(self.file_listener, self.config)
-            if self.rescan_mode:
-                self.config.whisper_shutdown_timeout = 20.0
             async with self.pipeline:
-                await self.pipeline.start_listener()
-
-                # For file playback, wait until the listener completes
-                # (FileListener stops when files are exhausted)
-                while not await self.pipeline.listener_done():
-                    await asyncio.sleep(0.1)
-                    # Still check for background errors
-                    if self._background_error:
-                        logger.error("Error during playback: %s", pformat(self.pipeline.background_error))
-                        raise Exception(pformat(self._background_error))
+                if self.rescan_mode:
+                    samples_per_scan = 16000 * 8
+                    self.pipeline.vadfilter.reset(silence_ms=8000, speech_pad_ms=1000)
+                else:
+                    samples_per_scan = 16000 * 2
+                    #samples_per_scan = 16000 * 8
+                    #self.pipeline.vadfilter.reset(silence_ms=8000, speech_pad_ms=1000)
+                await self.pipeline.whisper_thread.set_buffer_samples(samples_per_scan)
                 
-                # Pipeline shutdown happens automatically in __aexit__
+                await self.pipeline.start_listener()
+                await self.pipeline.run_until_error_or_interrupt()
+                            
         logger.info("Playback server finished.")
         self.pipeline = None
 

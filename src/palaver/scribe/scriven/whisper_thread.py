@@ -196,7 +196,7 @@ class WhisperThread:
                 if time.time() - start_time > timeout:
                     raise Exception("Timeout waiting for flushed job")
             
-    async def set_rescan_mode(self, new_samples):
+    async def set_buffer_samples(self, new_samples):
         if self._worker_running:
             raise Exception("cannot do that when worker running")
         self._config['buffer_samples'] = new_samples
