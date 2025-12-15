@@ -39,7 +39,12 @@ class MicListener(ListenerCCSMixin, Listener):
         self._stream = None
         self.source_id = create_source_id("default_mic", datetime.utcnow(), 10000)
         self._background_error = None
+        self._in_speech = False
+        self._stream_start_time = None
 
+    async def set_in_speech(self, value):
+        self._in_speech = value
+        
     async def start_streaming(self) -> None:
         if self._running:
             return
@@ -47,6 +52,7 @@ class MicListener(ListenerCCSMixin, Listener):
             return
         self._reader_task = get_error_handler().wrap_task(self._reader)
         self._running = True
+        self._stream_start_time = time.time()
 
     def set_background_error(self, error_dict):
         self._background_error = error_dict
@@ -68,6 +74,7 @@ class MicListener(ListenerCCSMixin, Listener):
             self._channels = self._stream.channels
             self._dtype = self._stream.dtype
             await self.emit_event(AudioStartEvent(source_id=self.source_id,
+                                                  stream_start_time=self._stream_start_time,
                                                   sample_rate=int(self._stream.samplerate),
                                                   channels=self._stream.channels[0],
                                                   blocksize=self._stream.blocksize,
@@ -83,9 +90,10 @@ class MicListener(ListenerCCSMixin, Listener):
                         return
                     event = AudioChunkEvent(
                         source_id=self.source_id,
+                        stream_start_time=self._stream_start_time,
                         data=indata,
                         duration=len(indata) / self._stream.samplerate,
-                        in_speech=False,
+                        in_speech=self._in_speech,
                         sample_rate=self._stream.samplerate,
                         channels=self._stream.channels,
                         blocksize=self._stream.blocksize,
@@ -100,9 +108,10 @@ class MicListener(ListenerCCSMixin, Listener):
                         self._reader_task = None
                         await self._cleanup()
                         break
-            await self.emit_event(AudioStopEvent(source_id=self.source_id))
+            await self.emit_event(AudioStopEvent(source_id=self.source_id,stream_start_time=self._stream_start_time))
             await self._queue.put(None)  # signal EOF
             self._stream = None
+            self._stream_start_time = None
         except asyncio.CancelledError:
             # Normal cancellation during shutdown
             logger.info("MicListener _reader task cancelled")

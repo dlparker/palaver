@@ -80,6 +80,7 @@ class AudioSpeechStartEvent(AudioEvent):
 class AudioSpeechStopEvent(AudioEvent):
     """ Emitted by VAD component (or shim) to indicate speech switched from present to not present """
     event_type: ClassVar[AudioEventType] = AudioEventType.audio_speech_stop
+    last_in_speech_chunk_time: float
     
 class AudioEventListener(Protocol):
 

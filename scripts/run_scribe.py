@@ -313,7 +313,7 @@ async def setup_playback_mode(args, done_callback):
     else:
         sim_time = not args.no_simulate_timing
         sim_time = True
-        sim_time = False
+    sim_time = False
     playback_server = PlaybackServer(
         model_path=args.model,
         audio_file=args.file,

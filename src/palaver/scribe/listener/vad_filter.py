@@ -54,6 +54,7 @@ class VADFilter(AudioEventListener):
         self._vad = self.create_vad(self._silence_ms, self._threshold, self._speech_pad_ms)
         self._counter = None
         self._speech_start_time = None
+        self._last_in_speach_chunk = None
 
     def create_vad(self, silence_ms, threshold, speech_pad_ms):
         """
@@ -76,9 +77,16 @@ class VADFilter(AudioEventListener):
     async def on_audio_event(self, event):
         if not isinstance(event, AudioChunkEvent):
             if isinstance(event, AudioStopEvent) and self._in_speech:
-                my_event = AudioSpeechStopEvent(source_id=event.source_id)
+                end_time = self._last_in_speech_chunk.timestamp - (SPEECH_PAD_MS/1000.0)
+                my_event = AudioSpeechStopEvent(source_id=event.source_id,
+                                                timestamp=event.timestamp,
+                                                stream_start_time=event.stream_start_time,
+                                                speech_start_time=self._speech_start_time,
+                                                last_in_speech_chunk_time=end_time,
+                                                )
                 await self.emitter.emit(AudioEvent, my_event)
                 logger.debug("[Speech end on audio end] %s", my_event)
+            event.in_speech = self._in_speech
             await self.emitter.emit(AudioEvent, event)
             return
         chunk = event.data[:, 0].copy()
@@ -88,9 +96,10 @@ class VADFilter(AudioEventListener):
         self._counter = time.time() - start_time
         if window:
             if window.get("start") is not None:
-                self._speech_start_time = time.time()
+                self._speech_start_time = event.timestamp
                 my_event = AudioSpeechStartEvent(
                     source_id=event.source_id,
+                    timestamp=event.timestamp,
                     stream_start_time=event.stream_start_time,
                     speech_start_time=self._speech_start_time,
                     silence_period_ms=self._silence_ms,
@@ -100,21 +109,28 @@ class VADFilter(AudioEventListener):
                 )
                 if not self._in_speech:
                     await self.emitter.emit(AudioEvent, my_event)
-                    logger.debug("[Speech start] %s", my_event)
+                    logger.info("[Speech start] %s", my_event)
                 self._in_speech = True
+                await self.sound_source.set_in_speech(True)
+                event.in_speech = True
             if window.get("end") is not None:
+                end_time = self._last_in_speech_chunk.timestamp - (SPEECH_PAD_MS/1000.0)
                 my_event = AudioSpeechStopEvent(
                     source_id=event.source_id,
+                    timestamp=event.timestamp,
                     stream_start_time=event.stream_start_time,
                     speech_start_time=self._speech_start_time,
+                    last_in_speech_chunk_time=end_time,
                 )
                 self._speech_start_time = None
-                if self._in_speech:
-                    await self.emitter.emit(AudioEvent, my_event)
-                    logger.debug("[Speech end] %s", my_event)
+                await self.emitter.emit(AudioEvent, my_event)
+                logger.info("[Speech end] %s", my_event)
                 self._in_speech = False
-                logger.debug(f"\n\n------------------------\nTime for speech detection {self._counter}\n------------------\n\n")
+                await self.sound_source.set_in_speech(False)
+                event.in_speech = False
 
+        if self._in_speech:
+            self._last_in_speech_chunk = event
         event.in_speech = self._in_speech
         event.speech_start_time = self._speech_start_time
         await self.emitter.emit(AudioEvent, event)
@@ -148,6 +164,7 @@ class VADShim(AudioEventListener):
                 stream_start_time=event.stream_start_time,
                 speech_start_time=self._speech_start_time,
                 source_id=event.source_id, 
+                timestamp=event.timestamp,
                 silence_period_ms=self._silence_ms,
                 vad_threshold=self._threshold,
                 sampling_rate=self._sampling_rate,
@@ -156,7 +173,7 @@ class VADShim(AudioEventListener):
             await self.emitter.emit(AudioEvent, my_event)
             logger.info("[Speech start] %s", my_event)
         if isinstance(event, AudioStopEvent):
-            my_event = AudioSpeechStopEvent(source_id=event.source_id)
+            my_event = AudioSpeechStopEvent(source_id=event.source_id, timestamp=event.timestamp)
             await self.emitter.emit(AudioEvent, my_event)
             logger.info("[Speech end] %s", my_event)
             logger.info("[Audio end] %s", event)

@@ -16,7 +16,8 @@ from palaver.scribe.listener.vad_filter import VADFilter, VADShim
 from palaver.scribe.scriven.whisper_thread import WhisperThread
 from palaver.scribe.scriven.wire_commands import CommandDispatch, CommandShim
 from palaver.scribe.command_events import ScribeCommandEvent, CommandEventListener
-from palaver.scribe.text_events import TextEventListener
+from palaver.scribe.text_events import TextEventListener, TextEvent
+from palaver.scribe.audio_events import AudioEvent, AudioStopEvent, AudioSpeechStartEvent, AudioSpeechStopEvent 
 from palaver.scribe.listener.audio_merge import AudioMerge
 from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.api import default_commands
@@ -126,9 +127,10 @@ class ScribePipeline:
         self.whisper_thread.add_text_event_listener(self.command_dispatch)
         for patterns, command in default_commands:
             self.command_dispatch.register_command(command, patterns)
-        self.command_dispatch.add_event_listener(self)
 
         self.add_api_listener(self.config.api_listener, to_merge=not self.config.rescan_mode)
+        self._stream_monitor = StreamMonitor(self)
+        self.add_api_listener(self._stream_monitor, to_merge=True)
 
         # Start the whisper thread
         if self.config.rescan_mode:
@@ -144,20 +146,6 @@ class ScribePipeline:
             logger.error("pipeline callback to api_listener on startup got error\n%s",
                          traceback.format_exc())
 
-        
-    def set_background_error(self, error_dict):
-        self.background_error = error_dict
-        
-    async def start_listener(self):
-        """Start the listener streaming audo."""
-        await self.listener.start_streaming()
-        logger.info("Listener started")
-
-    async def listener_done(self):
-        if self.config.rescan_mode:
-            pass
-        return not self.listener._running
-        
     async def run_until_error_or_interrupt(self):
         """
         Main loop that runs until KeyboardInterrupt, CancelledError, or background error.
@@ -173,9 +161,20 @@ class ScribePipeline:
         except (KeyboardInterrupt, asyncio.CancelledError):
             logger.info("Shutdown signal received")
             raise
+        
+        
+    def set_background_error(self, error_dict):
+        self.background_error = error_dict
+        
+    async def start_listener(self):
+        """Start the listener streaming audo."""
+        await self.listener.start_streaming()
+        logger.info("Listener started")
 
-    async def on_command_event(self, event: ScribeCommandEvent):
-        pass
+    async def listener_done(self):
+        if self.config.rescan_mode:
+            pass
+        return not self.listener._running
         
     async def shutdown(self):
         """
@@ -206,4 +205,100 @@ class ScribePipeline:
         await self.shutdown()
         return False  # Don't suppress exceptions
 
+class StreamMonitor(ScribeAPIListener):
+
+    def __init__(self, core):
+        super().__init__()
+        self.core = core
+        self.speech_stop = None
+        self.audio_stop = None
+        self.speech_start = None
+        self.last_text = None
+        self.all_done = False
+        self.last_chunk = None
+        self.in_block_event = None
+
+    def is_all_done(self):
+        return self.all_done
     
+    async def on_pipeline_ready(self, pipeline):
+        pass
+    
+    async def on_pipeline_shutdown(self):
+        pass
+
+    def check_done(self, why):
+        from pprint import pformat
+        print("----- DUMP DUMP DUMP DUMP DUMP ---------------")
+        print(f"reason: {why}")
+        # everything good case is
+        if self.audio_stop and self.in_block_event is None:
+            self.all_done = True
+        if self.audio_stop and self.speech_stop:
+            # this should always happen since the VAD (or shim)
+            # issues a speech stop on audio stop if end of
+            # speech has not been detected.
+            diff = self.audio_stop.timestamp - self.speech_stop.last_in_speech_chunk_time
+            print(f"sound between speech_stop and audio_stop = {diff}")
+            if self.last_text:
+                diff = self.speech_stop.last_in_speech_chunk_time - self.last_text.audio_end_time 
+                print(f"sound between last text and speech_stop = {diff}")
+                if diff < 0.5:
+                    # this is not going to be precise. The VAD does buffering andpadding,
+                    # it will never report the exact last block
+                    self.all_done = True
+            else:
+                print(f"Never saw text and audio is stopped, need to check whisper for pending")
+            
+        print(f"all_done: {self.all_done}")
+        print("********")
+        print("audio_stop:")
+        print(pformat(self.audio_stop))
+        print("********")
+        print("speech_start:")
+        print(pformat(self.speech_start))
+        print("********")
+        print("speech_stop:")
+        print(pformat(self.speech_stop))
+        print("********")
+        print("last_text:")
+        print(pformat(self.last_text))
+        print("********")
+        print("last_chunk:")
+        if self.last_chunk:
+            print(f"timestamp = {self.last_chunk.timestamp}")
+        else:
+            print("")
+        print("********")
+        print("in_block_event:")
+        print(pformat(self.in_block_event))
+            
+        print("----- END END END END DUMP ---------------")
+        
+    async def on_audio_event(self, event):
+        if isinstance(event, AudioSpeechStopEvent):
+            self.speech_stop = event
+            self.speech_start = None
+            self.check_done("speech stop")
+        if isinstance(event, AudioSpeechStartEvent):
+            self.speech_start = event
+            self.speech_stop = None
+            self.check_done("speech start")
+        if isinstance(event, AudioStopEvent):
+            # stream is shutdown, check to see if whisper
+            # had done last chunk
+            self.audio_stop = event
+            self.check_done("audio stop")
+        
+    async def on_command_event(self, event:ScribeCommandEvent):
+        from palaver.scribe.api import StartNoteCommand, StopNoteCommand, StartRescanCommand
+        if isinstance(event.command, StartNoteCommand):
+            self.in_block_event = event
+            self.check_done("note start")
+        elif isinstance(event.command, StopNoteCommand):
+            self.in_block_event = None
+            self.check_done("note stop")
+
+    async def on_text_event(self, event: TextEvent):
+        self.last_text = event
+        self.check_done("text")

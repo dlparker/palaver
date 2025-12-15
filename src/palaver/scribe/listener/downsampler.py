@@ -61,6 +61,7 @@ class DownSampler(AudioEventListener):
 
         new_event = AudioChunkEvent(
             source_id=event.source_id,
+            timestamp=event.timestamp,
             stream_start_time=event.stream_start_time,
             data=data,
             duration=new_duration,
@@ -70,7 +71,6 @@ class DownSampler(AudioEventListener):
             datatype="float32",
             in_speech=event.in_speech,
             meta_data=event.meta_data,
-            timestamp=event.timestamp,
             event_id=event.event_id,
         )
         return new_event

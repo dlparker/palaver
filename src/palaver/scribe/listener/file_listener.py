@@ -37,9 +37,15 @@ class FileListener(ListenerCCSMixin, Listener):
         self._sound_file: Optional[sf.SoundFile] = None
         self._running = False
         self._reader_task = None
-        self._stream_start_time = None
+        self._fake_stream_start_time = None
+        self._read_start_time = None
+        self._duration_cursor = 0.0
+        self._in_speech = False
         self.source_id = create_source_id("file", datetime.utcnow(), 10000)
 
+    async def set_in_speech(self, value):
+        self._in_speech = value
+        
     async def start_streaming(self) -> None:
         if self._running:
             return
@@ -47,7 +53,13 @@ class FileListener(ListenerCCSMixin, Listener):
         self._sound_file = sf.SoundFile(self._current_file)
         self._reader_task = get_error_handler().wrap_task(self._reader)
         self._running = True
-        self._stream_start_time = time.time()
+        # calculate the start time so that it appears that
+        # the audio stream terminated at the current time,
+        # so the event timestamps will be adjusted accorindingly
+
+        self._read_start_time = time.time()
+        self._fake_stream_start_time = self._read_start_time -  self._sound_file.frames /self._sound_file.samplerate
+        self._duration_cursor = self._fake_stream_start_time
 
     async def _reader(self):
         # this gets wraped with get_error_handler so let the errors fly
@@ -59,7 +71,8 @@ class FileListener(ListenerCCSMixin, Listener):
             channels = self._sound_file.channels
             frames_per_chunk = max(1, int(round(self.chunk_duration * sr)))
             await self.emit_event(AudioStartEvent(source_id=self.source_id,
-                                                  stream_start_time=self._stream_start_time,
+                                                  timestamp=self._duration_cursor,
+                                                  stream_start_time=self._fake_stream_start_time,
                                                   sample_rate=sr,
                                                   channels=channels,
                                                   blocksize=frames_per_chunk,
@@ -74,29 +87,31 @@ class FileListener(ListenerCCSMixin, Listener):
                 duration = data.shape[0] / sr
                 await self.emit_event(AudioChunkEvent(
                     source_id=self.source_id,
-                    stream_start_time=self._stream_start_time,
+                    timestamp=self._duration_cursor,
+                    stream_start_time=self._fake_stream_start_time,
+                    in_speech=self._in_speech,
                     data=data,
                     duration=duration,
                     sample_rate=sr,
                     channels=channels,
                     blocksize=frames_per_chunk,
                     datatype='float32',
-                    in_speech=False,
                     meta_data={'file': str(self._current_file)},
                 ))
+                self._duration_cursor += duration
                 if self._simulate_timing:
                     # We want to simulate the timing of actual audio input
                     # because things downstream care about it, such as the ring buffer
                     await asyncio.sleep(self.chunk_duration)
             break
-        await self.emit_event(AudioStopEvent(source_id=self.source_id, stream_start_time=self._stream_start_time))
-        self._stream_start_time = None
+        await self.emit_event(AudioStopEvent(source_id=self.source_id,
+                                             timestamp=self._duration_cursor,
+                                             stream_start_time=self._fake_stream_start_time))
+        self._fake_stream_start_time = None
+        self._read_start_time = None
         await self._cleanup()
         self._reader_task = None
 
-    def rescan_mode_finished(self):
-        return not self._current_file
-    
     async def stop_streaming(self) -> None:
         if not self._running:
             return
