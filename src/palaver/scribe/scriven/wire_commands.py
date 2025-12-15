@@ -2,6 +2,7 @@ from typing import Optional, Protocol, Callable
 from dataclasses import dataclass
 import traceback
 import logging
+import asyncio
 from eventemitter import AsyncIOEventEmitter
 from rapidfuzz import fuzz, process
 
@@ -55,6 +56,7 @@ class CommandShim(TextEventListener, AudioEventListener):
         self.texts = []
         self.start_issued = False
         self.command_defs = {}
+        self.logger = logging.getLogger('CommandShim')
 
     def register_command(self, command: ScribeCommand, patterns):
         self.command_defs[command.name] = ScribeCommandDef(command.name, command, patterns)
@@ -77,10 +79,13 @@ class CommandShim(TextEventListener, AudioEventListener):
         if isinstance(event, AudioSpeechStopEvent):
             # this is a hack, may need to fix it
             from palaver.scribe.api import stop_note_command
-            if len(self.texts) > 0:
-                event = self.texts[-1]
-                cmd_event = ScribeCommandEvent(stop_note_command, 'rescan fake', event, 0)
-                await self.emitter.emit(ScribeCommandEvent, cmd_event)
+            cmd_event = ScribeCommandEvent(stop_note_command, 'rescan fake', event, 0)
+            self.logger.info('\n\ns****************ending %s\n\n', cmd_event)
+            await self.emitter.emit(ScribeCommandEvent, cmd_event)
+                    
+            
+                
+
 
 
 

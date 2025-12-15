@@ -38,7 +38,6 @@ class APIWrapper(ScribeAPIListener):
         self.mqtt_publisher = None
         self.block_recorder = None
         self.doing_rescan = False
-        self.auto_rescan = True
         self.last_block_name = None
 
     async def add_mqtt_publisher(self, args):
@@ -106,9 +105,9 @@ class APIWrapper(ScribeAPIListener):
                 print(self.blocks[-1])
             print("++++++=++++++++++++++++++++++++++++++++++++")
             # give time for block recorder to act
-            await asyncio.sleep(0.1)
             if self.block_recorder:
-                if not self.doing_rescan and self.auto_rescan:
+                if not self.doing_rescan:
+                    await asyncio.sleep(0.1)
                     wavfile = self.block_recorder.get_last_block_wav_path()
                     print(f"\n\nNeed to rescan file {wavfile}\n\n")
                 if self.doing_rescan:
@@ -313,8 +312,10 @@ async def setup_playback_mode(args, done_callback):
 
     if args.rescan:
         sim_time = False
+        sim_time = True
     else:
         sim_time = not args.no_simulate_timing
+        sim_time = False
     playback_server = PlaybackServer(
         model_path=args.model,
         audio_files=args.files,

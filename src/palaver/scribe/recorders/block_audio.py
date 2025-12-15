@@ -23,6 +23,7 @@ from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.command_events import ScribeCommandEvent
 from palaver.scribe.scriven.whisper_thread import AudioRingBuffer
+from palaver.scribe.api import StartNoteCommand, StopNoteCommand, StartRescanCommand
 
 logger = logging.getLogger("BlockAudioRecorder")
 
@@ -82,7 +83,7 @@ class BlockAudioRecorder(ScribeAPIListener):
         super().__init__(split_audio=True)
         self._output_dir = Path(output_dir)
         self._output_dir.mkdir(parents=True, exist_ok=True)
-        self._rescanning = True
+        self._rescanning = False
         self._current_block = None
         self._last_block = None
         self._buffer_lock = threading.Lock()
@@ -125,20 +126,24 @@ class BlockAudioRecorder(ScribeAPIListener):
     
     async def on_command_event(self, event:ScribeCommandEvent):
         command = event.command
-        if command.name == "rescan_block":
+        if isinstance(command, StartRescanCommand):
             if self._current_block:
                 raise Exception("logic error, got rescan command while in block")
-            self._rescanning = False
-            return
-        if command.ends_text_block and not self._rescanning:
             self._rescanning = True
             return
-        if command.ends_text_block or command.starts_text_block and self._current_block is None:
+        if isinstance(command, StartNoteCommand) and self._rescanning:
+            return
+        if isinstance(command, StopNoteCommand) and self._rescanning:
+            self._rescanning = False
+            return
+        if isinstance(command, StartNoteCommand) or isinstance(command, StopNoteCommand):
             self._last_block = self._current_block
             await self._save_block()
             await self._close_block()
             self._full_text = ""
-        if command.starts_text_block and not self._rescanning:
+            if isinstance(command, StopNoteCommand):
+                self._rescanning = False
+        if isinstance(command, StartNoteCommand):
             self.make_new_block(event)
             if self._last_speech_start_event:
                 self._current_block.events.append(self._last_speech_start_event)
@@ -229,14 +234,13 @@ class BlockAudioRecorder(ScribeAPIListener):
         self.meta_events = []
         self._current_block = None
         
-
     async def stop(self):
         await self._save_block()
         await self._close_block()
         logger.info("BlockAudioRecorder stopped")
 
     def list_blocks(self):
-        return self._output_dir.glob("block-*")
+        return list(self._output_dir.glob("block-*"))
 
     def get_last_block_name(self):
         block_list = self.list_blocks() 
@@ -248,10 +252,11 @@ class BlockAudioRecorder(ScribeAPIListener):
         
     def get_last_block_wav_path(self):
         block_list = self.list_blocks() 
-        if block_list is None:
+        if block_list == []:
             return None
         block_list = sorted(block_list)
         block_dir = block_list[-1]
+            
         return block_dir / 'block.wav'
         
     def last_has_rescan(self):

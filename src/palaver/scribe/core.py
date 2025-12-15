@@ -104,10 +104,11 @@ class ScribePipeline:
         self.downsampler.add_event_listener(self.vadfilter)
         self.audio_merge = AudioMerge()
         await self.audio_merge.start()
-        full, vad = self.audio_merge.get_shims()
-        self.listener.add_event_listener(full)
-        self.vadfilter.add_event_listener(vad)
-
+        if not self.config.rescan_mode:
+            full, vad = self.audio_merge.get_shims()
+            self.listener.add_event_listener(full)
+            self.vadfilter.add_event_listener(vad)
+            
         # Create whisper transcription thread
         self.whisper_thread = WhisperThread(
             self.config.model_path,
@@ -127,14 +128,14 @@ class ScribePipeline:
             self.command_dispatch.register_command(command, patterns)
         self.command_dispatch.add_event_listener(self)
 
-        self.add_api_listener(self.config.api_listener)
+        self.add_api_listener(self.config.api_listener, to_merge=not self.config.rescan_mode)
 
         # Start the whisper thread
         if self.config.rescan_mode:
-            samples_per_scan = 16000 * 5
+            samples_per_scan = 16000 * 10
             await self.whisper_thread.set_rescan_mode(samples_per_scan)
         await self.whisper_thread.start()
-
+        
         self._pipeline_setup_complete = True
         logger.info("Pipeline setup complete")
         try:
@@ -204,3 +205,5 @@ class ScribePipeline:
         """Exit the async context manager, ensuring cleanup."""
         await self.shutdown()
         return False  # Don't suppress exceptions
+
+    

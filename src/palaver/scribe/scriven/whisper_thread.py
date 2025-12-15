@@ -173,10 +173,28 @@ class WhisperThread:
     def get_config(self):
         return dict(self._config)
 
-    def is_busy(self):
-        if self._last_result_id == self._job_id_counter:
+    def sound_pending(self):
+        if self._last_result_id < self._job_id_counter:
+            return True
+        if self._buffer_pos > 0:
+            return True
+        return False
+
+    async def flush_pending(self, wait_for_result=True, timeout=10.0):
+        if self._buffer_pos == 0:
             return False
-        return True
+        last_result = self._last_result_id
+        last_job = self._job_id_counter
+        await self._push_buffer_job()
+        if self._job_id_counter == last_job:
+            raise Exception('flush failed')
+        needed_id = self._job_id_counter
+        if wait_for_result:
+            start_time = time.time()
+            while self._last_result_id != needed_id:
+                await asyncio.sleep(0.01)
+                if time.time() - start_time > timeout:
+                    raise Exception("Timeout waiting for flushed job")
             
     async def set_rescan_mode(self, new_samples):
         if self._worker_running:
@@ -375,13 +393,6 @@ class WhisperThread:
         self._first_chunk = None
         self._last_chunk = None
         self._job_queue.put_nowait(job)
-        if PRINTING:
-            print('\n\n---------------\n')
-            print(f"job_id={job.job_id}, ")
-            print(f"first_chunk.timestamp = {job.first_chunk.timestamp}, last_chunk.timestamp = {job.last_chunk.timestamp}")
-            print(f"audio duration={job.last_chunk.timestamp-job.first_chunk.timestamp}")
-            print(f"datasize={len(job.data)}")
-            print('\n---------------\n\n')
         
     async def _sender(self):
         # this is wrapped in an error handler when created, so just let

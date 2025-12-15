@@ -80,13 +80,15 @@ class PlaybackServer:
             files=audio_files,
             chunk_duration=chunk_duration,
             simulate_timing=simulate_timing,
-            rescan_mode=self.rescan_mode,
         )
         
     def set_background_error(self, error_dict):
         self._background_error = error_dict
         self.pipeline.set_background_error(error_dict)
-        
+
+    def get_pipeline(self):
+        return self.pipeline
+    
     async def run(self):
         # Use nested context managers: listener first, then pipeline
         async with self.file_listener:
@@ -98,14 +100,8 @@ class PlaybackServer:
 
                 # For file playback, wait until the listener completes
                 # (FileListener stops when files are exhausted)
-                start_time = time.time()
                 while not await self.pipeline.listener_done():
                     await asyncio.sleep(0.1)
-                    if self.rescan_mode:
-                        if time.time() - start_time > 1.0:
-                            if not self.pipeline.whisper_thread.is_busy():
-                                await asyncio.sleep(0.1)
-                                await self.file_listener.stop_streaming()
                     # Still check for background errors
                     if self._background_error:
                         logger.error("Error during playback: %s", pformat(self.pipeline.background_error))

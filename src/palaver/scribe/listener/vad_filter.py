@@ -4,6 +4,7 @@ import time
 import numpy as np
 import resampy
 import torch
+import asyncio
 from silero_vad import load_silero_vad, VADIterator
 from scipy.signal import resample_poly
 from eventemitter import AsyncIOEventEmitter
@@ -141,11 +142,12 @@ class VADShim(AudioEventListener):
                     speech_pad_ms=self._speech_pad_ms
                 )
             await self.emitter.emit(AudioEvent, my_event)
-            logger.debug("[Speech start] %s", my_event)
+            logger.info("[Speech start] %s", my_event)
         if isinstance(event, AudioStopEvent):
             my_event = AudioSpeechStopEvent(source_id=event.source_id)
             await self.emitter.emit(AudioEvent, my_event)
-            logger.debug("[Speech end] %s", my_event)
+            logger.info("[Speech end] %s", my_event)
+            logger.info("[Audio end] %s", event)
         await self.emitter.emit(AudioEvent, event)
 
     def add_event_listener(self, e_listener: AudioEventListener) -> None:
