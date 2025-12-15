@@ -37,7 +37,7 @@ DEFAULT_CHUNK_DURATION = 0.03
 class PlaybackServer:
     def __init__(self,
                  model_path,
-                 audio_files: List[Path],
+                 audio_file: Path,
                  api_listener: ScribeAPIListener,
                  rescan_mode: Optional[bool] = False,
                  use_multiprocessing: bool = False,
@@ -49,7 +49,7 @@ class PlaybackServer:
 
         Args:
             model_path: Path to the Whisper model file
-            audio_files: List of audio file paths to process
+            audio_file: audio file path to process
             api_listener: listener for core events
             rescan_mode: Rescan of already transcribed block
             chunk_duration: Audio chunk duration in seconds
@@ -62,7 +62,7 @@ class PlaybackServer:
         logger.info(f"Model: {model_path}")
         logger.info(f"Multiprocessing: {use_multiprocessing}")
         logger.info(f"Simulate timing: {simulate_timing}")
-        logger.info(f"Files: {audio_files}")
+        logger.info(f"File: {audio_file}")
 
         
         # Create pipeline configuration
@@ -77,7 +77,7 @@ class PlaybackServer:
 
         # Create file listener
         self.file_listener = FileListener(
-            files=audio_files,
+            audio_file=audio_file,
             chunk_duration=chunk_duration,
             simulate_timing=simulate_timing,
         )

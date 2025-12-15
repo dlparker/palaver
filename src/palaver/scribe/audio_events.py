@@ -23,8 +23,14 @@ def get_creation_location():
 
 @dataclass(kw_only=True)
 class AudioEvent:
+    """
+    stream_offset = how many seconds of samples since stream start
+    speech_offset =  how many seconds of samples since speech start, only valid from upstream annotation
+    """
     event_type: AudioEventType
     source_id: str
+    stream_start_time: float
+    speech_start_time: Optional[float] = None
     timestamp: float = field(default_factory=time.time)
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     creation_location: str = field(default_factory=get_creation_location, repr=True)
@@ -36,6 +42,7 @@ class AudioErrorEvent(AudioEvent):
 
 @dataclass(kw_only=True)
 class AudioStartEvent(AudioEvent):
+    """ Emitted by audio source listener such as MicListener or FileListener"""
     event_type: ClassVar[AudioEventType] = AudioEventType.audio_start
     sample_rate: int                      # actual sample rate of this chunk
     channels: int                        # actual channel count
@@ -44,10 +51,12 @@ class AudioStartEvent(AudioEvent):
 
 @dataclass(kw_only=True)
 class AudioStopEvent(AudioEvent):
+    """ Emitted by audio source listener such as MicListener or FileListener"""
     event_type: ClassVar[AudioEventType] = AudioEventType.audio_stop
 
 @dataclass(kw_only=True)
 class AudioChunkEvent(AudioEvent):
+    """ Emitted by audio source listener such as MicListener or FileListener"""
     event_type: ClassVar[AudioEventType] = AudioEventType.audio_chunk
     data: np.ndarray  = field(repr=False) # float32, shape (samples, channels)
     duration: float                       # seconds
@@ -60,6 +69,7 @@ class AudioChunkEvent(AudioEvent):
 
 @dataclass(kw_only=True)
 class AudioSpeechStartEvent(AudioEvent):
+    """ Emitted by VAD component (or shim) to indicate speech present """
     event_type: ClassVar[AudioEventType] = AudioEventType.audio_speech_start
     silence_period_ms: int
     vad_threshold: float
@@ -68,6 +78,7 @@ class AudioSpeechStartEvent(AudioEvent):
 
 @dataclass(kw_only=True)
 class AudioSpeechStopEvent(AudioEvent):
+    """ Emitted by VAD component (or shim) to indicate speech switched from present to not present """
     event_type: ClassVar[AudioEventType] = AudioEventType.audio_speech_stop
     
 class AudioEventListener(Protocol):

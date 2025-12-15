@@ -1,7 +1,7 @@
 
-Command rework:
-Needs to be easy and quick to add or change a command, and yet get some sort of
-static checking that references to command are correct, not just command.name == "foo".
+Immediate:
+
+Make file listener calculate the file sound duration and simulate time such that end of file time is the current time.
 
 Core API updates:
 1. [] Build an interface to the core that accepts a config dataclass

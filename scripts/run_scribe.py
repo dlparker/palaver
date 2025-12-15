@@ -159,12 +159,10 @@ Examples:
   # Transcribe from audio file
   %(prog)s playback --model models/ggml-medium.en.bin audio.wav
 
-  # Multiple files with simulated timing
-  %(prog)s playback --model models/ggml-medium.en.bin file1.wav file2.wav
         """
     )
 
-    default_model = Path("models/ggml-medium.en.bin")
+    #default_model = Path("models/ggml-medium.en.bin")
     default_model = Path("models/ggml-base.en.bin")
     # Common arguments
     parser.add_argument(
@@ -197,7 +195,7 @@ Examples:
         '--output-dir',
         type=Path,
         default=None,
-        help='Enable recording and save WAV files to this directory (disabled if not provided)'
+        help='Enable recording and save WAV file to this directory (disabled if not provided)'
     )
 
     parser.add_argument(
@@ -261,10 +259,10 @@ Examples:
         help='Transcribe from audio file(s)'
     )
     playback_parser.add_argument(
-        'files',
+        'file',
         type=Path,
-        nargs='+',
-        help='Audio file(s) to transcribe'
+        nargs='?',
+        help='Audio file to transcribe'
     )
     playback_parser.add_argument(
         '--chunk-duration',
@@ -312,13 +310,13 @@ async def setup_playback_mode(args, done_callback):
 
     if args.rescan:
         sim_time = False
-        sim_time = True
     else:
         sim_time = not args.no_simulate_timing
+        sim_time = True
         sim_time = False
     playback_server = PlaybackServer(
         model_path=args.model,
-        audio_files=args.files,
+        audio_file=args.file,
         api_listener=api_wrapper,
         rescan_mode=args.rescan,
         chunk_duration=args.chunk_duration,
@@ -343,10 +341,8 @@ def main():
 
     # Mode-specific validation
     if args.mode == 'playback':
-        for file_path in args.files:
-            if not file_path.exists():
-                parser.error(f"Audio file does not exist: {file_path}")
-
+        if not args.file.exists():
+            parser.error(f"Audio file does not exist: {args.file}")
 
     try:
         api_wrapper = None

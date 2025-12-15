@@ -28,55 +28,30 @@ class FileListener(ListenerCCSMixin, Listener):
     """
 
     def __init__(self, 
-                 files: list[Path | str],
+                 audio_file: Path,
                  chunk_duration: float = 0.03, 
                  simulate_timing: bool = True):
         super().__init__(chunk_duration)
-        self.files: List[Path] = [Path(p) for p in (files or [])]
-        self.current_file = None
+        self._current_file = audio_file
         self._simulate_timing = simulate_timing
         self._sound_file: Optional[sf.SoundFile] = None
         self._running = False
         self._reader_task = None
+        self._stream_start_time = None
         self.source_id = create_source_id("file", datetime.utcnow(), 10000)
-
-    async def add_file(self, filepath: os.PathLike[str]) -> None:
-        self.files.append(filepath)
 
     async def start_streaming(self) -> None:
         if self._running:
             return
 
-        if len(self.files) > 0:
-            
-            self._reader_task = get_error_handler().wrap_task(self._reader)
-            self._running = True
-
-    async def _load_next_file(self) -> bool:
-        """Internal: close current and open next file. Returns True if a file was opened."""
-        if self._sound_file is not None:
-            self._sound_file.close()
-            self._sound_file = None
-
-        if self.files:
-            self._current_file = self.files.pop(0)
-        else:
-            self._current_file = None
-
-        if not self._current_file:
-            return False
-
-        # might blow up, let it
         self._sound_file = sf.SoundFile(self._current_file)
-        return True
-        
+        self._reader_task = get_error_handler().wrap_task(self._reader)
+        self._running = True
+        self._stream_start_time = time.time()
+
     async def _reader(self):
         # this gets wraped with get_error_handler so let the errors fly
         if not self._running:
-            return
-
-        await self._load_next_file()
-        if self._sound_file is None:
             return
 
         while self._running:
@@ -84,6 +59,7 @@ class FileListener(ListenerCCSMixin, Listener):
             channels = self._sound_file.channels
             frames_per_chunk = max(1, int(round(self.chunk_duration * sr)))
             await self.emit_event(AudioStartEvent(source_id=self.source_id,
+                                                  stream_start_time=self._stream_start_time,
                                                   sample_rate=sr,
                                                   channels=channels,
                                                   blocksize=frames_per_chunk,
@@ -98,6 +74,7 @@ class FileListener(ListenerCCSMixin, Listener):
                 duration = data.shape[0] / sr
                 await self.emit_event(AudioChunkEvent(
                     source_id=self.source_id,
+                    stream_start_time=self._stream_start_time,
                     data=data,
                     duration=duration,
                     sample_rate=sr,
@@ -111,13 +88,9 @@ class FileListener(ListenerCCSMixin, Listener):
                     # We want to simulate the timing of actual audio input
                     # because things downstream care about it, such as the ring buffer
                     await asyncio.sleep(self.chunk_duration)
-            # File finished — move to next one automatically
-            await self._load_next_file()
-
-            if not self._current_file:
-                break
-
-        await self.emit_event(AudioStopEvent(source_id=self.source_id))
+            break
+        await self.emit_event(AudioStopEvent(source_id=self.source_id, stream_start_time=self._stream_start_time))
+        self._stream_start_time = None
         await self._cleanup()
         self._reader_task = None
 
