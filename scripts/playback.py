@@ -32,11 +32,13 @@ class BlockTracker:
     start_event: StartNoteCommand
     text_events: dict[uuid, TextEvent] = field(default_factory=dict[uuid, TextEvent])
     end_event: Optional[StopNoteCommand] = None
+    finalized: Optional[bool] = False
 
 class APIWrapper(ScribeAPIListener):
 
-    def __init__(self):
+    def __init__(self, play_sound=False):
         super().__init__()
+        self.play_sound = play_sound
         self.server = None
         self.server_type = None
         self.full_text = ""
@@ -58,6 +60,10 @@ class APIWrapper(ScribeAPIListener):
             logger.info(f"Recording wired")
 
     async def on_pipeline_shutdown(self):
+        if len(self.blocks) > 0:
+            last_block = self.blocks[-1]
+            if not last_block.finalized:
+                await self.finalize_block(last_block)
         if self.block_recorder:
             await self.block_recorder.stop()
             
@@ -77,24 +83,28 @@ class APIWrapper(ScribeAPIListener):
         elif isinstance(event.command, StopNoteCommand):
             if len(self.blocks) > 0:
                 last_block = self.blocks[-1]
-                if last_block.end_event is None:
+                if not last_block.finalized:
                     last_block.end_event = event
-                    print("-------------------------------------------")
-                    print(f"APIWrapper ending block {len(self.blocks)}")
-                    print("-------------------------------------------")
-                    print("++++++++++++++++++++++++++++++++++++++++++")
-                    print("     Full block:")
-                    print("++++++++++++++++++++++++++++++++++++++++++")
-                    for uuid,text_event in last_block.text_events.items():
-                        for seg in text_event.segments:
-                            print(seg.text)
-                    print("++++++=++++++++++++++++++++++++++++++++++++")
-                    # give time for block recorder to act
-                    if self.block_recorder:
-                        await asyncio.sleep(0.05)
-                        wavfile = self.block_recorder.get_last_block_wav_path()
-                        print(f"\n\n wrote file {wavfile}\n\n")
+                    await self.finalize_block(last_block)
 
+    async def finalize_block(self, block):
+        print("-------------------------------------------")
+        print(f"APIWrapper ending block {len(self.blocks)}")
+        print("-------------------------------------------")
+        print("++++++++++++++++++++++++++++++++++++++++++")
+        print("     Full block:")
+        print("++++++++++++++++++++++++++++++++++++++++++")
+        for uuid,text_event in block.text_events.items():
+            for seg in text_event.segments:
+                print(seg.text)
+        print("++++++=++++++++++++++++++++++++++++++++++++")
+        block.finalized = True
+        # give time for block recorder to act
+        if self.block_recorder:
+            await asyncio.sleep(0.05)
+            wavfile = self.block_recorder.get_last_block_wav_path()
+            print(f"\n\n wrote file {wavfile}\n\n")
+            
     async def handle_text_event(self, event: TextEvent):
         if event.event_id == self.text_events:
             return
@@ -122,8 +132,13 @@ class APIWrapper(ScribeAPIListener):
             pass
         elif isinstance(event, AudioStopEvent):
             logger.info("Got audio stop event %s", event)
+            if len(self.blocks) > 0:
+                last_block = self.blocks[-1]
+                import ipdb; ipdb.set_trace()
+                if not last_block.finalized:
+                    await self.finalize_block(last_block)
         elif isinstance(event, AudioChunkEvent):
-            if not self.stream:
+            if not self.stream and self.play_sound:
                 self.stream = sd.OutputStream(
                     samplerate=event.sample_rate,
                     channels=event.channels,
@@ -132,8 +147,9 @@ class APIWrapper(ScribeAPIListener):
                 )
                 self.stream.start()
                 print("Opened stream")
-            audio = event.data
-            self.stream.write(audio)
+            if self.play_sound:
+                audio = event.data
+                self.stream.write(audio)
                 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -158,6 +174,12 @@ def create_parser() -> argparse.ArgumentParser:
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
         default='WARNING',
         help='Set logging level'
+    )
+
+    parser.add_argument(
+        '-p' , "--play-sound",
+        action="store_true",
+        help="play sound while transcribing"
     )
 
     parser.add_argument(
@@ -193,7 +215,7 @@ def main():
     if not args.file.exists():
         parser.error(f"Audio file does not exist: {args.file}")
 
-    api_wrapper = APIWrapper()
+    api_wrapper = APIWrapper(play_sound=args.play_sound)
     try:
         async def main_loop():
             nonlocal api_wrapper
