@@ -23,7 +23,7 @@ from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.command_events import ScribeCommandEvent
 from palaver.scribe.scriven.whisper_thread import AudioRingBuffer
-from palaver.scribe.api import StartNoteCommand, StopNoteCommand, StartRescanCommand
+from palaver.scribe.api import StartBlockCommand, StopBlockCommand, StartRescanCommand
 
 logger = logging.getLogger("BlockAudioRecorder")
 
@@ -131,19 +131,19 @@ class BlockAudioRecorder(ScribeAPIListener):
                 raise Exception("logic error, got rescan command while in block")
             self._rescanning = True
             return
-        if isinstance(command, StartNoteCommand) and self._rescanning:
+        if isinstance(command, StartBlockCommand) and self._rescanning:
             return
-        if isinstance(command, StopNoteCommand) and self._rescanning:
+        if isinstance(command, StopBlockCommand) and self._rescanning:
             self._rescanning = False
             return
-        if isinstance(command, StartNoteCommand) or isinstance(command, StopNoteCommand):
+        if isinstance(command, StartBlockCommand) or isinstance(command, StopBlockCommand):
             self._last_block = self._current_block
             await self._save_block()
             await self._close_block()
             self._full_text = ""
-            if isinstance(command, StopNoteCommand):
+            if isinstance(command, StopBlockCommand):
                 self._rescanning = False
-        if isinstance(command, StartNoteCommand):
+        if isinstance(command, StartBlockCommand):
             self.make_new_block(event)
             if self._last_speech_start_event:
                 self._current_block.events.append(self._last_speech_start_event)

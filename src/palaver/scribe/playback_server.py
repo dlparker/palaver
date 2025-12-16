@@ -26,7 +26,7 @@ from palaver.scribe.audio_events import (AudioEvent,
                                          )
 from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.command_events import ScribeCommandEvent, CommandEventListener, ScribeCommand
-from palaver.scribe.api import start_note_command, stop_note_command, start_rescan_command, ScribeAPIListener
+from palaver.scribe.api import start_block_command, stop_block_command, start_rescan_command, ScribeAPIListener
 
 logger = logging.getLogger("PlaybackServer")
 

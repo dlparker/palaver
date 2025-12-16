@@ -76,18 +76,18 @@ class CommandShim(TextEventListener, AudioEventListener):
         self.texts.append(event)
         if not self.start_issued:
             # this is a hack, may need to fix it
-            from palaver.scribe.api import start_note_command, start_rescan_command
+            from palaver.scribe.api import start_block_command, start_rescan_command
             cmd_event = ScribeCommandEvent(start_rescan_command,'rescan fake', event, 0)
             await self.emitter.emit(ScribeCommandEvent, cmd_event)
-            cmd_event = ScribeCommandEvent(start_note_command,'rescan fake', event, 0)
+            cmd_event = ScribeCommandEvent(start_block_command,'rescan fake', event, 0)
             await self.emitter.emit(ScribeCommandEvent, cmd_event)
             self.start_issued = True
 
     async def on_audio_event(self, event):
         if isinstance(event, AudioSpeechStopEvent):
             # this is a hack, may need to fix it
-            from palaver.scribe.api import stop_note_command
-            cmd_event = ScribeCommandEvent(stop_note_command, 'rescan fake', event, 0)
+            from palaver.scribe.api import stop_block_command
+            cmd_event = ScribeCommandEvent(stop_block_command, 'rescan fake', event, 0)
             self.logger.info('s****************ending %s', cmd_event)
             await self.emitter.emit(ScribeCommandEvent, cmd_event)
                     

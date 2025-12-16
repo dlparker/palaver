@@ -290,11 +290,11 @@ class StreamMonitor(ScribeAPIListener):
             await self.check_done(dump=self.auto_dump, why="audio stop")
         
     async def on_command_event(self, event:ScribeCommandEvent):
-        from palaver.scribe.api import StartNoteCommand, StopNoteCommand, StartRescanCommand
-        if isinstance(event.command, StartNoteCommand):
+        from palaver.scribe.api import StartBlockCommand, StopBlockCommand, StartRescanCommand
+        if isinstance(event.command, StartBlockCommand):
             self.in_block_event = event
-            await self.check_done(dump=self.auto_dump, why="StartNoteCommand")
-        elif isinstance(event.command, StopNoteCommand):
+            await self.check_done(dump=self.auto_dump, why="StartBlockCommand")
+        elif isinstance(event.command, StopBlockCommand):
             self.in_block_event = None
             await self.check_done(dump=self.auto_dump, why="note stop")
 

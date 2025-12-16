@@ -18,7 +18,7 @@ from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.audio_events import AudioEvent, AudioStopEvent, AudioStartEvent
 from palaver.scribe.scriven.wire_commands import ScribeCommandEvent, CommandEventListener
 from palaver.scribe.api import ScribeAPIListener
-from palaver.scribe.api import StartNoteCommand, StopNoteCommand, StartRescanCommand
+from palaver.scribe.api import StartBlockCommand, StopBlockCommand, StartRescanCommand
 from palaver.scribe.recorders.block_audio import BlockAudioRecorder
 from palaver.utils.top_error import TopLevelCallback, TopErrorHandler, get_error_handler
 
@@ -93,14 +93,14 @@ class APIWrapper(ScribeAPIListener):
             print(f"APIWrapper starting rescan")
             print("-------------------------------------------")
             return
-        elif isinstance(event.command, StartNoteCommand):
+        elif isinstance(event.command, StartBlockCommand):
             #import ipdb; ipdb.set_trace()
             self.blocks.append("")
             print("-------------------------------------------")
             print(f"APIWrapper starting block {len(self.blocks)}")
             print("-------------------------------------------")
             await self.handle_text_event(event.text_event)
-        elif isinstance(event.command, StopNoteCommand):
+        elif isinstance(event.command, StopBlockCommand):
             print("-------------------------------------------")
             print(f"APIWrapper ending block {len(self.blocks)}")
             print("-------------------------------------------")

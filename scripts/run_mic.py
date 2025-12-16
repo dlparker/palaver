@@ -14,7 +14,7 @@ from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.audio_events import AudioEvent, AudioStopEvent, AudioStartEvent
 from palaver.scribe.scriven.wire_commands import ScribeCommandEvent, CommandEventListener
 from palaver.scribe.api import ScribeAPIListener
-from palaver.scribe.api import StartNoteCommand, StopNoteCommand, StartRescanCommand
+from palaver.scribe.api import StartBlockCommand, StopBlockCommand, StartRescanCommand
 from palaver.scribe.recorders.block_audio import BlockAudioRecorder
 from palaver.scribe.mic_server import MicServer
 from palaver.utils.top_error import TopLevelCallback, TopErrorHandler, get_error_handler
@@ -27,9 +27,9 @@ logger = logging.getLogger("ScribeServer")
 
 @dataclass
 class BlockTracker:
-    start_event: StartNoteCommand
+    start_event: StartBlockCommand
     text_events: dict[uuid, TextEvent] = field(default_factory=dict[uuid, TextEvent])
-    end_event: Optional[StopNoteCommand] = None
+    end_event: Optional[StopBlockCommand] = None
 
 class APIWrapper(ScribeAPIListener):
 
@@ -64,13 +64,13 @@ class APIWrapper(ScribeAPIListener):
         
     async def on_command_event(self, event:ScribeCommandEvent):
         print("")
-        if isinstance(event.command, StartNoteCommand):
+        if isinstance(event.command, StartBlockCommand):
             self.blocks.append(BlockTracker(start_event=event))
             print("-------------------------------------------")
             print(f"APIWrapper starting block {len(self.blocks)}")
             print("-------------------------------------------")
             await self.handle_text_event(event.text_event)
-        elif isinstance(event.command, StopNoteCommand):
+        elif isinstance(event.command, StopBlockCommand):
             if len(self.blocks) > 0:
                 last_block = self.blocks[-1]
                 if last_block.end_event is None:
