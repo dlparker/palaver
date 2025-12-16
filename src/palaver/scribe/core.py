@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import uuid
 from dataclasses import dataclass, field
 from typing import Optional, Callable
 from pathlib import Path
@@ -7,15 +8,15 @@ import traceback
 
 from palaver.scribe.listen_api import Listener
 from palaver.scribe.listener.downsampler import DownSampler
-from palaver.scribe.listener.vad_filter import VADFilter, VADShim
+from palaver.scribe.listener.vad_filter import VADFilter
 from palaver.scribe.scriven.whisper_thread import WhisperThread
-from palaver.scribe.scriven.wire_commands import CommandDispatch, CommandShim
+from palaver.scribe.scriven.wire_commands import CommandDispatch
 from palaver.scribe.command_events import ScribeCommandEvent, CommandEventListener
 from palaver.scribe.text_events import TextEventListener, TextEvent
 from palaver.scribe.audio_events import AudioEvent, AudioStopEvent, AudioSpeechStartEvent, AudioSpeechStopEvent 
 from palaver.scribe.listener.audio_merge import AudioMerge
 from palaver.scribe.api import ScribeAPIListener
-from palaver.scribe.api import default_commands
+from palaver.scribe.api import default_commands, StartBlockCommand, StopBlockCommand
 
 logger = logging.getLogger("ScribeCore")
 
@@ -55,6 +56,7 @@ class ScribePipeline:
         self.wav_recorder = None
         self.text_logger = None
         self._pipeline_setup_complete = False
+        self._api_listeners = []
 
     def get_pipeline_parts(self):
         return dict(audio_source=self.listener,
@@ -76,6 +78,7 @@ class ScribePipeline:
             self.listener.add_event_listener(api_listener)
         self.whisper_thread.add_text_event_listener(api_listener)
         self.command_dispatch.add_event_listener(api_listener)
+        self._api_listeners.append(api_listener)
         
     async def setup_pipeline(self):
         """
@@ -124,7 +127,8 @@ class ScribePipeline:
         self._pipeline_setup_complete = True
         logger.info("Pipeline setup complete")
         try:
-            await self.config.api_listener.on_pipeline_ready(self)
+            for api_listener in self._api_listeners:
+                await api_listener.on_pipeline_ready(self)
         except:
             logger.error("pipeline callback to api_listener on startup got error\n%s",
                          traceback.format_exc())
@@ -172,7 +176,8 @@ class ScribePipeline:
             self.whisper_thread = None
                 
         try:
-            await self.config.api_listener.on_pipeline_shutdown()
+            for api_listener in self._api_listeners:
+                await api_listener.on_pipeline_shutdown()
         except Exception as e:
             logger.error("pipleline shutdown callback to api_listener error\n%s",
                          traceback.format_exc())
@@ -190,6 +195,14 @@ class ScribePipeline:
         await self.shutdown()
         return False  # Don't suppress exceptions
 
+@dataclass
+class BlockTracker:
+    start_event: StartBlockCommand
+    text_events: dict[uuid, TextEvent] = field(default_factory=dict[uuid, TextEvent])
+    end_event: Optional[StopBlockCommand] = None
+    finalized: Optional[bool] = False
+
+    
 class StreamMonitor(ScribeAPIListener):
 
     def __init__(self, core):
@@ -203,6 +216,7 @@ class StreamMonitor(ScribeAPIListener):
         self.last_chunk = None
         self.in_block_event = None
         self.auto_dump = False
+        self.blocks = []
 
     def is_all_done(self):
         return self.all_done
@@ -211,7 +225,9 @@ class StreamMonitor(ScribeAPIListener):
         pass
     
     async def on_pipeline_shutdown(self):
-        pass
+        for block in self.blocks:
+            if isinstance(block.start_event.command, StartBlockCommand) and not block.finalized:
+                await self.core.command_dispatch.issue_block_end(block.start_event)
 
     async def check_done(self, dump=False, why="check", wait=False):
         if dump:
@@ -287,16 +303,21 @@ class StreamMonitor(ScribeAPIListener):
             # stream is shutdown, check to see if whisper
             # had done last chunk
             self.audio_stop = event
-            await self.check_done(dump=self.auto_dump, why="audio stop")
         
     async def on_command_event(self, event:ScribeCommandEvent):
         from palaver.scribe.api import StartBlockCommand, StopBlockCommand, StartRescanCommand
         if isinstance(event.command, StartBlockCommand):
             self.in_block_event = event
             await self.check_done(dump=self.auto_dump, why="StartBlockCommand")
+            self.blocks.append(BlockTracker(start_event=event))
         elif isinstance(event.command, StopBlockCommand):
             self.in_block_event = None
-            await self.check_done(dump=self.auto_dump, why="note stop")
+            await self.check_done(dump=self.auto_dump, why="block stop")
+            if len(self.blocks) > 0:
+                last_block = self.blocks[-1]
+                if last_block.end_event is None:
+                    last_block.end_event = event
+                    last_block.finalized = True
 
     async def on_text_event(self, event: TextEvent):
         self.last_text = event

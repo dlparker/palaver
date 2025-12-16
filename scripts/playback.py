@@ -60,6 +60,8 @@ class APIWrapper(ScribeAPIListener):
             logger.info(f"Recording wired")
 
     async def on_pipeline_shutdown(self):
+        return
+        await asyncio.sleep(9.1)
         if len(self.blocks) > 0:
             last_block = self.blocks[-1]
             if not last_block.finalized:
@@ -134,7 +136,6 @@ class APIWrapper(ScribeAPIListener):
             logger.info("Got audio stop event %s", event)
             if len(self.blocks) > 0:
                 last_block = self.blocks[-1]
-                import ipdb; ipdb.set_trace()
                 if not last_block.finalized:
                     await self.finalize_block(last_block)
         elif isinstance(event, AudioChunkEvent):

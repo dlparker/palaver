@@ -41,13 +41,13 @@ class ScribeAPIListener(AudioEventListener,
 
 @dataclass(kw_only=True)
 class StartBlockCommand(ScribeCommand):
-    name: str = "start_note"
+    name: str = "start_block"
     starts_recording_session: bool = True
     starts_text_block: bool = True
 
 @dataclass(kw_only=True)
 class StopBlockCommand(ScribeCommand):
-    name: str = "stop_note"
+    name: str = "stop_block"
     stops_recording_session: bool = True
     stops_text_block: bool = True
     
@@ -59,7 +59,8 @@ start_block_command = StartBlockCommand()
 stop_block_command = StopBlockCommand()
 start_rescan_command = StartRescanCommand()
 default_commands = [
-    (['start a note', 'begin note', 'start new note'], start_block_command),
-    (['break break break', 'stop stop stop',], stop_block_command),
+    (['start a note', 'begin note', 'start new note', 'start a block', 'begin block', 'start new block', 'start dictation'],
+     start_block_command),
+    (['break break break', 'stop stop stop', 'dictation end'], stop_block_command),
     ]
     
