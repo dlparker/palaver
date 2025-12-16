@@ -4,26 +4,28 @@ import asyncio
 import logging
 import traceback
 from dataclasses import dataclass, field
-import uuid
 from typing import Optional
 from pathlib import Path
 from pprint import pprint
+import sounddevice as sd
+import uuid
 import argparse
 
 from palaver.scribe.text_events import TextEvent, TextEventListener
-from palaver.scribe.audio_events import AudioEvent, AudioStopEvent, AudioStartEvent
+from palaver.scribe.audio_events import AudioEvent, AudioStopEvent, AudioStartEvent, AudioChunkEvent
 from palaver.scribe.scriven.wire_commands import ScribeCommandEvent, CommandEventListener
 from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.api import StartNoteCommand, StopNoteCommand, StartRescanCommand
 from palaver.scribe.recorders.block_audio import BlockAudioRecorder
-from palaver.scribe.mic_server import MicServer
 from palaver.utils.top_error import TopLevelCallback, TopErrorHandler, get_error_handler
+from palaver.scribe.playback_server import PlaybackServer
 
 # Setup logging
 log_format = '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s'
 logging.basicConfig(stream=sys.stdout, level=logging.WARNING,
                     format=log_format)
 logger = logging.getLogger("ScribeServer")
+
 
 @dataclass
 class BlockTracker:
@@ -42,6 +44,7 @@ class APIWrapper(ScribeAPIListener):
         self.text_events = {}
         self.block_recorder = None
         self.last_block_name = None
+        self.stream = None
 
     async def add_recorder(self, args):
         # Setup recording if output_dir provided
@@ -65,6 +68,7 @@ class APIWrapper(ScribeAPIListener):
     async def on_command_event(self, event:ScribeCommandEvent):
         print("")
         if isinstance(event.command, StartNoteCommand):
+            #import ipdb; ipdb.set_trace()
             self.blocks.append(BlockTracker(start_event=event))
             print("-------------------------------------------")
             print(f"APIWrapper starting block {len(self.blocks)}")
@@ -74,6 +78,7 @@ class APIWrapper(ScribeAPIListener):
             if len(self.blocks) > 0:
                 last_block = self.blocks[-1]
                 if last_block.end_event is None:
+                    last_block.end_event = event
                     print("-------------------------------------------")
                     print(f"APIWrapper ending block {len(self.blocks)}")
                     print("-------------------------------------------")
@@ -91,12 +96,11 @@ class APIWrapper(ScribeAPIListener):
                         print(f"\n\n wrote file {wavfile}\n\n")
 
     async def handle_text_event(self, event: TextEvent):
-        if event.event_id in self.text_events:
+        if event.event_id == self.text_events:
             return
         self.text_events[event.event_id] = event
         logger.info("*" * 100)
         logger.info("--------Text received---------")
-
         if len(self.blocks) > 0:
             last_block = self.blocks[-1]
             last_block.text_events[event.event_id] = event
@@ -116,16 +120,30 @@ class APIWrapper(ScribeAPIListener):
         if isinstance(event, AudioStartEvent):
             #import ipdb; ipdb.set_trace()
             pass
-        if isinstance(event, AudioStopEvent):
+        elif isinstance(event, AudioStopEvent):
             logger.info("Got audio stop event %s", event)
-    
+        elif isinstance(event, AudioChunkEvent):
+            if not self.stream:
+                self.stream = sd.OutputStream(
+                    samplerate=event.sample_rate,
+                    channels=event.channels,
+                    blocksize=event.blocksize,
+                    dtype=event.datatype,
+                )
+                self.stream.start()
+                print("Opened stream")
+            audio = event.data
+            self.stream.write(audio)
+                
 
 def create_parser() -> argparse.ArgumentParser:
-    """Create the argument parser for scribe_server."""
     parser = argparse.ArgumentParser(
         description='Scribe Server - Audio transcription with microphone or file playback',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        )
+    )
+
+    #default_model = Path("models/multilang_whisper_large3_turbo.ggml")
+    #default_model = Path("models/ggml-medium.en.bin")
     default_model = Path("models/ggml-base.en.bin")
     # Common arguments
     parser.add_argument(
@@ -149,10 +167,19 @@ def create_parser() -> argparse.ArgumentParser:
         help='Enable recording and save WAV file to this directory (disabled if not provided)'
     )
 
+    parser.add_argument(
+        'file',
+        type=Path,
+        nargs='?',
+        help='Audio file to transcribe'
+    )
+
     return parser
 
 
+
 def main():
+    """Main entry point."""
     parser = create_parser()
     args = parser.parse_args()
 
@@ -163,19 +190,25 @@ def main():
     if not args.model.exists():
         parser.error(f"Model file does not exist: {args.model}")
 
-    api_wrapper = APIWrapper()
+    if not args.file.exists():
+        parser.error(f"Audio file does not exist: {args.file}")
 
-    mic_server = MicServer(
-        model_path=args.model,
-        api_listener=api_wrapper,
-        use_multiprocessing=True,
-    )
-    api_wrapper.set_server(mic_server, "Microphone Listening")
+    api_wrapper = APIWrapper()
     try:
-        async def main_task():
+        async def main_loop():
             nonlocal api_wrapper
             if args.output_dir:
                 await api_wrapper.add_recorder(args)
+
+            playback_server = PlaybackServer(
+                model_path=args.model,
+                audio_file=args.file,
+                api_listener=api_wrapper,
+                rescan_mode=False,
+                simulate_timing=False,
+                use_multiprocessing=True,
+            )
+            api_wrapper.set_server(playback_server, "File playback")
             try:
                 await api_wrapper.server.run()
                 await asyncio.sleep(0.1)
@@ -201,7 +234,7 @@ def main():
             
         tlc = MyTLC()
         top_error_handler = TopErrorHandler(top_level_callback=tlc, logger=logger)
-        top_error_handler.run(main_task)
+        top_error_handler.run(main_loop)
         print(f"{api_wrapper.server_type}.run() complete")
     except KeyboardInterrupt:
         print("\nShutdown complete.")

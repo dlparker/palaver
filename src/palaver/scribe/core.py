@@ -137,8 +137,8 @@ class ScribePipeline:
         try:
             while True:
                 await asyncio.sleep(0.01)
-                if self._stream_monitor.check_done():
-                    self._stream_monitor.check_done(dump=True)
+                if await self._stream_monitor.check_done():
+                    await self._stream_monitor.check_done(dump=True, wait=True)
                     print('\n\n\n!!!!!!!!!!!!!!!!!!!! Starting shutodwn !!!!!!!!!!!!!!!!!!!\n\n')
                     await self.shutdown()
                     break
@@ -213,7 +213,7 @@ class StreamMonitor(ScribeAPIListener):
     async def on_pipeline_shutdown(self):
         pass
 
-    def check_done(self, dump=False, why="check"):
+    async def check_done(self, dump=False, why="check", wait=False):
         if dump:
             from pprint import pformat
             print("----- DUMP DUMP DUMP DUMP DUMP ---------------")
@@ -240,7 +240,11 @@ class StreamMonitor(ScribeAPIListener):
                     self.all_done = True
             else:
                 if dump:
-                    print(f"Never saw text and audio is stopped, need to check whisper for pending")
+                    print(f"Never saw text and audio is stopped, checking whisper for pending")
+                    res1 = self.core.whisper_thread.sound_pending()
+                    if res1 and wait:
+                        await self.core.whisper_thread.flush_pending()
+                        return await self.check_done(wait=False)
             
         if not dump:
             return self.all_done
@@ -274,26 +278,26 @@ class StreamMonitor(ScribeAPIListener):
         if isinstance(event, AudioSpeechStopEvent):
             self.speech_stop = event
             self.speech_start = None
-            self.check_done(dump=self.auto_dump, why="speech stop")
+            await self.check_done(dump=self.auto_dump, why="speech stop")
         if isinstance(event, AudioSpeechStartEvent):
             self.speech_start = event
             self.speech_stop = None
-            self.check_done(dump=self.auto_dump, why="speech start")
+            await self.check_done(dump=self.auto_dump, why="speech start")
         if isinstance(event, AudioStopEvent):
             # stream is shutdown, check to see if whisper
             # had done last chunk
             self.audio_stop = event
-            self.check_done(dump=self.auto_dump, why="audio stop")
+            await self.check_done(dump=self.auto_dump, why="audio stop")
         
     async def on_command_event(self, event:ScribeCommandEvent):
         from palaver.scribe.api import StartNoteCommand, StopNoteCommand, StartRescanCommand
         if isinstance(event.command, StartNoteCommand):
             self.in_block_event = event
-            self.check_done(dump=self.auto_dump, why="StartNoteCommand")
+            await self.check_done(dump=self.auto_dump, why="StartNoteCommand")
         elif isinstance(event.command, StopNoteCommand):
             self.in_block_event = None
-            self.check_done(dump=self.auto_dump, why="note stop")
+            await self.check_done(dump=self.auto_dump, why="note stop")
 
     async def on_text_event(self, event: TextEvent):
         self.last_text = event
-        self.check_done(dump=self.auto_dump, why="text")
+        await self.check_done(dump=self.auto_dump, why="text")

@@ -1,13 +1,22 @@
 
+1. [] Find a way to issue an end block command if audio ends with no command match. Probably should
+   be in core, but implemented by command logic
+2. [] Change "Note" stuff to "TXBlock"
+3. [] Build better storage method than current files only approach
+4. [] Add rescan using new storage
+   
+   
 Immediate:
 
-Make file listener calculate the file sound duration and simulate time such that end of file time is the current time.
+DONE Make file listener calculate the file sound duration and simulate time such that end of file time is the current time.
+
+
 
 Core API updates:
 1. [] Build an interface to the core that accepts a config dataclass
    and provides helper functions for initializing the Listener (File,
    Mic, etc), possibly other stuff
-2. [] Allow caller to select the Listener, the VAD, or the AudioMerge as the audio event source
+2. [X] Allow caller to select the Listener, the VAD, or the AudioMerge as the audio event source
    
 
 Main architecture

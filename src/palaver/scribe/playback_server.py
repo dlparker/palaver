@@ -93,13 +93,11 @@ class PlaybackServer:
         async with self.file_listener:
             self.pipeline = ScribePipeline(self.file_listener, self.config)
             async with self.pipeline:
-                if self.rescan_mode:
-                    if "large" in str(self.config.model_path):
-                        samples_per_scan = 16000 * 8
-                        self.pipeline.vadfilter.reset(silence_ms=5000, speech_pad_ms=1000)
-                    else:
-                        samples_per_scan = 16000 * 2
+                if "large" in str(self.config.model_path):
+                    samples_per_scan = 16000 * 8
+                    self.pipeline.vadfilter.reset(silence_ms=5000, speech_pad_ms=1000)
                 else:
+                    # larger than 5 doesn't work with base.en.bin
                     samples_per_scan = 16000 * 2
                 await self.pipeline.whisper_thread.set_buffer_samples(samples_per_scan)
                 
