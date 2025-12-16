@@ -33,15 +33,23 @@ class CommandDispatch(TextEventListener):
         issued = set()
         for segment_index, seg in enumerate(event.segments):
             search_buffer = seg.text
+            any_match = 0
             for cmd_dev in self.command_defs.values():
+                logger.info('s*** Command checking "%s" against %s', search_buffer, cmd_dev.patterns)
                 for pattern in cmd_dev.patterns:
                     ratio = fuzz.partial_ratio(pattern,  search_buffer)
+                    logger.info('s*** Command checking "%s" against "%s" got %f', search_buffer, pattern, ratio)
                     if ratio >= self._minimum_match:
                         if cmd_dev.name in issued:
+                            logger.info('s*** Command  "%s" already issued', cmd_dev.command.name)
                             continue
                         cmd_event = ScribeCommandEvent(cmd_dev.command, pattern, event, segment_index)
+                        logger.info('s*** Command  "%s" issuing event %s', cmd_dev.command.name, cmd_event)
                         await self.emitter.emit(ScribeCommandEvent, cmd_event)
                         issued.add(cmd_dev.name)
+                        any_match + 1
+            logger.info('s*** Command checking "%s" got %d matches', search_buffer, any_match)
+            
 
 
 class CommandShim(TextEventListener, AudioEventListener):
@@ -80,7 +88,7 @@ class CommandShim(TextEventListener, AudioEventListener):
             # this is a hack, may need to fix it
             from palaver.scribe.api import stop_note_command
             cmd_event = ScribeCommandEvent(stop_note_command, 'rescan fake', event, 0)
-            self.logger.info('\n\ns****************ending %s\n\n', cmd_event)
+            self.logger.info('s****************ending %s', cmd_event)
             await self.emitter.emit(ScribeCommandEvent, cmd_event)
                     
             

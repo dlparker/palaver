@@ -114,6 +114,7 @@ def process_worker_wrapper(job_queue: MPQueue, result_queue: MPQueue,
                            model_path: os.PathLike[str]):
 
     try:
+        logger.info(f"Worker process %d for model %s starting", os.getpid(), model_path)
         worker = Worker(job_queue, result_queue, shutdown_event, model_path)
         worker.run()
     except Exception as e:
@@ -122,7 +123,7 @@ def process_worker_wrapper(job_queue: MPQueue, result_queue: MPQueue,
         logger.error("Whipser thread exiting on error: \n%s", e)
         error_queue.put_nowait(error_dict)
         return error_dict
-    logger.info("Worker thread for model %s exiting", model_path)
+    logger.info(f"Worker process %i for model %s exiting", os.getpid(), model_path)
     return None
 
 BUFFER_SAMPLES = 30000   
@@ -226,6 +227,8 @@ class WhisperThread:
             self._pre_buffer = None
 
         if self._use_mp:
+            if self._process:
+                raise Exception('double start call')
             args = [self._job_queue,
                     self._result_queue,
                     self._error_queue,
@@ -237,6 +240,8 @@ class WhisperThread:
             self._process.start()
             self._worker_running = True
         else:
+            if self._worker_task:
+                raise Exception('double start call')
             logger.info("Using thread")
             coro = asyncio.to_thread(thread_worker_wrapper,
                                      self._job_queue,
@@ -261,7 +266,6 @@ class WhisperThread:
             try:
                 while self._process and self._process.is_alive() and time.time() - start_time < timeout:
                     await asyncio.sleep(0.05)
-
             except:
                 msg = f"Whisper worker check got error {traceback.format_exc()}"
                 logger.error(msg)

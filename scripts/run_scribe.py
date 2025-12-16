@@ -86,6 +86,7 @@ class APIWrapper(ScribeAPIListener):
         self.server_type = server_type
         
     async def on_command_event(self, event:ScribeCommandEvent):
+        print("")
         if isinstance(event.command, StartRescanCommand):
             self.doing_rescan = True
             print("-------------------------------------------")
@@ -98,11 +99,14 @@ class APIWrapper(ScribeAPIListener):
             print("-------------------------------------------")
             print(f"APIWrapper starting block {len(self.blocks)}")
             print("-------------------------------------------")
+            await self.handle_text_event(event.text_event)
         elif isinstance(event.command, StopNoteCommand):
             print("-------------------------------------------")
             print(f"APIWrapper ending block {len(self.blocks)}")
             print("-------------------------------------------")
-            print("++++++=++++++++++++++++++++++++++++++++++++")
+            print("++++++++++++++++++++++++++++++++++++++++++")
+            print("     Full block:")
+            print("++++++++++++++++++++++++++++++++++++++++++")
             if len(self.blocks) > 0:
                 print(self.blocks[-1])
             print("++++++=++++++++++++++++++++++++++++++++++++")
@@ -123,9 +127,7 @@ class APIWrapper(ScribeAPIListener):
             elif self.doing_rescan:
                 print("----- Rescanned but no block recorder so not saved -----")
 
-    async def on_text_event(self, event: TextEvent):
-        """Called when new transcribed text is available."""
-        #import ipdb; ipdb.set_trace()
+    async def handle_text_event(self, event: TextEvent):
         logger.info("*" * 100)
         logger.info("--------Text received---------")
 
@@ -137,6 +139,10 @@ class APIWrapper(ScribeAPIListener):
                 self.blocks[-1] += seg.text + " "
         logger.info("--------END Text received---------")
         logger.info("*" * 100)
+        
+    async def on_text_event(self, event: TextEvent):
+        """Called when new transcribed text is available."""
+        await self.handle_text_event(event)
         
     async def on_audio_event(self, event:AudioEvent):
         if isinstance(event, AudioStartEvent):
@@ -317,8 +323,8 @@ async def setup_playback_mode(args, done_callback):
         sim_time = not args.no_simulate_timing
         sim_time = True
         rescan = False
-    sim_time = True
-    rescan = False
+    sim_time = False
+    rescan = True
     playback_server = PlaybackServer(
         model_path=args.model,
         audio_file=args.file,

@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-Core pipeline setup for the Scribe transcription system.
-Provides shared logic for assembling the audio processing pipeline.
-"""
 import asyncio
 import logging
 from dataclasses import dataclass, field
@@ -33,7 +28,7 @@ class PipelineConfig:
     target_samplerate: int = 16000
     target_channels: int = 1
     use_multiprocessing: bool = False
-    whisper_shutdown_timeout: float = 3.0
+    whisper_shutdown_timeout: float = 10.0
 
 
 class ScribePipeline:
@@ -103,7 +98,6 @@ class ScribePipeline:
         # but to send all original signals from listerner
         # for other audio_event types
         self.audio_merge = AudioMerge()
-        await self.audio_merge.start()
         full_shim, vad_shim = self.audio_merge.get_shims()
         self.listener.add_event_listener(full_shim)
         self.vadfilter.add_event_listener(vad_shim)
@@ -122,6 +116,7 @@ class ScribePipeline:
 
         self._stream_monitor = StreamMonitor(self)
         self.add_api_listener(self._stream_monitor, to_merge=True)
+        self.add_api_listener(self.config.api_listener, to_merge=True)
 
         # Start the whisper thread on run, that gives caller a
         # chance to config it
@@ -140,11 +135,12 @@ class ScribePipeline:
         Checks for background errors every 100ms.
         """
         try:
-            await self.whisper_thread.start()
             while True:
                 await asyncio.sleep(0.01)
                 if self._stream_monitor.check_done():
                     self._stream_monitor.check_done(dump=True)
+                    print('\n\n\n!!!!!!!!!!!!!!!!!!!! Starting shutodwn !!!!!!!!!!!!!!!!!!!\n\n')
+                    await self.shutdown()
                     break
                 if self.background_error:
                     from pprint import pformat
@@ -161,6 +157,7 @@ class ScribePipeline:
     async def start_listener(self):
         """Start the listener streaming audo."""
         await self.whisper_thread.start()
+        await self.audio_merge.start()
         await self.listener.start_streaming()
         logger.info("Listener started")
 
@@ -176,10 +173,10 @@ class ScribePipeline:
                 
         try:
             await self.config.api_listener.on_pipeline_shutdown()
-        except:
+        except Exception as e:
             logger.error("pipleline shutdown callback to api_listener error\n%s",
                          traceback.format_exc())
-
+            logger.error(traceback.format_exc())
         finally:
             logger.info("Pipeline shutdown complete")
 
@@ -205,6 +202,7 @@ class StreamMonitor(ScribeAPIListener):
         self.all_done = False
         self.last_chunk = None
         self.in_block_event = None
+        self.auto_dump = False
 
     def is_all_done(self):
         return self.all_done
@@ -276,26 +274,26 @@ class StreamMonitor(ScribeAPIListener):
         if isinstance(event, AudioSpeechStopEvent):
             self.speech_stop = event
             self.speech_start = None
-            self.check_done(dump=True, why="speech stop")
+            self.check_done(dump=self.auto_dump, why="speech stop")
         if isinstance(event, AudioSpeechStartEvent):
             self.speech_start = event
             self.speech_stop = None
-            self.check_done(dump=True, why="speech start")
+            self.check_done(dump=self.auto_dump, why="speech start")
         if isinstance(event, AudioStopEvent):
             # stream is shutdown, check to see if whisper
             # had done last chunk
             self.audio_stop = event
-            self.check_done(dump=True, why="audio stop")
+            self.check_done(dump=self.auto_dump, why="audio stop")
         
     async def on_command_event(self, event:ScribeCommandEvent):
         from palaver.scribe.api import StartNoteCommand, StopNoteCommand, StartRescanCommand
         if isinstance(event.command, StartNoteCommand):
             self.in_block_event = event
-            self.check_done(dump=True, why="note start")
+            self.check_done(dump=self.auto_dump, why="StartNoteCommand")
         elif isinstance(event.command, StopNoteCommand):
             self.in_block_event = None
-            self.check_done(dump=True, why="note stop")
+            self.check_done(dump=self.auto_dump, why="note stop")
 
     async def on_text_event(self, event: TextEvent):
         self.last_text = event
-        self.check_done(dump=True, why="text")
+        self.check_done(dump=self.auto_dump, why="text")
