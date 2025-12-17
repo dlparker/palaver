@@ -202,7 +202,10 @@ def main():
     parser = create_parser()
     args = parser.parse_args()
 
-    setup_logging(default_level=args.log_level, info_loggers=[logger.name,], more_loggers=[logger,])
+    setup_logging(default_level=args.log_level,
+                  info_loggers=[logger.name,],
+                  debug_loggers=['Commands',],
+                  more_loggers=[logger,])
 
     # Validate model path
     if not args.model.exists():

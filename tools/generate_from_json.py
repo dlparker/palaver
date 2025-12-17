@@ -102,11 +102,12 @@ def generate_speech_segment(text: str, output_file: Path, model: str) -> None:
     cmd = [
         "uv", "run", "piper",
         "--model", model,
+        "--length-scale", '1.6',
         "--sentence-silence", "0",  # No automatic silence
         "--output_file", str(output_file)
     ]
 
-    print(f"  Generating: {text[:60]}{'...' if len(text) > 60 else ''}")
+    print(f"  Generating: {cmd} {text[:60]}{'...' if len(text) > 60 else ''}")
 
     result = subprocess.run(
         cmd,

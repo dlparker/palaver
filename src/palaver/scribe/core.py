@@ -315,7 +315,7 @@ class StreamMonitor(ScribeAPIListener):
             self.audio_stop = event
         
     async def on_command_event(self, event:ScribeCommandEvent):
-        from palaver.scribe.api import StartBlockCommand, StopBlockCommand, StartRescanCommand
+        from palaver.scribe.api import StartBlockCommand, StopBlockCommand
         if isinstance(event.command, StartBlockCommand):
             self.in_block_event = event
             await self.check_done(dump=self.auto_dump, why="StartBlockCommand")

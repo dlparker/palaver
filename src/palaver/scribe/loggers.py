@@ -40,11 +40,13 @@ def setup_logging(default_level="WARNING", info_loggers=None, debug_loggers=None
             level = "DEBUG"
         else:
             level = default_level
-        config_dict['loggers'][logger.name] = {
+        l_dict =  {
             'handlers': ['default'],
             'level': level,
             'propagate': False
         }
+        print(f'adding logger {logger.name} {l_dict}')
+        config_dict['loggers'][logger.name] = l_dict
 
     for logger in get_loggers():
         add_one(logger)

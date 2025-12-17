@@ -14,7 +14,7 @@ from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.audio_events import AudioEvent, AudioStopEvent, AudioStartEvent
 from palaver.scribe.scriven.wire_commands import ScribeCommandEvent, CommandEventListener
 from palaver.scribe.api import ScribeAPIListener
-from palaver.scribe.api import StartBlockCommand, StopBlockCommand, StartRescanCommand
+from palaver.scribe.api import StartBlockCommand, StopBlockCommand
 from palaver.scribe.recorders.block_audio import BlockAudioRecorder
 from palaver.scribe.mic_server import MicServer
 from palaver.utils.top_error import TopLevelCallback, TopErrorHandler, get_error_handler
@@ -184,8 +184,12 @@ def main():
     args = parser.parse_args()
 
     # Set logging level
-    info_loggers = [logger.name, "Commands"]
-    setup_logging(default_level=args.log_level, info_loggers=info_loggers, more_loggers=[logger,])
+    info_loggers = [logger.name,]
+    
+    setup_logging(default_level=args.log_level,
+                  info_loggers=[logger.name,'Commands'],
+                  debug_loggers=[],
+                  more_loggers=[logger,])
 
     # Validate model path
     if not args.model.exists():

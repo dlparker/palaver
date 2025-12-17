@@ -42,25 +42,22 @@ class ScribeAPIListener(AudioEventListener,
 @dataclass(kw_only=True)
 class StartBlockCommand(ScribeCommand):
     name: str = "start_block"
-    starts_recording_session: bool = True
     starts_text_block: bool = True
 
 @dataclass(kw_only=True)
 class StopBlockCommand(ScribeCommand):
     name: str = "stop_block"
-    stops_recording_session: bool = True
     stops_text_block: bool = True
-    
-@dataclass(kw_only=True)
-class StartRescanCommand(ScribeCommand):
-    name: str = "start_rescan"
-    
+
+
+attention_phrases = ['rupert listen', 'rupert command', "rupert c'mon", 'freddy listen']
 start_block_command = StartBlockCommand()
 stop_block_command = StopBlockCommand()
-start_rescan_command = StartRescanCommand()
+
+# patterns should have longest pattern first, then descending for similar patterns
 default_commands = [
-    (['start a note', 'begin note', 'start new note', 'start a block', 'begin block', 'start new block', 'start dictation'],
+    (['start a new note', 'start new note', 'start a note',  'start a new block', 'begin note'],
      start_block_command),
-    (['break break break', 'stop stop stop', 'session end'], stop_block_command),
+    (['break break break', 'end block', 'session end', 'end session'], stop_block_command),
     ]
     

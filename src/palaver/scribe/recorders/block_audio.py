@@ -23,7 +23,7 @@ from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.command_events import ScribeCommandEvent
 from palaver.scribe.scriven.whisper_thread import AudioRingBuffer
-from palaver.scribe.api import StartBlockCommand, StopBlockCommand, StartRescanCommand
+from palaver.scribe.api import StartBlockCommand, StopBlockCommand
 
 logger = logging.getLogger("BlockAudioRecorder")
 @dataclass
