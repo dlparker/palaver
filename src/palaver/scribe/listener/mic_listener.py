@@ -84,7 +84,9 @@ class MicListener(ListenerCCSMixin, Listener):
                     indata, status = await self._q_out.get()
                     if status:
                         msg = f"Error during record: {status}"
-                        event = AudioErrorEvent(source_id=self.source_id, message=msg)
+                        event = AudioErrorEvent(source_id=self.source_id,
+                                                stream_start_time=self._stream_start_time,
+                                                message=msg)
                         await self.emit_event(event)
                         await self.stop()
                         return
