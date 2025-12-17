@@ -45,10 +45,9 @@ class APIWrapper(ScribeAPIListener):
         self.last_block_name = None
         self.stream = None
 
-    async def add_recorder(self, args):
-        # Setup recording if output_dir provided
-        self.block_recorder = BlockAudioRecorder(args.output_dir)
-        logger.info(f"Recording enabled but not yet wired: {args.output_dir}")
+    async def add_recorder(self, recorder):
+        self.block_recorder = recorder
+        logger.info(f"Recording enabled but not yet wired")
         
     async def on_pipeline_ready(self, pipeline):
         parts = pipeline.get_pipeline_parts()
@@ -204,7 +203,7 @@ def main():
 
     setup_logging(default_level=args.log_level,
                   info_loggers=[logger.name,],
-                  debug_loggers=['Commands',],
+                  debug_loggers=['BlockAudioRecorder',],
                   more_loggers=[logger,])
 
     # Validate model path
@@ -218,14 +217,29 @@ def main():
     try:
         async def main_loop():
             nonlocal api_wrapper
+            sim_timing = False
             if args.output_dir:
-                await api_wrapper.add_recorder(args)
+                if sim_timing:
+                    chunk_ring_seconds = 3
+                else:
+                    # There is something causing chunk events to get
+                    # delayed in delivery to the block recorder when
+                    # we playback a file at full data speed. Since
+                    # this mode, playing a file and sending it to the
+                    # block recorder is really only for testing the block
+                    # recorder, and the problem doesn't happen at actual
+                    # audio input speeds, I'm not going to fix it.
+                    # The operational modes will be more like a mike,
+                    # streaming over a socket, for example.
+                    chunk_ring_seconds = 12
+                block_recorder = BlockAudioRecorder(args.output_dir, chunk_ring_seconds)
+                await api_wrapper.add_recorder(block_recorder)
 
             playback_server = PlaybackServer(
                 model_path=args.model,
                 audio_file=args.file,
                 api_listener=api_wrapper,
-                simulate_timing=False,
+                simulate_timing=sim_timing,
                 use_multiprocessing=True,
             )
             api_wrapper.set_server(playback_server, "File playback")

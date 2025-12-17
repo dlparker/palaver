@@ -89,7 +89,7 @@ def pre_serialize_events(event_set):
     
 class BlockAudioRecorder(ScribeAPIListener):
 
-    def __init__(self, output_dir: Path):
+    def __init__(self, output_dir: Path, chunk_ring_seconds=3):
         super().__init__(split_audio=True)
         self._output_dir = Path(output_dir)
         self._output_dir.mkdir(parents=True, exist_ok=True)
@@ -97,7 +97,7 @@ class BlockAudioRecorder(ScribeAPIListener):
         self._last_block = None
         self._buffer_lock = threading.Lock()
         self._last_speech_start_event = None # only set when no current block 
-        self._chunk_ring = AudioRingBuffer(max_seconds=3)
+        self._chunk_ring = AudioRingBuffer(max_seconds=chunk_ring_seconds)
         self._full_text = ""
         self._rescan_block = None
 
@@ -174,7 +174,6 @@ class BlockAudioRecorder(ScribeAPIListener):
                 if self._chunk_ring.has_data():
                     for event in self._chunk_ring.get_from(self._last_speech_start_event.timestamp):
                         await self.on_audio_chunk_event(event)
-                        self._current_block.events.append(event)
                     self._chunk_ring.clear()
             self._current_block.events.append(event)
             self._current_block.meta_events.append(event)
@@ -230,6 +229,7 @@ class BlockAudioRecorder(ScribeAPIListener):
             with self._buffer_lock:
                 # Write audio data to WAV file
                 data_to_write = np.concatenate(event.data)
+                logger.info("Saving  %d samples to wav file", len(data_to_write))
                 self._current_block.wav_file.write(data_to_write)
 
     async def _save_block(self):
@@ -244,10 +244,16 @@ class BlockAudioRecorder(ScribeAPIListener):
             with open(text_path, 'w') as f:
                 f.write(self._full_text)
         else:
+            logger.info("Saving %d bytes of text to %s", len(self._full_text),
+                        block.text_path)
             with open(block.text_path, 'w') as f:
                 f.write(self._full_text)
+            logger.info("Saving  %d events json to %s", len(block.meta_events),
+                        block.meta_events_path)
             with open(block.meta_events_path, 'w') as f:
                 json.dump(pre_serialize_events(block.meta_events), f, indent=2)
+            logger.info("Saving  %d events json to %s", len(block.events),
+                        block.full_events_path)
             with open(block.full_events_path, 'w') as f:
                 json.dump(pre_serialize_events(block.events), f, indent=2)
         logger.info("Saved events to files in %s", str(self._current_block.directory))
@@ -255,16 +261,16 @@ class BlockAudioRecorder(ScribeAPIListener):
     async def _close_block(self):
         if not self._current_block:
             return
+        logger.info("Closing block")
         if self._current_block.wav_file is not None:
             trailing_seconds = 0.4
             trailing_frames = int(self._current_block.samplerate * trailing_seconds)
             silence_block = np.zeros((trailing_frames, self._current_block.channels), dtype=np.float32)
             self._current_block.wav_file.write(silence_block)
             self._current_block.wav_file.close()
+            self._current_block.wav_file = None
             
         self._full_text = ""
-        self.events = []
-        self.meta_events = []
         self._current_block = None
         
     async def stop(self):

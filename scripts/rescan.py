@@ -200,7 +200,9 @@ def main():
     args = parser.parse_args()
 
     # Set logging level
-    setup_logging(default_level=args.log_level, info_loggers=[logger.name,], more_loggers=[logger,])
+    setup_logging(default_level=args.log_level,
+                  info_loggers=[logger.name,],
+                  more_loggers=[logger,])
 
     short_models = [str(Path("models/ggml-base.en.bin").resolve()),
                     str(Path("models/ggml-tiny.en.bin").resolve()),
