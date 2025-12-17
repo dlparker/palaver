@@ -15,7 +15,7 @@ from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.audio_events import AudioEvent, AudioStopEvent, AudioStartEvent, AudioChunkEvent
 from palaver.scribe.scriven.wire_commands import ScribeCommandEvent, CommandEventListener
 from palaver.scribe.api import ScribeAPIListener
-from palaver.scribe.api import StartBlockCommand, StopBlockCommand, StartRescanCommand
+from palaver.scribe.api import StartBlockCommand, StopBlockCommand
 from palaver.scribe.recorders.block_audio import BlockAudioRecorder
 from palaver.utils.top_error import TopLevelCallback, TopErrorHandler, get_error_handler
 from palaver.scribe.playback_server import PlaybackServer
@@ -241,6 +241,7 @@ def main():
                 model_path=args.model,
                 audio_file=last_block_files.sound_path,
                 api_listener=api_wrapper,
+                require_alerts=False,
                 seconds_per_scan=seconds_per_scan,
                 simulate_timing=False,
                 use_multiprocessing=True,

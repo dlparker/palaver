@@ -24,6 +24,7 @@ class PlaybackServer:
                  model_path,
                  audio_file: Path,
                  api_listener: ScribeAPIListener,
+                 require_alerts: bool = False,
                  seconds_per_scan=2,
                  use_multiprocessing: bool = False,
                  chunk_duration=DEFAULT_CHUNK_DURATION,
@@ -42,6 +43,7 @@ class PlaybackServer:
         self.seconds_per_scan = seconds_per_scan
         self._background_error = None
         self.pipeline = None
+        self._require_alerts = require_alerts
         logger.info("Starting playback server")
         logger.info(f"Model: {model_path}")
         logger.info(f"Seconds per scan: {seconds_per_scan}")
@@ -57,6 +59,7 @@ class PlaybackServer:
             target_channels=1,
             use_multiprocessing=use_multiprocessing,
             api_listener=api_listener,
+            require_command_alerts=self._require_alerts,
         )
 
         # Create file listener

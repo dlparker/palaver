@@ -27,6 +27,7 @@ class PipelineConfig:
     """Configuration for the Scribe pipeline."""
     model_path: Path
     api_listener:ScribeAPIListener
+    require_command_alerts: bool = True
     target_samplerate: int = 16000
     target_channels: int = 1
     use_multiprocessing: bool = False
@@ -112,7 +113,7 @@ class ScribePipeline:
         )
         self.vadfilter.add_event_listener(self.whisper_thread)
 
-        self.command_dispatch = CommandDispatch()
+        self.command_dispatch = CommandDispatch(require_alerts=self.config.require_command_alerts)
         for patterns, command in default_commands:
             self.command_dispatch.register_command(command, patterns)
         # Attach the command listener

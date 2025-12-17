@@ -50,14 +50,7 @@ class StopBlockCommand(ScribeCommand):
     stops_text_block: bool = True
 
 
-attention_phrases = ['rupert listen', 'rupert command', "rupert c'mon", 'freddy listen']
-start_block_command = StartBlockCommand()
-stop_block_command = StopBlockCommand()
-
 # patterns should have longest pattern first, then descending for similar patterns
-default_commands = [
-    (['start a new note', 'start new note', 'start a note',  'start a new block', 'begin note'],
-     start_block_command),
-    (['break break break', 'end block', 'session end', 'end session'], stop_block_command),
-    ]
+default_commands = []
+
     
