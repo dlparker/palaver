@@ -1,4 +1,22 @@
-1. [] The command detection is too stupid for words. Only needs a match on a single word. May have
+   
+
+Main architecture
+1. [X] Move the recorder code out of the core and:
+   1. [X] make it configurable
+   2. [X] fix the listener name
+   3. [X] Change it to store text blocks in directory
+   4. [] Add logic to run_mic.py, playback.py, rescan.py ScribeAPIListener
+      implementations to strip out attention phrases, block start phrases
+      (needed info is in start block command) and end block phrases
+   5. [] Add dynamic command loading code and call it during startup
+   6. [] Add a DB for tracking, listing, deleteting, etc
+   7. [] Add a method to add text revisions by ID (maybe using the json meta data)
+
+
+
+OLD:
+
+1. [X] The command detection is too stupid for words. Only needs a match on a single word. May have
    to use an actual prefix.
 
 
@@ -7,18 +25,3 @@
 2. [X] Change "Note" stuff to "Block"
 3. [X] Build rescan support into recorder
 4. [X] Add rescan using new storage
-   
-3. Add dynamic command loading code and call it during startup
-   
-
-Main architecture
-1. [X] Move the recorder code out of the core and:
-   1. [X] make it configurable
-   2. [X] fix the listener name
-   3. [X] Change it to store text blocks in directory
-   4. [] Add a DB for tracking, listing, deleteting, etc
-   5. [] Add a method to add text revisions by ID (maybe using the json meta data)
-
-
-   
-   

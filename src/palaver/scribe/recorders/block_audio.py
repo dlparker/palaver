@@ -229,7 +229,7 @@ class BlockAudioRecorder(ScribeAPIListener):
             with self._buffer_lock:
                 # Write audio data to WAV file
                 data_to_write = np.concatenate(event.data)
-                logger.info("Saving  %d samples to wav file", len(data_to_write))
+                logger.debug("Saving  %d samples to wav file", len(data_to_write))
                 self._current_block.wav_file.write(data_to_write)
 
     async def _save_block(self):

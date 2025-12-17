@@ -1,0 +1,124 @@
+
+
+* Status as of right now.
+
+
+** Main command line tools
+*** scripts/run_mic.py
+
+This tool opens the default microphone on the local machine using the
+sounddevice library. It accomplishes this through the use of the
+ScribePipeline class in src/palaver/scribe/core.py. It uses
+the fairly thin layer provided by src/palaver/scribe/mic_server.py.
+The ScribePipeline uses the audio samples to do VAD processing and
+WhisperCPP processing on the detected voice samples. The
+run_mic.py usage of the pipeline includes an option wiring of the
+event streams to the BlockRecorder in
+src/palaver/scribe/recorders/block_audio.py. This component
+saves the sampled audio in a wav file in a structered way along
+with the full data event stream, a filtered stream containing
+only the meta events, and a text file containing any transcribed
+text that has been marked for saving via the command processing
+layer.
+
+*** scripts/playback.py
+
+This tool is very similar to the run_mic.py tool but it pulls
+audio samples from a file using the python soundfile library.
+There are a couple of other differences, it auto stops when
+the file is exhausted, and it runs the samples through the
+pipeline as fast as the pipeline can handle them. This
+is significantly different than the real time rate of the
+microphone source, and there are probably some undetected
+errors related to this as only small files have been tested.
+
+*** scripts/rescan.py
+
+This tool works with the output of the other two tools. If
+you run one of those with the "--output-dir" argument they
+will setup the BlockRecorder to save the raw data and
+the pipeline output in a directory for each "block" of
+transcribed text. The transcription setup for those tools
+is optimized for responsiveness to human interaction which
+leads to poorer transcription and artifacts such as false
+sentence end detection. The rescan tool makes it possible
+to take the original captured sound file and run it through
+a better model with a larger sound data window, yielding
+superior results.
+
+At the moment of this writing, the rescan tool is partly
+broken. It is reprocessing the wave file produced
+by run_mic.py or playback.py, but it is not generating
+the output files correctly.
+
+
+*** Discussion
+
+The first two tools use the base-en model for whispercpp
+processing, and use a streaming interface to it and supply
+short sound buffers, only 2 seconds long. This serves well
+for command detection, but has spotty accuracy.
+
+The rescan tool uses the multilanguage largev3 turbo model
+and passes 10 seconds worth of audio data in each request.
+
+All three of these tools are meant as development support
+rather than actual assistant system use. The are meant to
+provide a manual way to test the operations that are built
+into server programs that interchange event streams
+with other programs. 
+
+
+** Main components, ScribePipeline and friends
+
+The this component assembles and manages a pipeline
+of components that interact via event streams. The
+layers are:
+
+1. A listener class that provides AudioEvent events
+   as defined in src/palaver/scribe/audio_events.py.
+   Current implementations are:
+   1. MicListener, reads from local machine's microphone,
+      found in src/palaver/scribe/listener/mic_listener.py
+   2. FileListener, reads from audio file, found
+      in src/palaver/scribe/listener/file_listener.py
+2. A DownSampler that listens to audievents and converts
+   them to the form that the silero VAD code wants,
+   16K samplerate and mono. This is found in
+   src/palaver/scribe/listener/downsampler.py
+3. A VADFilter that monitors the downsampled audio
+   and submits it the silero VAD detection and
+   emitts speech start and end events, as
+   defined in src/palaver/scribe/audio_events.py.
+4. AudioMerge layer that takes events from the listener
+   and from the VADFilter and merges the full original
+   sample data with the VADFilter start and stop
+   events producing a unified stream of events for
+   listeners that want both. This is in
+   src/palaver/scribe/listener/audio_merge.py
+5. The WhisperThread layer that processes
+   audo events from the VADFilter layer
+   through requestes to either a thread or
+   process running a pywhispercpp model instance,
+   and producing TextEvents as defined in
+   src/palaver/scribe/text_events.py.
+   This layer is found in
+   src/palaver/scribe/scriven/whisper_thread.py.
+6. The CommandDispatch layer that examines
+   TextEvents to detect when the audio stream
+   includes special attention phrases and command
+   phrases. It emits ScribeCommandEvent events
+   as defined in src/palaver/scribe/command_events.py
+   This layer is found in 
+   src/palaver/scribe/scriven/whisper_thread.py.
+   This layer is in early stage condition at the
+   moment, with only a few hours of experiementing
+   done so far, and much modification and
+   expansion is to be expected.
+7. The ScribeAPIListener interface is the last layer
+   managed by the pipeline, accepting one of these
+   at create time and allowing dynamic addition of
+   more instances. The pipepline wires the api_listener
+   instances up to the other event sources, and adds
+   direct calls for on_pipeline_ready and on_pipeline_shutdown.
+
