@@ -19,12 +19,9 @@ from palaver.scribe.api import StartBlockCommand, StopBlockCommand
 from palaver.scribe.recorders.block_audio import BlockAudioRecorder
 from palaver.utils.top_error import TopLevelCallback, TopErrorHandler, get_error_handler
 from palaver.scribe.playback_server import PlaybackServer
+from palaver.scribe.loggers import setup_logging
 
-# Setup logging
-log_format = '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s'
-logging.basicConfig(stream=sys.stdout, level=logging.WARNING,
-                    format=log_format)
-logger = logging.getLogger("ScribeServer")
+logger = logging.getLogger("ScribePlayback")
 
 
 @dataclass
@@ -205,8 +202,7 @@ def main():
     parser = create_parser()
     args = parser.parse_args()
 
-    # Set logging level
-    logging.getLogger().setLevel(getattr(logging, args.log_level))
+    setup_logging(default_level=args.log_level, info_loggers=[logger.name,], more_loggers=[logger,])
 
     # Validate model path
     if not args.model.exists():

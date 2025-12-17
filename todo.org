@@ -1,3 +1,6 @@
+1. [] The command detection is too stupid for words. Only needs a match on a single word. May have
+   to use an actual prefix.
+
 
 1. [X] Find a way to issue an end block command if audio ends with no command match. Probably should
    be in core, but implemented by command logic

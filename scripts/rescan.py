@@ -19,12 +19,9 @@ from palaver.scribe.api import StartBlockCommand, StopBlockCommand, StartRescanC
 from palaver.scribe.recorders.block_audio import BlockAudioRecorder
 from palaver.utils.top_error import TopLevelCallback, TopErrorHandler, get_error_handler
 from palaver.scribe.playback_server import PlaybackServer
+from palaver.scribe.loggers import setup_logging
 
-# Setup logging
-log_format = '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s'
-logging.basicConfig(stream=sys.stdout, level=logging.WARNING,
-                    format=log_format)
-logger = logging.getLogger("ScribeServer")
+logger = logging.getLogger("ScribePlayback")
 
 
 @dataclass
@@ -110,19 +107,22 @@ class APIWrapper(ScribeAPIListener):
         if event.event_id == self.text_events:
             return
         self.text_events[event.event_id] = event
-        logger.info("*" * 100)
-        logger.info("--------Text received---------")
         if len(self.blocks) > 0:
             last_block = self.blocks[-1]
-            last_block.text_events[event.event_id] = event
-            print(f"text {event.event_id} added to block")
-        for seg in event.segments:
-            logger.info(seg.text)
-            print(seg.text)
-            self.full_text += seg.text + " "
-        logger.info("--------END Text received---------")
-        logger.info("*" * 100)
-        
+            if not last_block.finalized:
+                last_block.text_events[event.event_id] = event
+                logger.info(f"text {event.event_id} added to block")
+                for seg in event.segments:
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info("-----Adding text to block-----\n%s", seg.text)
+                    else:
+                        logger.info("-----Adding text to block-----\n")
+                        print(seg.text)
+                        logger.info("----------\n")
+                self.full_text += seg.text + " "
+            else:
+                print(f"ignoring text {event.segments}")
+                
     async def on_text_event(self, event: TextEvent):
         """Called when new transcribed text is available."""
         await self.handle_text_event(event)
@@ -200,7 +200,7 @@ def main():
     args = parser.parse_args()
 
     # Set logging level
-    logging.getLogger().setLevel(getattr(logging, args.log_level))
+    setup_logging(default_level=args.log_level, info_loggers=[logger.name,], more_loggers=[logger,])
 
     short_models = [str(Path("models/ggml-base.en.bin").resolve()),
                     str(Path("models/ggml-tiny.en.bin").resolve()),

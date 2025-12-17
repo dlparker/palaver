@@ -18,7 +18,7 @@ logger = logging.getLogger("Commands")
 
 class CommandDispatch(TextEventListener):
 
-    def __init__(self, minimum_match = 75.0) -> None:
+    def __init__(self, minimum_match = 50.0) -> None:
         self.emitter = AsyncIOEventEmitter()
         self._minimum_match = minimum_match
         self.command_defs = {}
@@ -37,14 +37,14 @@ class CommandDispatch(TextEventListener):
             for cmd_dev in self.command_defs.values():
                 logger.debug('s*** Command checking "%s" against %s', search_buffer, cmd_dev.patterns)
                 for pattern in cmd_dev.patterns:
-                    ratio = fuzz.partial_ratio(pattern,  search_buffer)
+                    ratio = fuzz.ratio(pattern,  search_buffer)
                     logger.debug('s*** Command checking "%s" against "%s" got %f', search_buffer, pattern, ratio)
                     if ratio >= self._minimum_match:
                         if cmd_dev.name in issued:
                             logger.debug('s*** Command  "%s" already issued', cmd_dev.command.name)
                             continue
                         cmd_event = ScribeCommandEvent(cmd_dev.command, pattern, event, segment_index)
-                        logger.debug('s*** Command  "%s" issuing event %s', cmd_dev.command.name, cmd_event)
+                        logger.info('s*** Command  "%s" issuing event %s', cmd_dev.command.name, cmd_event)
                         await self.emitter.emit(ScribeCommandEvent, cmd_event)
                         issued.add(cmd_dev.name)
                         any_match + 1

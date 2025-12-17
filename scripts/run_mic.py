@@ -18,18 +18,16 @@ from palaver.scribe.api import StartBlockCommand, StopBlockCommand, StartRescanC
 from palaver.scribe.recorders.block_audio import BlockAudioRecorder
 from palaver.scribe.mic_server import MicServer
 from palaver.utils.top_error import TopLevelCallback, TopErrorHandler, get_error_handler
+from palaver.scribe.loggers import setup_logging
 
-# Setup logging
-log_format = '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s'
-logging.basicConfig(stream=sys.stdout, level=logging.WARNING,
-                    format=log_format)
-logger = logging.getLogger("ScribeServer")
+logger = logging.getLogger("ScribeMicRunner")
 
 @dataclass
 class BlockTracker:
     start_event: StartBlockCommand
     text_events: dict[uuid, TextEvent] = field(default_factory=dict[uuid, TextEvent])
     end_event: Optional[StopBlockCommand] = None
+    finalized: Optional[bool] = False
 
 class APIWrapper(ScribeAPIListener):
 
@@ -55,6 +53,10 @@ class APIWrapper(ScribeAPIListener):
             logger.info(f"Recording wired")
 
     async def on_pipeline_shutdown(self):
+        if len(self.blocks) > 0:
+            last_block = self.blocks[-1]
+            if not last_block.finalized:
+                await self.finalize_block(last_block)
         if self.block_recorder:
             await self.block_recorder.stop()
             
@@ -73,41 +75,66 @@ class APIWrapper(ScribeAPIListener):
         elif isinstance(event.command, StopBlockCommand):
             if len(self.blocks) > 0:
                 last_block = self.blocks[-1]
-                if last_block.end_event is None:
-                    print("-------------------------------------------")
-                    print(f"APIWrapper ending block {len(self.blocks)}")
-                    print("-------------------------------------------")
-                    print("++++++++++++++++++++++++++++++++++++++++++")
-                    print("     Full block:")
-                    print("++++++++++++++++++++++++++++++++++++++++++")
-                    for uuid,text_event in last_block.text_events.items():
-                        for seg in text_event.segments:
-                            print(seg.text)
-                    print("++++++=++++++++++++++++++++++++++++++++++++")
-                    # give time for block recorder to act
-                    if self.block_recorder:
-                        await asyncio.sleep(0.05)
-                        wavfile = self.block_recorder.get_last_block_wav_path()
-                        print(f"\n\n wrote file {wavfile}\n\n")
+                if not last_block.finalized:
+                    last_block.end_event = event
+                    await self.finalize_block(last_block)
 
+    async def finalize_block(self, block):
+        print("-------------------------------------------")
+        print(f"APIWrapper ending block {len(self.blocks)}")
+        print("-------------------------------------------")
+        print("++++++++++++++++++++++++++++++++++++++++++")
+        print("     Full block:")
+        print("++++++++++++++++++++++++++++++++++++++++++")
+        for uuid,text_event in block.text_events.items():
+            for seg in text_event.segments:
+                print(seg.text)
+        print("++++++=++++++++++++++++++++++++++++++++++++")
+        block.finalized = True
+        # give time for block recorder to act
+        if self.block_recorder:
+            await asyncio.sleep(0.05)
+            wavfile = self.block_recorder.get_last_block_wav_path()
+            print(f"\n\n wrote file {wavfile}\n\n")
+                        
     async def handle_text_event(self, event: TextEvent):
         if event.event_id in self.text_events:
             return
         self.text_events[event.event_id] = event
-        logger.info("*" * 100)
-        logger.info("--------Text received---------")
-
+        if not last_block.finalized:
+            last_block.text_events[event.event_id] = event
+            logger.info(f"text {event.event_id} added to block")
+            for seg in event.segments:
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("-----Adding text to block-----\n%s", seg.text)
+                else:
+                    logger.info("-----Adding text to block-----\n")
+                    print(seg.text)
+                    logger.info("----------\n")
+            self.full_text += seg.text + " "
+        else:
+            print(f"ignoring text {event.segments}")
+        
+    async def handle_text_event(self, event: TextEvent):
+        if event.event_id == self.text_events:
+            return
+        self.text_events[event.event_id] = event
         if len(self.blocks) > 0:
             last_block = self.blocks[-1]
-            last_block.text_events[event.event_id] = event
-            print(f"text {event.event_id} added to block")
-        for seg in event.segments:
-            logger.info(seg.text)
-            print(seg.text)
-            self.full_text += seg.text + " "
-        logger.info("--------END Text received---------")
-        logger.info("*" * 100)
-        
+            if not last_block.finalized:
+                last_block.text_events[event.event_id] = event
+                logger.info(f"text {event.event_id} added to block")
+                for seg in event.segments:
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info("-----Adding text to block-----\n%s", seg.text)
+                    else:
+                        logger.info("-----Adding text to block-----\n")
+                        print(seg.text)
+                        logger.info("----------\n")
+                self.full_text += seg.text + " "
+            else:
+                print(f"ignoring text {event.segments}")
+                
     async def on_text_event(self, event: TextEvent):
         """Called when new transcribed text is available."""
         await self.handle_text_event(event)
@@ -157,7 +184,8 @@ def main():
     args = parser.parse_args()
 
     # Set logging level
-    logging.getLogger().setLevel(getattr(logging, args.log_level))
+    info_loggers = [logger.name, "Commands"]
+    setup_logging(default_level=args.log_level, info_loggers=info_loggers, more_loggers=[logger,])
 
     # Validate model path
     if not args.model.exists():
