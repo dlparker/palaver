@@ -2,42 +2,20 @@
 1. [X] Find a way to issue an end block command if audio ends with no command match. Probably should
    be in core, but implemented by command logic
 2. [X] Change "Note" stuff to "Block"
-3. [] Build better storage method than current files only approach
-4. [] Add rescan using new storage
+3. [X] Build rescan support into recorder
+4. [X] Add rescan using new storage
    
-   
-Immediate:
-
-DONE Make file listener calculate the file sound duration and simulate time such that end of file time is the current time.
-
-
-
-Core API updates:
-1. [] Build an interface to the core that accepts a config dataclass
-   and provides helper functions for initializing the Listener (File,
-   Mic, etc), possibly other stuff
-2. [X] Allow caller to select the Listener, the VAD, or the AudioMerge as the audio event source
+3. Add dynamic command loading code and call it during startup
    
 
 Main architecture
 1. [X] Move the recorder code out of the core and:
-   1. [x] make it configurable
-   2. [x] fix the listener name
-   3. [x] Change it to store text blocks in directory
+   1. [X] make it configurable
+   2. [X] fix the listener name
+   3. [X] Change it to store text blocks in directory
    4. [] Add a DB for tracking, listing, deleteting, etc
    5. [] Add a method to add text revisions by ID (maybe using the json meta data)
-2. [x] Move MQTT out of core
-   1. [] Add a combined event stream
-   2. [] Add substreams to replicate original audio split
-
-      
 
 
-
-
-
-
-
-3. Add dynamic command loading code and call it during startup
    
    
