@@ -44,7 +44,6 @@ class TextBlock:
     text_path: Path
     full_events_path: Path
     meta_events_path: Path
-    rescanning: Optional[bool] = False
     wav_file: Optional[sf.SoundFile] = None
     samplerate: Optional[int] = None
     channels: Optional[int] = None
@@ -119,7 +118,6 @@ class BlockAudioRecorder(ScribeAPIListener):
         if not directory.exists():
             raise Exception(f"cannot rescan non_existant {directory}")
         
-    
     def make_new_block(self, event):
         if not self._rescan_block:
             timestamp = datetime.now()
@@ -136,9 +134,12 @@ class BlockAudioRecorder(ScribeAPIListener):
                                             full_events_path,
                                             meta_events_path,
                                             None,
+                                            None,
+                                            None,
                                             timestamp)
             logger.info("\nOpened new text block save directory %s\n", str(directory))
         else:
+            timestamp = datetime.now()
             directory = Path(self._rescan_block.top_dir)
             sound_path = None
             text_path = self._rescan_block.rescan_text_path
@@ -150,22 +151,16 @@ class BlockAudioRecorder(ScribeAPIListener):
                                             full_events_path,
                                             meta_events_path,
                                             None,
+                                            None,
+                                            None,
                                             timestamp)
             logger.info("\nOpened rescan text block for directory %s\n", str(directory))
-
+        logger.info(f'New block {self._current_block}')
     def get_last_block(self):
         return self._last_block
     
     async def on_command_event(self, event:ScribeCommandEvent):
         command = event.command
-        if isinstance(command, StartRescanCommand):
-            if self._current_block:
-                raise Exception("logic error, got rescan command while in block")
-            return
-        if isinstance(command, StartBlockCommand):
-            return
-        if isinstance(command, StopBlockCommand):
-            return
         if isinstance(command, StartBlockCommand) or isinstance(command, StopBlockCommand):
             self._last_block = self._current_block
             await self._save_block()
@@ -242,9 +237,11 @@ class BlockAudioRecorder(ScribeAPIListener):
             return
         block = self._current_block
         if self._rescan_block:
-            with open(block.rescan_meta_events_path, 'w') as f:
+            meta_path = self._rescan_block.top_dir / "rescan_meta_events.json"
+            text_path = self._rescan_block.top_dir / "rescan_draft.txt"
+            with open(meta_path, 'w') as f:
                 json.dump(pre_serialize_events(block.meta_events), f, indent=2)
-            with open(block.rescan_text_path, 'w') as f:
+            with open(text_path, 'w') as f:
                 f.write(self._full_text)
         else:
             with open(block.text_path, 'w') as f:
@@ -258,7 +255,7 @@ class BlockAudioRecorder(ScribeAPIListener):
     async def _close_block(self):
         if not self._current_block:
             return
-        if self._current_block.wav_file:
+        if self._current_block.wav_file is not None:
             trailing_seconds = 0.4
             trailing_frames = int(self._current_block.samplerate * trailing_seconds)
             silence_block = np.zeros((trailing_frames, self._current_block.channels), dtype=np.float32)

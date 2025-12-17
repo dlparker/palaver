@@ -24,6 +24,7 @@ class PlaybackServer:
                  model_path,
                  audio_file: Path,
                  api_listener: ScribeAPIListener,
+                 seconds_per_scan=2,
                  use_multiprocessing: bool = False,
                  chunk_duration=DEFAULT_CHUNK_DURATION,
                  simulate_timing=False):
@@ -38,10 +39,12 @@ class PlaybackServer:
             chunk_duration: Audio chunk duration in seconds
             use_multiprocessing: Use multiprocessing for Whisper (vs threading)
         """
+        self.seconds_per_scan = seconds_per_scan
         self._background_error = None
         self.pipeline = None
         logger.info("Starting playback server")
         logger.info(f"Model: {model_path}")
+        logger.info(f"Seconds per scan: {seconds_per_scan}")
         logger.info(f"Multiprocessing: {use_multiprocessing}")
         logger.info(f"Simulate timing: {simulate_timing}")
         logger.info(f"File: {audio_file}")
@@ -75,12 +78,8 @@ class PlaybackServer:
         async with self.file_listener:
             self.pipeline = ScribePipeline(self.file_listener, self.config)
             async with self.pipeline:
-                if "large" in str(self.config.model_path):
-                    samples_per_scan = 16000 * 20
-                    self.pipeline.vadfilter.reset(silence_ms=5000, speech_pad_ms=1000)
-                else:
-                    # larger than 5 doesn't work with base.en.bin
-                    samples_per_scan = 16000 * 2
+                samples_per_scan = 16000 * self.seconds_per_scan
+                self.pipeline.vadfilter.reset(silence_ms=3000, speech_pad_ms=1000)
                 await self.pipeline.whisper_thread.set_buffer_samples(samples_per_scan)
                 
                 await self.pipeline.start_listener()

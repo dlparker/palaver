@@ -146,15 +146,16 @@ class ScribePipeline:
                     print('\n\n!!!!!!!!!!!!!!!!!!!! input done !!!!!!!!!!!!!!!!!!!\n\n')
                     await asyncio.sleep(0.01)
                     busy = self.whisper_thread.sound_pending()
-                    start_time = time.time()
                     if busy:
                         print('\n\n\n!!!!!!!!!!!!!!!!!!!! Whisper NOT done, waiting !!!!!!!!!!!!!!!!!!!\n\n')
-                    while busy and time.time() - start_time < 30:
+                    max_wait = 60
+                    start_time = time.time()
+                    while busy and time.time() - start_time < max_wait:
                         await asyncio.sleep(0.01)
                         busy = self.whisper_thread.sound_pending()
                     if busy:
-                        logger.error("Whisper failed to complete pending audio in 20 seconds")
-                        raise Exception("Whisper failed to complete pending audio in 20 seconds")
+                        logger.error(f"Whisper failed to complete pending audio in {max_wait} seconds")
+                        raise Exception(f"Whisper failed to complete pending audio in {max_wait} seconds")
                     print('\n\n\n!!!!!!!!!!!!!!!!!!!! Starting shutodwn !!!!!!!!!!!!!!!!!!!\n\n')
                     await self.shutdown()
                     break

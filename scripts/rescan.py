@@ -158,8 +158,8 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    #default_model = Path("models/ggml-medium.en.bin")
     #default_model = Path("models/ggml-base.en.bin")
+    #default_model = Path("models/ggml-medium.en.bin")
     default_model = Path("models/multilang_whisper_large3_turbo.ggml")
     # Common arguments
     parser.add_argument(
@@ -202,10 +202,20 @@ def main():
     # Set logging level
     logging.getLogger().setLevel(getattr(logging, args.log_level))
 
+    short_models = [str(Path("models/ggml-base.en.bin").resolve()),
+                    str(Path("models/ggml-tiny.en.bin").resolve()),
+                    str(Path("models/ggml-medium.en.bin").resolve()),
+                    ]
+    long_models = [str(Path("models/multilang_whisper_large3_turbo.ggml").resolve())]
+
     # Validate model path
     if not args.model.exists():
         parser.error(f"Model file does not exist: {args.model}")
-
+    if str(args.model.resolve()) in long_models:
+        seconds_per_scan = 10
+    else:
+        seconds_per_scan = 2
+        
     if args.block_files_dir is None:
         parser.error("Must supply block files dir")
         
@@ -224,12 +234,14 @@ def main():
     try:
         async def main_loop():
             nonlocal api_wrapper
+            nonlocal seconds_per_scan
             nonlocal block_recorder
 
             playback_server = PlaybackServer(
                 model_path=args.model,
                 audio_file=last_block_files.sound_path,
                 api_listener=api_wrapper,
+                seconds_per_scan=seconds_per_scan,
                 simulate_timing=False,
                 use_multiprocessing=True,
             )
