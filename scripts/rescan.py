@@ -15,7 +15,7 @@ from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.audio_events import AudioEvent, AudioStopEvent, AudioStartEvent, AudioChunkEvent
 from palaver.scribe.scriven.wire_commands import ScribeCommandEvent, CommandEventListener
 from palaver.scribe.api import ScribeAPIListener
-from palaver.scribe.api import StartBlockCommand, StopBlockCommand
+from palaver.scribe.api import StartBlockCommand, StopBlockCommand, StartRescanCommand
 from palaver.scribe.recorders.block_audio import BlockAudioRecorder
 from palaver.utils.top_error import TopLevelCallback, TopErrorHandler, get_error_handler
 from palaver.scribe.playback_server import PlaybackServer
@@ -36,15 +36,15 @@ class BlockTracker:
 
 class APIWrapper(ScribeAPIListener):
 
-    def __init__(self, play_sound=False):
+    def __init__(self, block_recorder, play_sound=False):
         super().__init__()
+        self.block_recorder = block_recorder
         self.play_sound = play_sound
         self.server = None
         self.server_type = None
         self.full_text = ""
         self.blocks = []
         self.text_events = {}
-        self.block_recorder = None
         self.last_block_name = None
         self.stream = None
 
@@ -104,7 +104,7 @@ class APIWrapper(ScribeAPIListener):
         if self.block_recorder:
             await asyncio.sleep(0.05)
             wavfile = self.block_recorder.get_last_block_wav_path()
-            print(f"\n\n wrote file {wavfile}\n\n")
+            print(f"\n\n rescanned file {wavfile}\n\n")
             
     async def handle_text_event(self, event: TextEvent):
         if event.event_id == self.text_events:
@@ -158,9 +158,9 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    #default_model = Path("models/multilang_whisper_large3_turbo.ggml")
     #default_model = Path("models/ggml-medium.en.bin")
-    default_model = Path("models/ggml-base.en.bin")
+    #default_model = Path("models/ggml-base.en.bin")
+    default_model = Path("models/multilang_whisper_large3_turbo.ggml")
     # Common arguments
     parser.add_argument(
         '--model',
@@ -183,17 +183,10 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        '--output-dir',
-        type=Path,
-        default=None,
-        help='Enable recording and save WAV file to this directory (disabled if not provided)'
-    )
-
-    parser.add_argument(
-        'file',
+        'block_files_dir',
         type=Path,
         nargs='?',
-        help='Audio file to transcribe'
+        help='Directory used for block files storage'
     )
 
     return parser
@@ -202,6 +195,7 @@ def create_parser() -> argparse.ArgumentParser:
 
 def main():
     """Main entry point."""
+
     parser = create_parser()
     args = parser.parse_args()
 
@@ -212,19 +206,29 @@ def main():
     if not args.model.exists():
         parser.error(f"Model file does not exist: {args.model}")
 
-    if not args.file.exists():
-        parser.error(f"Audio file does not exist: {args.file}")
+    if args.block_files_dir is None:
+        parser.error("Must supply block files dir")
+        
+    block_files_dir = Path(args.block_files_dir)
+    if not block_files_dir.exists():
+        parser.error(f"Block Files Dir does not exist: {block_files_dir}")
 
-    api_wrapper = APIWrapper(play_sound=args.play_sound)
+    block_recorder = BlockAudioRecorder(block_files_dir)
+    print("*"*80)
+    last_block_files = block_recorder.get_last_block_files()
+    pprint(last_block_files)
+    block_recorder.set_rescan_block(last_block_files)
+
+    
+    api_wrapper = APIWrapper(block_recorder, play_sound=args.play_sound)
     try:
         async def main_loop():
             nonlocal api_wrapper
-            if args.output_dir:
-                await api_wrapper.add_recorder(args)
+            nonlocal block_recorder
 
             playback_server = PlaybackServer(
                 model_path=args.model,
-                audio_file=args.file,
+                audio_file=last_block_files.sound_path,
                 api_listener=api_wrapper,
                 simulate_timing=False,
                 use_multiprocessing=True,

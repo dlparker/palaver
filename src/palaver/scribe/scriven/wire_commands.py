@@ -35,20 +35,20 @@ class CommandDispatch(TextEventListener):
             search_buffer = seg.text
             any_match = 0
             for cmd_dev in self.command_defs.values():
-                logger.info('s*** Command checking "%s" against %s', search_buffer, cmd_dev.patterns)
+                logger.debug('s*** Command checking "%s" against %s', search_buffer, cmd_dev.patterns)
                 for pattern in cmd_dev.patterns:
                     ratio = fuzz.partial_ratio(pattern,  search_buffer)
-                    logger.info('s*** Command checking "%s" against "%s" got %f', search_buffer, pattern, ratio)
+                    logger.debug('s*** Command checking "%s" against "%s" got %f', search_buffer, pattern, ratio)
                     if ratio >= self._minimum_match:
                         if cmd_dev.name in issued:
-                            logger.info('s*** Command  "%s" already issued', cmd_dev.command.name)
+                            logger.debug('s*** Command  "%s" already issued', cmd_dev.command.name)
                             continue
                         cmd_event = ScribeCommandEvent(cmd_dev.command, pattern, event, segment_index)
-                        logger.info('s*** Command  "%s" issuing event %s', cmd_dev.command.name, cmd_event)
+                        logger.debug('s*** Command  "%s" issuing event %s', cmd_dev.command.name, cmd_event)
                         await self.emitter.emit(ScribeCommandEvent, cmd_event)
                         issued.add(cmd_dev.name)
                         any_match + 1
-            logger.info('s*** Command checking "%s" got %d matches', search_buffer, any_match)
+            logger.info('s*** Command checking "%s" got %d matches', seg, any_match)
 
     async def issue_block_end(self, start_event):
         cmd_event = None

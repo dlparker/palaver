@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import uuid
+import time
 from dataclasses import dataclass, field
 from typing import Optional, Callable
 from pathlib import Path
@@ -142,7 +143,18 @@ class ScribePipeline:
             while True:
                 await asyncio.sleep(0.01)
                 if await self._stream_monitor.check_done():
-                    await self._stream_monitor.check_done(dump=True, wait=True)
+                    print('\n\n!!!!!!!!!!!!!!!!!!!! input done !!!!!!!!!!!!!!!!!!!\n\n')
+                    await asyncio.sleep(0.01)
+                    busy = self.whisper_thread.sound_pending()
+                    start_time = time.time()
+                    if busy:
+                        print('\n\n\n!!!!!!!!!!!!!!!!!!!! Whisper NOT done, waiting !!!!!!!!!!!!!!!!!!!\n\n')
+                    while busy and time.time() - start_time < 30:
+                        await asyncio.sleep(0.01)
+                        busy = self.whisper_thread.sound_pending()
+                    if busy:
+                        logger.error("Whisper failed to complete pending audio in 20 seconds")
+                        raise Exception("Whisper failed to complete pending audio in 20 seconds")
                     print('\n\n\n!!!!!!!!!!!!!!!!!!!! Starting shutodwn !!!!!!!!!!!!!!!!!!!\n\n')
                     await self.shutdown()
                     break
@@ -229,7 +241,7 @@ class StreamMonitor(ScribeAPIListener):
             if isinstance(block.start_event.command, StartBlockCommand) and not block.finalized:
                 await self.core.command_dispatch.issue_block_end(block.start_event)
 
-    async def check_done(self, dump=False, why="check", wait=False):
+    async def check_done(self, dump=False, why="check"):
         if dump:
             from pprint import pformat
             print("----- DUMP DUMP DUMP DUMP DUMP ---------------")
@@ -257,10 +269,7 @@ class StreamMonitor(ScribeAPIListener):
             else:
                 if dump:
                     print(f"Never saw text and audio is stopped, checking whisper for pending")
-                    res1 = self.core.whisper_thread.sound_pending()
-                    if res1 and wait:
-                        await self.core.whisper_thread.flush_pending()
-                        return await self.check_done(wait=False)
+                    return True
             
         if not dump:
             return self.all_done

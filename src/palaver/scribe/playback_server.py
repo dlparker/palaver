@@ -9,37 +9,21 @@ import time
 from pathlib import Path
 from pprint import pformat
 from typing import Optional, List
-from eventemitter import AsyncIOEventEmitter
 
-from palaver.scribe.listener.downsampler import DownSampler
-from palaver.scribe.scriven.whisper_thread import WhisperThread
 from palaver.scribe.listener.file_listener import FileListener
 from palaver.scribe.core import ScribePipeline, PipelineConfig
 from palaver.scribe.api import ScribeAPIListener
-from palaver.scribe.audio_events import (AudioEvent,
-                                         AudioEventListener,
-                                         AudioChunkEvent,
-                                         AudioStartEvent,
-                                         AudioStopEvent,
-                                         AudioSpeechStartEvent,
-                                         AudioSpeechStopEvent,
-                                         )
-from palaver.scribe.text_events import TextEvent, TextEventListener
-from palaver.scribe.command_events import ScribeCommandEvent, CommandEventListener, ScribeCommand
-from palaver.scribe.api import start_block_command, stop_block_command, start_rescan_command, ScribeAPIListener
 
 logger = logging.getLogger("PlaybackServer")
 
 # Default constants for file playback
 DEFAULT_CHUNK_DURATION = 0.03
 
-
 class PlaybackServer:
     def __init__(self,
                  model_path,
                  audio_file: Path,
                  api_listener: ScribeAPIListener,
-                 rescan_mode: Optional[bool] = False,
                  use_multiprocessing: bool = False,
                  chunk_duration=DEFAULT_CHUNK_DURATION,
                  simulate_timing=False):
@@ -51,13 +35,11 @@ class PlaybackServer:
             model_path: Path to the Whisper model file
             audio_file: audio file path to process
             api_listener: listener for core events
-            rescan_mode: Rescan of already transcribed block
             chunk_duration: Audio chunk duration in seconds
             use_multiprocessing: Use multiprocessing for Whisper (vs threading)
         """
         self._background_error = None
         self.pipeline = None
-        self.rescan_mode = rescan_mode
         logger.info("Starting playback server")
         logger.info(f"Model: {model_path}")
         logger.info(f"Multiprocessing: {use_multiprocessing}")
@@ -94,7 +76,7 @@ class PlaybackServer:
             self.pipeline = ScribePipeline(self.file_listener, self.config)
             async with self.pipeline:
                 if "large" in str(self.config.model_path):
-                    samples_per_scan = 16000 * 8
+                    samples_per_scan = 16000 * 20
                     self.pipeline.vadfilter.reset(silence_ms=5000, speech_pad_ms=1000)
                 else:
                     # larger than 5 doesn't work with base.en.bin

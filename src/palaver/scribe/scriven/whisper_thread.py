@@ -182,12 +182,14 @@ class WhisperThread:
         return False
 
     async def flush_pending(self, wait_for_result=True, timeout=10.0):
-        if self._buffer_pos == 0:
+        if self._buffer_pos == 0 and self._last_result_id == self._job_id_counter:
             return False
         last_result = self._last_result_id
         last_job = self._job_id_counter
+        logger.info("Flushing buffer on command")
         await self._push_buffer_job()
         if self._job_id_counter == last_job:
+            logger.error("Flush failed!")
             raise Exception('flush failed')
         needed_id = self._job_id_counter
         if wait_for_result:
@@ -195,6 +197,7 @@ class WhisperThread:
             while self._last_result_id != needed_id:
                 await asyncio.sleep(0.01)
                 if time.time() - start_time > timeout:
+                    logger.error("Timeout waiting for flushed job")
                     raise Exception("Timeout waiting for flushed job")
             
     async def set_buffer_samples(self, new_samples):
