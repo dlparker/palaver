@@ -245,6 +245,9 @@ def main():
                 target_channels=1,
                 use_multiprocessing=True,
                 require_command_alerts=False,
+                vad_silence_ms=3000,
+                vad_speech_pad_ms=1000,
+                seconds_per_scan=2,
             )
 
             # Manage context and lifecycle

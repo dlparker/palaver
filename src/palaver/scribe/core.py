@@ -33,6 +33,15 @@ class PipelineConfig:
     use_multiprocessing: bool = False
     whisper_shutdown_timeout: float = 10.0
 
+    # VAD configuration
+    vad_silence_ms: int = 2000           # Default from VADFilter
+    vad_speech_pad_ms: int = 1500        # Default from VADFilter
+    vad_threshold: float = 0.5           # Default from VADFilter
+
+    # Whisper buffer configuration
+    whisper_buffer_samples: Optional[int] = None
+    seconds_per_scan: Optional[float] = None  # Alternative to buffer_samples
+
 
 class ScribePipeline:
 
@@ -119,13 +128,24 @@ class ScribePipeline:
         # Attach the command listener
         self.whisper_thread.add_text_event_listener(self.command_dispatch)
 
+        # Apply VAD configuration from PipelineConfig
+        self.vadfilter.reset(
+            silence_ms=self.config.vad_silence_ms,
+            speech_pad_ms=self.config.vad_speech_pad_ms,
+            threshold=self.config.vad_threshold
+        )
+
+        # Apply Whisper buffer configuration from PipelineConfig
+        if self.config.whisper_buffer_samples is not None:
+            await self.whisper_thread.set_buffer_samples(self.config.whisper_buffer_samples)
+        elif self.config.seconds_per_scan is not None:
+            samples = int(self.config.target_samplerate * self.config.seconds_per_scan)
+            await self.whisper_thread.set_buffer_samples(samples)
+
         self._stream_monitor = StreamMonitor(self)
         self.add_api_listener(self._stream_monitor, to_merge=True)
         self.add_api_listener(self.config.api_listener, to_merge=True)
 
-        # Start the whisper thread on run, that gives caller a
-        # chance to config it
-        
         self._pipeline_setup_complete = True
         logger.info("Pipeline setup complete")
         try:
