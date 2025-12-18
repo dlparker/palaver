@@ -21,7 +21,9 @@ from palaver.scribe.api import StartBlockCommand, StopBlockCommand
 
 logger = logging.getLogger("Commands")
 
-attention_phrases = ['rupert listen', 'rupert command', "rupert c'mon", 'freddy listen']
+attention_phrases = ['rupert listen', 'rupert command', "rupert c'mon",
+                     'rubik listen', 'rubik command', "rubik c'mon",
+                     'freddy listen']
 start_block_command = StartBlockCommand()
 stop_block_command = StopBlockCommand()
 

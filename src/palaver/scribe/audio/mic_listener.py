@@ -49,8 +49,8 @@ class MicListener(AudioListenerCCSMixin, AudioListener):
             return
         if self._reader_task:
             return
-        self._reader_task = get_error_handler().wrap_task(self._reader)
         self._running = True
+        self._reader_task = get_error_handler().wrap_task(self._reader)
         self._stream_start_time = time.time()
 
     async def _reader(self):
@@ -116,7 +116,9 @@ class MicListener(AudioListenerCCSMixin, AudioListener):
             return
 
         await self._cleanup()
-        await self.emit_event(AudioStopEvent(source_id=self.source_id))
+        await self.emit_event(AudioStopEvent(source_id=self.source_id,
+                                             stream_start_time=self._stream_start_time))
+        logger.info("MicListener issued stop event")
 
     async def stop(self) -> None:
         self._running = False
