@@ -42,6 +42,17 @@ class PipelineConfig:
     whisper_buffer_samples: Optional[int] = None
     seconds_per_scan: Optional[float] = None  # Alternative to buffer_samples
 
+    # Optional block recorder
+    block_recorder: Optional = None  # BlockAudioRecorder instance
+
+    def __post_init__(self):
+        """Validate configuration."""
+        if self.whisper_buffer_samples is not None and self.seconds_per_scan is not None:
+            raise ValueError(
+                "Cannot set both whisper_buffer_samples and seconds_per_scan. "
+                "Use one or the other."
+            )
+
 
 class ScribePipeline:
 
@@ -145,6 +156,11 @@ class ScribePipeline:
         self._stream_monitor = StreamMonitor(self)
         self.add_api_listener(self._stream_monitor, to_merge=True)
         self.add_api_listener(self.config.api_listener, to_merge=True)
+
+        # Wire block recorder if provided
+        if self.config.block_recorder is not None:
+            self.add_api_listener(self.config.block_recorder, to_merge=True)
+            logger.info("BlockAudioRecorder wired to pipeline")
 
         self._pipeline_setup_complete = True
         logger.info("Pipeline setup complete")

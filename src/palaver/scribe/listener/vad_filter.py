@@ -25,11 +25,11 @@ from palaver.scribe.audio_events import (
 # This loads the model without any network calls (uses bundled local files)
 _vad_model = load_silero_vad()
 
-
-VAD_THRESHOLD = 0.5          # Default threshold
-MIN_SILENCE_MS = 2000         # Default 1.0 seconds
-SPEECH_PAD_MS = 1500
+# VAD sample rate is a technical constraint (Silero VAD operates at 16kHz)
 VAD_SR = 16000
+
+# Note: VAD configuration defaults (threshold, silence_ms, speech_pad_ms)
+# are now defined in PipelineConfig and passed in via reset() method
 
 
 def downsample_to_512(chunk: np.ndarray, in_samplerate) -> np.ndarray:
@@ -48,15 +48,16 @@ class VADFilter(AudioEventListener):
         self.sound_source = sound_source
         self.emitter = AsyncIOEventEmitter()
         self._in_speech = False
-        self._silence_ms = MIN_SILENCE_MS
-        self._threshold = VAD_THRESHOLD
-        self._speech_pad_ms = SPEECH_PAD_MS
+        # Initial values - will be overwritten by reset() call from PipelineConfig
+        self._silence_ms = 2000
+        self._threshold = 0.5
+        self._speech_pad_ms = 1500
         self._vad = self.create_vad(self._silence_ms, self._threshold, self._speech_pad_ms)
         self._counter = None
         self._speech_start_time = None
-        self._last_in_speach_chunk = None
+        self._last_in_speech_chunk = None
 
-    def reset(self, silence_ms=MIN_SILENCE_MS, threshold=VAD_THRESHOLD, speech_pad_ms=SPEECH_PAD_MS):
+    def reset(self, silence_ms, threshold, speech_pad_ms):
         self._vad.reset_states()
         self._vad = self.create_vad(silence_ms, threshold, speech_pad_ms)
         
@@ -81,7 +82,7 @@ class VADFilter(AudioEventListener):
     async def on_audio_event(self, event):
         if not isinstance(event, AudioChunkEvent):
             if isinstance(event, AudioStopEvent) and self._in_speech:
-                end_time = self._last_in_speech_chunk.timestamp - (SPEECH_PAD_MS/1000.0)
+                end_time = self._last_in_speech_chunk.timestamp - (self._speech_pad_ms/1000.0)
                 my_event = AudioSpeechStopEvent(source_id=event.source_id,
                                                 timestamp=event.timestamp,
                                                 stream_start_time=event.stream_start_time,
@@ -118,7 +119,7 @@ class VADFilter(AudioEventListener):
                 await self.sound_source.set_in_speech(True)
                 event.in_speech = True
             if window.get("end") is not None:
-                end_time = self._last_in_speech_chunk.timestamp - (SPEECH_PAD_MS/1000.0)
+                end_time = self._last_in_speech_chunk.timestamp - (self._speech_pad_ms/1000.0)
                 my_event = AudioSpeechStopEvent(
                     source_id=event.source_id,
                     timestamp=event.timestamp,

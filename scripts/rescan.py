@@ -1,180 +1,32 @@
 #!/usr/bin/env python3
 import sys
-import asyncio
 import logging
-import traceback
-from dataclasses import dataclass, field
-from typing import Optional
 from pathlib import Path
 from pprint import pprint
-import sounddevice as sd
-import uuid
-import argparse
 
-from palaver.scribe.text_events import TextEvent, TextEventListener
-from palaver.scribe.audio_events import AudioEvent, AudioStopEvent, AudioStartEvent, AudioChunkEvent
-from palaver.scribe.scriven.wire_commands import ScribeCommandEvent, CommandEventListener
-from palaver.scribe.api import ScribeAPIListener
-from palaver.scribe.api import StartBlockCommand, StopBlockCommand
+from palaver.scribe.api_wrapper import DefaultAPIWrapper
 from palaver.scribe.recorders.block_audio import BlockAudioRecorder
-from palaver.utils.top_error import TopLevelCallback, TopErrorHandler, get_error_handler
 from palaver.scribe.listener.file_listener import FileListener
-from palaver.scribe.core import ScribePipeline, PipelineConfig
+from palaver.scribe.core import PipelineConfig
+from palaver.scribe.script_utils import create_base_parser, validate_model_path, scribe_pipeline_context
+from palaver.utils.top_error import run_with_error_handler
 from palaver.scribe.loggers import setup_logging
 
-logger = logging.getLogger("ScribePlayback")
+logger = logging.getLogger("ScribeRescan")
 
 
-@dataclass
-class BlockTracker:
-    start_event: StartBlockCommand
-    text_events: dict[uuid, TextEvent] = field(default_factory=dict[uuid, TextEvent])
-    end_event: Optional[StopBlockCommand] = None
-    finalized: Optional[bool] = False
-
-class APIWrapper(ScribeAPIListener):
-
-    def __init__(self, block_recorder, play_sound=False):
-        super().__init__()
-        self.block_recorder = block_recorder
-        self.play_sound = play_sound
-        self.full_text = ""
-        self.blocks = []
-        self.text_events = {}
-        self.last_block_name = None
-        self.stream = None
-
-    async def add_recorder(self, args):
-        # Setup recording if output_dir provided
-        self.block_recorder = BlockAudioRecorder(args.output_dir)
-        logger.info(f"Recording enabled but not yet wired: {args.output_dir}")
-        
-    async def on_pipeline_ready(self, pipeline):
-        parts = pipeline.get_pipeline_parts()
-        if self.block_recorder:
-            pipeline.add_api_listener(self.block_recorder, to_merge=True)
-            logger.info(f"Recording wired")
-
-    async def on_pipeline_shutdown(self):
-        await asyncio.sleep(0.1)
-        if len(self.blocks) > 0:
-            last_block = self.blocks[-1]
-            if not last_block.finalized:
-                await self.finalize_block(last_block)
-        if self.block_recorder:
-            await self.block_recorder.stop()
-
-    async def on_command_event(self, event:ScribeCommandEvent):
-        print("")
-        if isinstance(event.command, StartBlockCommand):
-            #import ipdb; ipdb.set_trace()
-            self.blocks.append(BlockTracker(start_event=event))
-            print("-------------------------------------------")
-            print(f"APIWrapper starting block {len(self.blocks)}")
-            print("-------------------------------------------")
-            await self.handle_text_event(event.text_event)
-        elif isinstance(event.command, StopBlockCommand):
-            if len(self.blocks) > 0:
-                last_block = self.blocks[-1]
-                if not last_block.finalized:
-                    last_block.end_event = event
-                    await self.finalize_block(last_block)
-
-    async def finalize_block(self, block):
-        print("-------------------------------------------")
-        print(f"APIWrapper ending block {len(self.blocks)}")
-        print("-------------------------------------------")
-        print("++++++++++++++++++++++++++++++++++++++++++")
-        print("     Full block:")
-        print("++++++++++++++++++++++++++++++++++++++++++")
-        for uuid,text_event in block.text_events.items():
-            for seg in text_event.segments:
-                print(seg.text)
-        print("++++++=++++++++++++++++++++++++++++++++++++")
-        block.finalized = True
-        # give time for block recorder to act
-        if self.block_recorder:
-            await asyncio.sleep(0.05)
-            wavfile = self.block_recorder.get_last_block_wav_path()
-            print(f"\n\n rescanned file {wavfile}\n\n")
-            
-    async def handle_text_event(self, event: TextEvent):
-        if event.event_id == self.text_events:
-            return
-        self.text_events[event.event_id] = event
-        if len(self.blocks) > 0:
-            last_block = self.blocks[-1]
-            if not last_block.finalized:
-                last_block.text_events[event.event_id] = event
-                logger.info(f"text {event.event_id} added to block")
-                for seg in event.segments:
-                    if logger.isEnabledFor(logging.INFO):
-                        logger.info("-----Adding text to block-----\n%s", seg.text)
-                    else:
-                        logger.info("-----Adding text to block-----\n")
-                        print(seg.text)
-                        logger.info("----------\n")
-                self.full_text += seg.text + " "
-            else:
-                print(f"ignoring text {event.segments}")
-                
-    async def on_text_event(self, event: TextEvent):
-        """Called when new transcribed text is available."""
-        await self.handle_text_event(event)
-        
-    async def on_audio_event(self, event:AudioEvent):
-        if isinstance(event, AudioStartEvent):
-            #import ipdb; ipdb.set_trace()
-            pass
-        elif isinstance(event, AudioStopEvent):
-            logger.info("Got audio stop event %s", event)
-            if len(self.blocks) > 0:
-                last_block = self.blocks[-1]
-                if not last_block.finalized:
-                    await self.finalize_block(last_block)
-        elif isinstance(event, AudioChunkEvent):
-            if not self.stream and self.play_sound:
-                self.stream = sd.OutputStream(
-                    samplerate=event.sample_rate,
-                    channels=event.channels,
-                    blocksize=event.blocksize,
-                    dtype=event.datatype,
-                )
-                self.stream.start()
-                print("Opened stream")
-            if self.play_sound:
-                audio = event.data
-                self.stream.write(audio)
-                
-
-def create_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description='Scribe Server - Audio transcription with microphone or file playback',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-
-    #default_model = Path("models/ggml-base.en.bin")
-    #default_model = Path("models/ggml-medium.en.bin")
+def create_parser():
+    """Create the argument parser for rescanning blocks."""
     default_model = Path("models/multilang_whisper_large3_turbo.ggml")
-    # Common arguments
-    parser.add_argument(
-        '--model',
-        type=Path,
-        default=default_model,
-        help=f'Path to Whisper model file (default: {default_model})'
+    parser = create_base_parser(
+        'Scribe Rescan - Re-transcribe recorded blocks with better models',
+        default_model
     )
 
     parser.add_argument(
-        '--log-level',
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-        default='WARNING',
-        help='Set logging level'
-    )
-
-    parser.add_argument(
-        '-p' , "--play-sound",
+        '-p', '--play-sound',
         action="store_true",
-        help="play sound while transcribing"
+        help="Play sound while transcribing"
     )
 
     parser.add_argument(
@@ -187,54 +39,54 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
-
 def main():
     """Main entry point."""
-
     parser = create_parser()
     args = parser.parse_args()
 
-    # Set logging level
     setup_logging(default_level=args.log_level,
-                  info_loggers=[logger.name,],
-                  more_loggers=[logger,])
-
-    short_models = [str(Path("models/ggml-base.en.bin").resolve()),
-                    str(Path("models/ggml-tiny.en.bin").resolve()),
-                    str(Path("models/ggml-medium.en.bin").resolve()),
-                    ]
-    long_models = [str(Path("models/multilang_whisper_large3_turbo.ggml").resolve())]
+                  info_loggers=[logger.name],
+                  more_loggers=[logger])
 
     # Validate model path
-    if not args.model.exists():
-        parser.error(f"Model file does not exist: {args.model}")
+    validate_model_path(args, parser)
+
+    # Determine buffer size based on model size
+    short_models = [
+        str(Path("models/ggml-base.en.bin").resolve()),
+        str(Path("models/ggml-tiny.en.bin").resolve()),
+        str(Path("models/ggml-medium.en.bin").resolve()),
+    ]
+    long_models = [
+        str(Path("models/multilang_whisper_large3_turbo.ggml").resolve())
+    ]
+
     if str(args.model.resolve()) in long_models:
         seconds_per_scan = 10
     else:
         seconds_per_scan = 2
-        
+
+    # Validate block files directory
     if args.block_files_dir is None:
         parser.error("Must supply block files dir")
-        
+
     block_files_dir = Path(args.block_files_dir)
     if not block_files_dir.exists():
         parser.error(f"Block Files Dir does not exist: {block_files_dir}")
 
+    # Setup block recorder and get last block
     block_recorder = BlockAudioRecorder(block_files_dir)
-    print("*"*80)
+    print("*" * 80)
     last_block_files = block_recorder.get_last_block_files()
     pprint(last_block_files)
     block_recorder.set_rescan_block(last_block_files)
 
-    
-    api_wrapper = APIWrapper(block_recorder, play_sound=args.play_sound)
-    try:
-        async def main_loop():
-            nonlocal api_wrapper
-            nonlocal seconds_per_scan
-            nonlocal block_recorder
+    # Create API wrapper with optional sound playback
+    api_wrapper = DefaultAPIWrapper(play_sound=args.play_sound)
 
-            # Create listener directly
+    try:
+        async def main_task():
+            # Create listener for the block audio file
             file_listener = FileListener(
                 audio_file=last_block_files.sound_path,
                 chunk_duration=0.03,
@@ -252,25 +104,18 @@ def main():
                 vad_silence_ms=3000,
                 vad_speech_pad_ms=1000,
                 seconds_per_scan=seconds_per_scan,
+                block_recorder=block_recorder,
             )
 
-            # Manage context and lifecycle
-            async with file_listener:
-                async with ScribePipeline(file_listener, config) as pipeline:
-                    await pipeline.start_listener()
-                    await pipeline.run_until_error_or_interrupt()
+            # Run pipeline with automatic context management
+            async with scribe_pipeline_context(file_listener, config) as pipeline:
+                await pipeline.start_listener()
+                await pipeline.run_until_error_or_interrupt()
 
-        background_error_dict = None
-        class MyTLC(TopLevelCallback):
+        # Run with standard error handling
+        run_with_error_handler(main_task, logger)
+        print("Rescan complete")
 
-            async def on_error(self, error_dict: dict):
-                nonlocal background_error_dict
-                background_error_dict = error_dict
-
-        tlc = MyTLC()
-        top_error_handler = TopErrorHandler(top_level_callback=tlc, logger=logger)
-        top_error_handler.run(main_loop)
-        print("File playback complete")
     except KeyboardInterrupt:
         print("\nShutdown complete.")
         sys.exit(0)

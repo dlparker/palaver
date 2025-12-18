@@ -194,7 +194,34 @@ def get_error_handler() -> TopErrorHandler:
     try:
         return ERROR_HANDLER.get()
     except LookupError:
-        raise RuntimeError("No TopErrorHandler set in this context. Ensure code runs under TopErrorHandler.run().")        
-          
-        
+        raise RuntimeError("No TopErrorHandler set in this context. Ensure code runs under TopErrorHandler.run().")
+
+
+def run_with_error_handler(main_coro, logger):
+    """
+    Run an async coroutine with standard error handling.
+
+    This is a convenience function that sets up TopErrorHandler with a simple
+    error callback that stores the error dict. Scripts can use this to avoid
+    boilerplate TopErrorHandler setup.
+
+    Args:
+        main_coro: Async function to run (will be called with no arguments)
+        logger: Logger instance for error reporting
+
+    Returns:
+        The error dict if an error occurred, None otherwise
+    """
+    background_error_dict = None
+
+    class ErrorCallback(TopLevelCallback):
+        async def on_error(self, error_dict: dict):
+            nonlocal background_error_dict
+            background_error_dict = error_dict
+
+    handler = TopErrorHandler(top_level_callback=ErrorCallback(), logger=logger)
+    handler.run(main_coro)
+
+    return background_error_dict
+
     
