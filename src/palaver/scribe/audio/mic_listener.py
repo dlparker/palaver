@@ -99,10 +99,6 @@ class MicListener(AudioListenerCCSMixin, AudioListener):
                         meta_data={'device': self._stream.device},
                     )
                     await self.emit_event(event)
-                    #wait_time = (self._stream.blocksize / self._stream.samplerate)
-                    #await asyncio.sleep(wait_time)
-            await self.emit_event(AudioStopEvent(source_id=self.source_id,stream_start_time=self._stream_start_time))
-            await self._queue.put(None)  # signal EOF
             self._stream = None
             self._stream_start_time = None
         except asyncio.CancelledError:
@@ -115,7 +111,7 @@ class MicListener(AudioListenerCCSMixin, AudioListener):
         if not self._running:
             return
 
-        await self._cleanup()
+        await self.stop()
         await self.emit_event(AudioStopEvent(source_id=self.source_id,
                                              stream_start_time=self._stream_start_time))
         logger.info("MicListener issued stop event")
