@@ -5,7 +5,7 @@ import asyncio
 from pathlib import Path
 
 from palaver.scribe.recorders.block_audio import BlockAudioRecorder
-from palaver.scribe.listener.mic_listener import MicListener
+from palaver.scribe.audio.mic_listener import MicListener
 from palaver.scribe.core import PipelineConfig
 from script_utils import create_base_parser, validate_model_path, scribe_pipeline_context
 from palaver.utils.top_error import run_with_error_handler

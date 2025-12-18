@@ -4,6 +4,7 @@ import time
 import uuid
 import inspect
 from dataclasses import dataclass, field
+from collections import deque
 import numpy as np
 
 class AudioEventType(str, Enum):
@@ -85,3 +86,58 @@ class AudioSpeechStopEvent(AudioEvent):
 class AudioEventListener(Protocol):
 
     async def on_audio_event(self, AudioEvent) -> None: ...
+
+
+class AudioRingBuffer:
+
+    def __init__(self, max_seconds: float = 2):
+        """
+        Initialize the ring buffer.
+        
+        :param max_seconds: Maximum seconds of audio history to retain.
+        """
+        if max_seconds <= 0:
+            raise ValueError("max_seconds must be positive")
+        self.max_seconds = max_seconds
+        self.buffer: deque[AudioEvent] = deque()
+
+    def has_data(self):
+        return len(self.buffer)
+    
+    def add(self, event: AudioEvent) -> None:
+        """
+        Add a new AudioEvent to the buffer and prune old entries.
+        """
+        self.buffer.append(event)
+        self._prune()
+
+    def _prune(self, now: float = None) -> None:
+        """
+        Remove events entirely older than the retention window.
+        
+        :param now: Optional current time (defaults to time.time()).
+        """
+        if now is None:
+            now = time.time()
+        while self.buffer and (self.buffer[0].timestamp + self.buffer[0].duration < now - self.max_seconds):
+            self.buffer.popleft()
+
+    def get_all(self, clear=False) -> list[AudioEvent]:
+        """Return a list of all current events in the buffer (oldest to newest)."""
+        res = list(self.buffer)
+        if clear:
+            self.buffer.clear()
+        return res
+
+    def clear(self):
+        self.buffer.clear()
+        
+    def get_from(self, start_time) -> list[AudioEvent]:
+        """Return a list of all current events in the buffer (oldest to newest)."""
+        res = []
+        for item in self.buffer:
+            if item.timestamp >= start_time:
+                res.append(item)
+        return res
+
+    

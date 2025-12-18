@@ -17,12 +17,11 @@ import soundfile as sf
 from palaver.scribe.audio_events import (
     AudioEvent, AudioChunkEvent, AudioStartEvent, AudioStopEvent,
     AudioSpeechStartEvent, AudioSpeechStopEvent, AudioErrorEvent,
-    AudioEventListener
+    AudioEventListener, AudioRingBuffer,
 )
 from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.command_events import ScribeCommandEvent
-from palaver.scribe.scriven.whisper_thread import AudioRingBuffer
 from palaver.scribe.api import StartBlockCommand, StopBlockCommand
 
 logger = logging.getLogger("BlockAudioRecorder")

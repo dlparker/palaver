@@ -8,7 +8,7 @@ import asyncio
 from silero_vad import load_silero_vad, VADIterator
 from scipy.signal import resample_poly
 from eventemitter import AsyncIOEventEmitter
-from palaver.scribe.listener.downsampler import DownSampler
+from palaver.scribe.audio.downsampler import DownSampler
 
 logger = logging.getLogger("VADFilter")
 

@@ -8,14 +8,14 @@ from pathlib import Path
 import traceback
 
 from palaver.scribe.audio_listeners import AudioListener
-from palaver.scribe.listener.downsampler import DownSampler
-from palaver.scribe.listener.vad_filter import VADFilter
-from palaver.scribe.scriven.whisper_thread import WhisperThread
+from palaver.scribe.audio.downsampler import DownSampler
+from palaver.scribe.audio.vad_filter import VADFilter
+from palaver.scribe.audio.audio_merge import AudioMerge
+from palaver.scribe.audio_events import AudioEvent, AudioStopEvent, AudioSpeechStartEvent, AudioSpeechStopEvent 
+from palaver.scribe.scriven.whisper import WhisperWrapper
 from palaver.scribe.scriven.wire_commands import CommandDispatch
 from palaver.scribe.command_events import ScribeCommandEvent, CommandEventListener
 from palaver.scribe.text_events import TextEventListener, TextEvent
-from palaver.scribe.audio_events import AudioEvent, AudioStopEvent, AudioSpeechStartEvent, AudioSpeechStopEvent 
-from palaver.scribe.listener.audio_merge import AudioMerge
 from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.api import default_commands, StartBlockCommand, StopBlockCommand
 
@@ -72,7 +72,7 @@ class ScribePipeline:
         # Pipeline components (initialized in setup)
         self.downsampler: Optional[DownSampler] = None
         self.vadfilter: Optional[VADFilter] = None
-        self.whisper_thread: Optional[WhisperThread] = None
+        self.whisper_tool: Optional[WhisperWrapper] = None
         self.command_dispatch: Optional[CommandDispatch]  = None
         self.audio_merge = None
         self.wav_recorder = None
@@ -84,7 +84,7 @@ class ScribePipeline:
         return dict(audio_source=self.listener,
                     downsampler=self.downsampler,
                     vadfilter=self.vadfilter,
-                    transcription=self.whisper_thread,
+                    transcription=self.whisper_tool,
                     audio_merge=self.audio_merge,
                     command_dispatch=self.command_dispatch)
     
@@ -98,7 +98,7 @@ class ScribePipeline:
             self.vadfilter.add_event_listener(api_listener)
         else:
             self.listener.add_event_listener(api_listener)
-        self.whisper_thread.add_text_event_listener(api_listener)
+        self.whisper_tool.add_text_event_listener(api_listener)
         self.command_dispatch.add_event_listener(api_listener)
         self._api_listeners.append(api_listener)
         
@@ -126,18 +126,18 @@ class ScribePipeline:
         full_shim, vad_shim = self.audio_merge.get_shims()
         self.listener.add_event_listener(full_shim)
         self.vadfilter.add_event_listener(vad_shim)
-        # Create whisper transcription thread
-        self.whisper_thread = WhisperThread(
+        # Create whisper transcription tool thread or process
+        self.whisper_tool = WhisperWrapper(
             self.config.model_path,
             use_mp=self.config.use_multiprocessing
         )
-        self.vadfilter.add_event_listener(self.whisper_thread)
+        self.vadfilter.add_event_listener(self.whisper_tool)
 
         self.command_dispatch = CommandDispatch(require_alerts=self.config.require_command_alerts)
         for patterns, command in default_commands:
             self.command_dispatch.register_command(command, patterns)
         # Attach the command listener
-        self.whisper_thread.add_text_event_listener(self.command_dispatch)
+        self.whisper_tool.add_text_event_listener(self.command_dispatch)
 
         # Apply VAD configuration from PipelineConfig
         self.vadfilter.reset(
@@ -148,10 +148,10 @@ class ScribePipeline:
 
         # Apply Whisper buffer configuration from PipelineConfig
         if self.config.whisper_buffer_samples is not None:
-            await self.whisper_thread.set_buffer_samples(self.config.whisper_buffer_samples)
+            await self.whisper_tool.set_buffer_samples(self.config.whisper_buffer_samples)
         elif self.config.seconds_per_scan is not None:
             samples = int(self.config.target_samplerate * self.config.seconds_per_scan)
-            await self.whisper_thread.set_buffer_samples(samples)
+            await self.whisper_tool.set_buffer_samples(samples)
 
         self._stream_monitor = StreamMonitor(self)
         self.add_api_listener(self._stream_monitor, to_merge=True)
@@ -182,14 +182,14 @@ class ScribePipeline:
                 if await self._stream_monitor.check_done():
                     print('\n\n!!!!!!!!!!!!!!!!!!!! input done !!!!!!!!!!!!!!!!!!!\n\n')
                     await asyncio.sleep(0.01)
-                    busy = self.whisper_thread.sound_pending()
+                    busy = self.whisper_tool.sound_pending()
                     if busy:
                         print('\n\n\n!!!!!!!!!!!!!!!!!!!! Whisper NOT done, waiting !!!!!!!!!!!!!!!!!!!\n\n')
                     max_wait = 60
                     start_time = time.time()
                     while busy and time.time() - start_time < max_wait:
                         await asyncio.sleep(0.01)
-                        busy = self.whisper_thread.sound_pending()
+                        busy = self.whisper_tool.sound_pending()
                     if busy:
                         logger.error(f"Whisper failed to complete pending audio in {max_wait} seconds")
                         raise Exception(f"Whisper failed to complete pending audio in {max_wait} seconds")
@@ -210,7 +210,7 @@ class ScribePipeline:
         
     async def start_listener(self):
         """Start the listener streaming audo."""
-        await self.whisper_thread.start()
+        await self.whisper_tool.start()
         await self.audio_merge.start()
         await self.listener.start_streaming()
         logger.info("Listener started")
@@ -221,9 +221,9 @@ class ScribePipeline:
         Must be called inside the listener's context manager, before it exits.
         """
         # Then shutdown whisper and text listener
-        if self.whisper_thread:
-            await self.whisper_thread.gracefull_shutdown(self.config.whisper_shutdown_timeout)
-            self.whisper_thread = None
+        if self.whisper_tool:
+            await self.whisper_tool.gracefull_shutdown(self.config.whisper_shutdown_timeout)
+            self.whisper_tool = None
                 
         try:
             for api_listener in self._api_listeners:
