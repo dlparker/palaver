@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import asyncio
 import logging
-from palaver.scribe.text_events import TextEvent, VTTSegment
+from palaver.scribe.text_events import TextEvent
 from palaver.scribe.command_events import (ScribeCommand,
                                            ScribeCommandEvent,
                                            CommandEventListener)
@@ -18,14 +18,12 @@ async def main():
         async def on_command_event(self, event: ScribeCommandEvent):
             nonlocal last_event
             last_event = event
-            
+
     cd = CommandDispatch()
     catcher = Catcher()
     cd.add_event_listener(catcher)
-    segs = [VTTSegment(0, 200, "Rupert Command"),
-            VTTSegment(20, 500, "Start A new note"),
-            VTTSegment(20, 500, "Note stuff")]
-    tevent1 = TextEvent(segments=segs)
+    text = "Rupert Command Start A new note Note stuff"
+    tevent1 = TextEvent(text=text)
     await cd.on_text_event(tevent1)
     assert last_event is not None
 

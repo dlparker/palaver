@@ -89,8 +89,7 @@ class DefaultAPIWrapper(ScribeAPIListener):
         print("     Full block:")
         print("++++++++++++++++++++++++++++++++++++++++++")
         for text_event in block.text_events.values():
-            for seg in text_event.segments:
-                print(seg.text)
+            print(text_event.text)
         print("++++++=++++++++++++++++++++++++++++++++++++")
         block.finalized = True
 
@@ -106,16 +105,15 @@ class DefaultAPIWrapper(ScribeAPIListener):
                 self.text_events[event.event_id] = event
                 last_block.text_events[event.event_id] = event
                 logger.info(f"text {event.event_id} added to block")
-                for seg in event.segments:
-                    if logger.isEnabledFor(logging.INFO):
-                        logger.info("-----Adding text to block-----\n%s", seg.text)
-                    else:
-                        logger.info("-----Adding text to block-----\n")
-                        print(seg.text)
-                        logger.info("----------\n")
-                    self.full_text += seg.text + " "
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("-----Adding text to block-----\n%s", event.text)
+                else:
+                    logger.info("-----Adding text to block-----\n")
+                    print(event.text)
+                    logger.info("----------\n")
+                self.full_text += event.text + " "
             else:
-                print(f"ignoring text {event.segments}")
+                print(f"ignoring text {event.text}")
 
     async def on_text_event(self, event: TextEvent):
         """Called when new transcribed text is available."""

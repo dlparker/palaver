@@ -66,10 +66,7 @@ class CommandDispatch(TextEventListener):
         attention_string = None
         # first see if attention signal present or active
         if not self._alert:
-            search_buffer = ""
-            for seg in event.segments:
-                any_match = 0
-                search_buffer += " " + seg.text
+            search_buffer = event.text
             logger.debug('Attention check started, search buffer is %s', search_buffer)
             for pattern in attention_phrases:
                 alignment = fuzz.partial_ratio_alignment(pattern,  search_buffer)
@@ -91,10 +88,8 @@ class CommandDispatch(TextEventListener):
         if not self._alert and self._require_alerts:
             return
         issued = set()
-        search_buffer = ""
-        for seg in event.segments:
-            any_match = 0
-            search_buffer += " " + seg.text
+        search_buffer = event.text
+        any_match = 0
         for cmd_dev in self.command_defs.values():
             if self._in_block is not None and cmd_dev.command == start_block_command:
                 continue
@@ -127,7 +122,7 @@ class CommandDispatch(TextEventListener):
                             self._alert = False
                             self._in_block = None
                         break
-            logger.info('Command checking "%s" got %d matches', seg, any_match)
+            logger.info('Command checking "%s" got %d matches', search_buffer, any_match)
 
     async def issue_block_end(self, start_event):
         cmd_event = None

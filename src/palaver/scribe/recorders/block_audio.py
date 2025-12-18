@@ -181,8 +181,7 @@ class BlockAudioRecorder(ScribeAPIListener):
     async def on_text_event(self, event: TextEvent):
         if self._current_block:
             self._current_block.meta_events.append(event)
-            for seg in event.segments:
-                self._full_text += seg.text + " "
+            self._full_text += event.text + " "
 
     async def on_audio_event(self, event: AudioEvent):
         if not self._current_block:

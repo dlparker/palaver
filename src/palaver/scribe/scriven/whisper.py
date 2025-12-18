@@ -23,7 +23,7 @@ from palaver.scribe.audio_events import (AudioEvent,
                                          AudioRingBuffer,
                                          )
 
-from palaver.scribe.text_events import VTTSegment, TextEvent, TextEventListener
+from palaver.scribe.text_events import TextEvent, TextEventListener
 
 
 logger = logging.getLogger("WhisperWrapper")
@@ -418,12 +418,8 @@ class WhisperWrapper:
                 if len(job.text_segments) == 1 and job.text_segments[0].text == "[BLANK_AUDIO]":
                     logger.info("\n-- blank segment ---\n")
                 elif len(job.text_segments) > 0:
-                    segments = []
-                    for segment in job.text_segments:
-                        segments.append(VTTSegment(start_ms=segment.t0,
-                                                   end_ms=segment.t1,
-                                                   text=segment.text))
-                    event = TextEvent(segments=segments,
+                    text = " ".join(segment.text for segment in job.text_segments)
+                    event = TextEvent(text=text,
                                       audio_source_id=job.first_chunk.source_id,
                                       audio_start_time=job.first_chunk.timestamp,
                                       audio_end_time=job.last_chunk.timestamp)
