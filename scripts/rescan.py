@@ -4,13 +4,13 @@ import logging
 from pathlib import Path
 from pprint import pprint
 
-from palaver.scribe.api_wrapper import DefaultAPIWrapper
 from palaver.scribe.recorders.block_audio import BlockAudioRecorder
 from palaver.scribe.listener.file_listener import FileListener
 from palaver.scribe.core import PipelineConfig
 from palaver.scribe.script_utils import create_base_parser, validate_model_path, scribe_pipeline_context
 from palaver.utils.top_error import run_with_error_handler
 from palaver.scribe.loggers import setup_logging
+from api_wrapper import DefaultAPIWrapper
 
 logger = logging.getLogger("ScribeRescan")
 
