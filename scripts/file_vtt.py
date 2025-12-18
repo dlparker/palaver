@@ -8,7 +8,7 @@ from palaver.scribe.audio.file_listener import FileListener
 from palaver.scribe.core import PipelineConfig
 from script_utils import create_base_parser, validate_model_path, scribe_pipeline_context
 from palaver.utils.top_error import run_with_error_handler
-from palaver.scribe.loggers import setup_logging
+from loggers import setup_logging
 from api_wrapper import DefaultAPIWrapper
 
 logger = logging.getLogger("ScribePlayback")

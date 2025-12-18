@@ -9,7 +9,7 @@ import sounddevice as sd
 
 from palaver.scribe.text_events import TextEvent
 from palaver.scribe.audio_events import AudioEvent, AudioStopEvent, AudioStartEvent, AudioChunkEvent
-from palaver.scribe.scriven.wire_commands import ScribeCommandEvent
+from palaver.scribe.command_events import ScribeCommandEvent
 from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.api import StartBlockCommand, StopBlockCommand
 

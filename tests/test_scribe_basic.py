@@ -8,9 +8,13 @@ import pytest
 import asyncio
 import sys
 import os
+import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 import json
 import logging
+import shutil
+from typing import Optional
 
 from palaver.scribe.audio_events import (AudioEvent,
                                          AudioErrorEvent,
@@ -21,10 +25,14 @@ from palaver.scribe.audio_events import (AudioEvent,
                                          AudioChunkEvent,
                                          AudioEventListener,
                                          )
-from palaver.utils.top_error import run_with_error_handler
-from palaver.scribe.core import PipelineConfig
-from palaver.scribe.listener.file_listener import FileListener
-from palaver.scribe.script_utils import validate_model_path, scribe_pipeline_context
+from palaver.utils.top_error import TopErrorHandler, TopLevelCallback
+from palaver.scribe.command_events import ScribeCommandEvent
+from palaver.scribe.text_events import TextEvent
+from palaver.scribe.api import ScribeAPIListener
+from palaver.scribe.api import StartBlockCommand, StopBlockCommand
+from palaver.scribe.audio.file_listener import FileListener
+from palaver.scribe.recorders.block_audio import BlockAudioRecorder
+from palaver.scribe.core import PipelineConfig, ScribePipeline
 
 
 logger = logging.getLogger("test_code")
@@ -130,67 +138,6 @@ class APIWrapper(ScribeAPIListener):
                 audio = event.data
                 self.stream.write(audio)
 
-class Player:
-
-    def __init__(self):
-        self.stream = None
-        self.stopped = True
-        self.counter = 0
-        self.in_speech = False
-        
-    async def on_audio_event(self, event):
-        if isinstance(event, AudioStartEvent):
-            self.stream = sd.OutputStream(
-                samplerate=event.sample_rate,
-                channels=event.channels,
-                blocksize=event.blocksize,
-                dtype=event.datatype,
-            )
-            self.stream.start()
-            logger.info("Opened stream")
-            logger.info(event)
-        elif isinstance(event, AudioChunkEvent):
-            audio = event.data
-            # to swith from mono to stereo, if desired
-            #if audio.shape[1] == 1 and :
-            #    audio = np.column_stack((audio[:,0], audio[:,0]))            
-            if not self.in_speech:
-                try:
-                    self.stream.write(audio)
-                except:
-                    logger.info(f"Got error processing \n{event}\n{traceback.format_exc()}")
-                    self.stop()
-            if self.counter % 1000 == 0:
-                logger.info(f"{time.time()} {event}")
-            self.counter += 1
-        elif isinstance(event, AudioStopEvent):
-            logger.info(event)
-            self.stop()
-        elif isinstance(event, AudioErrorEvent):
-            logger.info(f"got error event\n {event.message}")
-            self.stop()
-        elif isinstance(event, AudioSpeechStartEvent):
-            self.in_speech = True
-            logger.info(event)
-            logger.info("---------- SPEECH STARTS ------------------")
-        elif isinstance(event, AudioSpeechStopEvent):
-            self.in_speech = False
-            logger.info(event)
-            logger.info("---------- SPEECH STOP ------------------")
-        else:
-            logger.info(f"got unknown event {event}")
-            self.stop()
-        
-
-    def start(self):
-        self.stopped = False
-        
-    def stop(self):
-        if self.stream:
-            self.stream.stop()
-            self.stream.close()
-        self.stopped = True
-
 CHUNK_SEC = 0.03
 
     
@@ -201,82 +148,61 @@ async def test_process_note1_file():
     model = Path(__file__).parent.parent / "models" / "ggml-base.en.bin"
     assert model.exists()
     logging.info(f"TESTING FILE INPUT: {audio_file}")
+    api_wrapper = APIWrapper()
+    recorder_dir = Path(__file__).parent / "recorder_output"
+    # clean it up before running
+    if recorder_dir.exists():
+        shutil.rmtree(recorder_dir)
+        
+    chunk_ring_seconds = 12
+    block_recorder = BlockAudioRecorder(recorder_dir, chunk_ring_seconds)
+    
+    async def main_task(model, file_path):
+        # Create listener
+        file_listener = FileListener(
+            audio_file=file_path,
+            chunk_duration=0.03,
+            simulate_timing=False,
+        )
 
+        # Create pipeline config with playback-specific settings
+        config = PipelineConfig(
+            model_path=model,
+            api_listener=api_wrapper,
+            target_samplerate=16000,
+            target_channels=1,
+            use_multiprocessing=True,
+            require_command_alerts=False,
+            vad_silence_ms=3000,
+            vad_speech_pad_ms=1000,
+            seconds_per_scan=2,
+            block_recorder=block_recorder,
+        )
 
-
-
-            # Create listener
-            file_listener = FileListener(
-                audio_file=args.file,
-                chunk_duration=0.03,
-                simulate_timing=False,
-            )
-
-            # Create pipeline config with playback-specific settings
-            config = PipelineConfig(
-                model_path=args.model,
-                api_listener=api_wrapper,
-                target_samplerate=16000,
-                target_channels=1,
-                use_multiprocessing=True,
-                require_command_alerts=False,
-                vad_silence_ms=3000,
-                vad_speech_pad_ms=1000,
-                seconds_per_scan=2,
-                block_recorder=block_recorder,
-            )
-
-            # Run pipeline with automatic context management
-            async with scribe_pipeline_context(file_listener, config) as pipeline:
+        # Run pipeline with automatic context management
+        async with file_listener:
+            async with ScribePipeline(file_listener, config) as pipeline:
                 await pipeline.start_listener()
                 await pipeline.run_until_error_or_interrupt()
 
-        # Run with standard error handling
-        run_with_error_handler(main_task, logger)
-        print("File playback complete")
+    background_error_dict = None
+    class ErrorCallback(TopLevelCallback):
+        async def on_error(self, error_dict: dict):
+            nonlocal background_error_dict
+            background_error_dict = error_dict
 
-    
-    listener = FileListener(chunk_duration=CHUNK_SEC, simulate_timing=False, files=[audio_file])
-    play_sound = os.environ.get("PLAYBACK_DURING_TESTS", False)
-    if play_sound:
-        player = Player()
+    # Run with standard error handling
+    handler = TopErrorHandler(top_level_callback=ErrorCallback(), logger=logger)
+    await handler.async_run(main_task, model, audio_file)
 
-    source = listener
+    assert background_error_dict is None
+    assert len(api_wrapper.blocks) == 1
+    assert api_wrapper.have_pipeline_ready
+    assert api_wrapper.have_pipeline_shutdown
+    assert api_wrapper.full_text != ""
+    out_dir = list(recorder_dir.glob("block-*"))[0]
+    with open(out_dir / "first_draft.txt") as f:
+        draft = f.read()
 
-    downsampler = DownSampler(target_samplerate=16000, target_channels=1)
-    listener.add_event_listener(downsampler)
-    vadfilter = VADFilter(listener)
-    downsampler.add_event_listener(vadfilter)
-    if play_sound:
-        # play it
-        vadfilter.add_event_listener(player)
-    # transcribe it
-    def error_callback(error_dict:dict):
-        from pprint import pformat
-        raise Exception(pformat(error_dict))
-
-    whisper_thread = WhisperThread(model, error_callback, use_mp=True)
-    vadfilter.add_event_listener(whisper_thread)
-
-    async def on_command_callback(command_match):
-        logger.info(command_match)
-
-    async def on_text_callback(text_event):
-        logger.info("in test on_text_callback %s", text_event)
-        
-    text_printer = TextPrinter(on_text_callback, on_command_callback)
-    whisper_thread.add_text_event_listener(text_printer)
-    await whisper_thread.start()
-
-    if play_sound:
-        player.start()
-
-    async with listener:
-        await listener.start_recording()
-        while listener._running:
-            await asyncio.sleep(0.1)
-
-    if play_sound:
-        player.stop()
-    await whisper_thread.gracefull_shutdown(3.0)
-    logger.info("Playback finished.")
+    assert draft.strip().startswith(api_wrapper.full_text.strip())
+    shutil.rmtree(recorder_dir)

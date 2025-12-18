@@ -173,6 +173,18 @@ class TopErrorHandler:
             ERROR_HANDLER.reset(token)
         return res
 
+    async def async_run(self, main_coro, *args, **kwargs):
+        token = ERROR_HANDLER.set(self)
+        
+        try:
+            res = await main_coro(*args, **kwargs)
+            if self.async_error_dict and not self.async_error_handled:
+                self.post_loop_error(self.async_error_dict)
+        finally:
+            # Clean up the context var to avoid leaks in case of reuse.
+            ERROR_HANDLER.reset(token)
+        return res
+
     def wrap_task(self, coro, *args, **kwargs):
         """
         Optional: A helper to wrap coroutines in tasks with automatic error handling.
@@ -195,33 +207,5 @@ def get_error_handler() -> TopErrorHandler:
         return ERROR_HANDLER.get()
     except LookupError:
         raise RuntimeError("No TopErrorHandler set in this context. Ensure code runs under TopErrorHandler.run().")
-
-
-def run_with_error_handler(main_coro, logger):
-    """
-    Run an async coroutine with standard error handling.
-
-    This is a convenience function that sets up TopErrorHandler with a simple
-    error callback that stores the error dict. Scripts can use this to avoid
-    boilerplate TopErrorHandler setup.
-
-    Args:
-        main_coro: Async function to run (will be called with no arguments)
-        logger: Logger instance for error reporting
-
-    Returns:
-        The error dict if an error occurred, None otherwise
-    """
-    background_error_dict = None
-
-    class ErrorCallback(TopLevelCallback):
-        async def on_error(self, error_dict: dict):
-            nonlocal background_error_dict
-            background_error_dict = error_dict
-
-    handler = TopErrorHandler(top_level_callback=ErrorCallback(), logger=logger)
-    handler.run(main_coro)
-
-    return background_error_dict
 
     
