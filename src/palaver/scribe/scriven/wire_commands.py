@@ -1,5 +1,6 @@
 from typing import Optional, Protocol, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import uuid
 import traceback
 import logging
 import asyncio
@@ -14,7 +15,6 @@ from palaver.scribe.command_events import (ScribeCommand,
                                            ScribeCommandEvent,
                                            ScribeCommandDef,
                                            CommandEventListener,
-                                           ScribeCommandMode,
                                            )
 
 from palaver.scribe.api import StartBlockCommand, StopBlockCommand
@@ -34,6 +34,13 @@ control_commands = [
      stop_block_command),
     ]
 
+@dataclass
+class BlockTracker:
+    """Tracks a text block from start to end."""
+    start_event: StartBlockCommand
+    text_events: dict[uuid.UUID, TextEvent] = field(default_factory=dict)
+    end_event: Optional[StopBlockCommand] = None
+    finalized: Optional[bool] = False
 
 class CommandDispatch(TextEventListener):
 
@@ -44,7 +51,7 @@ class CommandDispatch(TextEventListener):
         self._require_alerts = require_alerts
         self.command_defs = {}
         self._alert = False
-        self._mode = None
+        self._alert_text_event = None
         self._in_block = None
         for patterns, command in control_commands:
             self.register_command(command, patterns)
@@ -59,11 +66,11 @@ class CommandDispatch(TextEventListener):
         attention_string = None
         # first see if attention signal present or active
         if not self._alert:
-            logger.debug('Attention check started')
             search_buffer = ""
             for seg in event.segments:
                 any_match = 0
                 search_buffer += " " + seg.text
+            logger.debug('Attention check started, search buffer is %s', search_buffer)
             for pattern in attention_phrases:
                 alignment = fuzz.partial_ratio_alignment(pattern,  search_buffer)
                 if alignment.score >= self._attention_match:
@@ -79,7 +86,7 @@ class CommandDispatch(TextEventListener):
                         logger.info('Attention "%s" detected as "%s" head="%s" tail="%s"',
                                     pattern, target_string, head, tail)
                         self._alert = True
-                        self._mode = ScribeCommandMode.awaiting_start
+                        self._alert_text_event = event
                         break
         if not self._alert and self._require_alerts:
             return
@@ -107,7 +114,7 @@ class CommandDispatch(TextEventListener):
                             head = ""
                         tail = search_buffer[alignment.dest_end:]
                         cmd_event = ScribeCommandEvent(cmd_dev.command, pattern, event,
-                                                       alignment.dest_start, target_string, attention_string)
+                                                       alignment.dest_start, target_string, self._alert_text_event)
                         logger.info('Command "%s" issuing event on match %s to %s',
                                     cmd_dev.command.name, pattern, target_string)
                         logger.debug('Command "%s" issuing event %s', cmd_dev.command.name, pformat(cmd_event))

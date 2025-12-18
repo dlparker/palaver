@@ -5,6 +5,16 @@ from enum import Enum
 import time
 import uuid
 
+"""
+Want a nested command logic, so probably a tree structure. Want some commands to have a block of text attached that
+followed the command voicing, some should be standalone. When command end events get issued they should encapsulate
+all the text blocks (if any) between the command start and end (if any). The start event should refer to a structure
+that can have children, and the end should refer back to the start. Probably just a single structure and different
+event types that refer to it, start event, end event, solo event .
+
+
+"""
+
 @dataclass(kw_only=True)
 class ScribeCommand:
     name: str
@@ -18,7 +28,7 @@ class ScribeCommandEvent:
     text_event: TextEvent
     segment_index: int
     matched_text: str
-    attention_text: Optional[str] = None
+    attention_text_event: Optional[TextEvent] = None
     timestamp: float = field(default_factory=time.time)
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
@@ -28,17 +38,6 @@ class ScribeCommandDef:
     command: ScribeCommand
     patterns: list[str]
 
-class ScribeCommandMode(str, Enum):
-    awaiting_start = "AWAITING_START"
-    in_block = "IN_BLOCK"
-
-    
-@dataclass
-class ScribeCommandState:
-    mode: ScribeCommandMode
-    block_stack: Optional[list[Any]] = field(default_factory=list)
-    command_stack: Optional[list[ScribeCommandEvent]] = field(default_factory=list)
-    
     
 class CommandEventListener(Protocol):
 
