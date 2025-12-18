@@ -1,6 +1,7 @@
 {
   "segments": [
-    {"text": "Rupert command, start a new note", "silence_after": 1.0},
+      {"text": "Rupert command", "silence_after": 0.5},
+      {"text": "Start a new note", "silence_after": 0.5},
       {"text": "This is the body of the note", "silence_after": 1.0},
       {"text": "End Session", "silence_after": 1.0},
       {"text": "extra stuff", "silence_after": 1.0}

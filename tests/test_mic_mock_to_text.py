@@ -106,7 +106,7 @@ class MockStream:
             return
 
         # Read entire file
-        data, sr = sf.read(self.audio_file, dtype=self.dtype)
+        data, sr = sf.read(self.audio_file, dtype=self.dtype, always_2d=True)
         logger.info(f"MockInputStream: loaded {len(data)} samples at {sr}Hz from {self.audio_file}")
 
         # Handle mono/stereo conversion to match requested channels
