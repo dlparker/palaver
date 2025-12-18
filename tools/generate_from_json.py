@@ -102,7 +102,7 @@ def generate_speech_segment(text: str, output_file: Path, model: str) -> None:
     cmd = [
         "uv", "run", "piper",
         "--model", model,
-        "--length-scale", '1.6',
+        "--length-scale", '1.5',
         "--sentence-silence", "0",  # No automatic silence
         "--output_file", str(output_file)
     ]

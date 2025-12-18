@@ -10,7 +10,7 @@ from datetime import datetime
 import numpy as np
 import sounddevice as sd
 from palaver.utils.top_error import get_error_handler
-from palaver.scribe.listen_api import Listener, ListenerCCSMixin, create_source_id
+from palaver.scribe.audio_listeners import AudioListener, AudioListenerCCSMixin, create_source_id
 from palaver.scribe.audio_events import (AudioEvent,
                                        AudioErrorEvent,
                                        AudioChunkEvent,
@@ -24,7 +24,7 @@ SAMPLE_RATE=44100
 CHANNELS=1
 BLOCKSIZE=int((SAMPLE_RATE * CHANNELS) * .03)
 
-class MicListener(ListenerCCSMixin, Listener):
+class MicListener(AudioListenerCCSMixin, AudioListener):
     """ Implements the Listener interface by pulling audio data
     from the default audio input device on the machine"""
     def __init__(self, chunk_duration: float = 0.03):
@@ -38,7 +38,6 @@ class MicListener(ListenerCCSMixin, Listener):
         self._q_out = asyncio.Queue()
         self._stream = None
         self.source_id = create_source_id("default_mic", datetime.utcnow(), 10000)
-        self._background_error = None
         self._in_speech = False
         self._stream_start_time = None
 
@@ -54,9 +53,6 @@ class MicListener(ListenerCCSMixin, Listener):
         self._running = True
         self._stream_start_time = time.time()
 
-    def set_background_error(self, error_dict):
-        self._background_error = error_dict
-        
     async def _reader(self):
         if not self._running:
             return
@@ -105,11 +101,6 @@ class MicListener(ListenerCCSMixin, Listener):
                     await self.emit_event(event)
                     #wait_time = (self._stream.blocksize / self._stream.samplerate)
                     #await asyncio.sleep(wait_time)
-                    if self._background_error:
-                        logger.info("MicListener _reader task background error")
-                        self._reader_task = None
-                        await self._cleanup()
-                        break
             await self.emit_event(AudioStopEvent(source_id=self.source_id,stream_start_time=self._stream_start_time))
             await self._queue.put(None)  # signal EOF
             self._stream = None

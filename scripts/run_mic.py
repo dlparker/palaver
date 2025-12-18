@@ -16,7 +16,8 @@ from palaver.scribe.scriven.wire_commands import ScribeCommandEvent, CommandEven
 from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.api import StartBlockCommand, StopBlockCommand
 from palaver.scribe.recorders.block_audio import BlockAudioRecorder
-from palaver.scribe.mic_server import MicServer
+from palaver.scribe.listener.mic_listener import MicListener
+from palaver.scribe.core import ScribePipeline, PipelineConfig
 from palaver.utils.top_error import TopLevelCallback, TopErrorHandler, get_error_handler
 from palaver.scribe.loggers import setup_logging
 
@@ -33,8 +34,6 @@ class APIWrapper(ScribeAPIListener):
 
     def __init__(self):
         super().__init__()
-        self.server = None
-        self.server_type = None
         self.full_text = ""
         self.blocks = []
         self.text_events = {}
@@ -59,11 +58,7 @@ class APIWrapper(ScribeAPIListener):
                 await self.finalize_block(last_block)
         if self.block_recorder:
             await self.block_recorder.stop()
-            
-    def set_server(self, server, server_type):
-        self.server = server
-        self.server_type = server_type
-        
+
     async def on_command_event(self, event:ScribeCommandEvent):
         print("")
         if isinstance(event.command, StartBlockCommand):
@@ -197,44 +192,44 @@ def main():
 
     api_wrapper = APIWrapper()
 
-    mic_server = MicServer(
-        model_path=args.model,
-        api_listener=api_wrapper,
-        use_multiprocessing=True,
-    )
-    api_wrapper.set_server(mic_server, "Microphone Listening")
     try:
         async def main_task():
             nonlocal api_wrapper
             if args.output_dir:
                 await api_wrapper.add_recorder(args)
-            try:
-                await api_wrapper.server.run()
-                await asyncio.sleep(0.1)
-            except:
-                logger.error("One:" + traceback.format_exc())
-                pipeline = api_wrapper.server.get_pipeline()
-                if pipeline:
+
+            # Create listener directly
+            mic_listener = MicListener(chunk_duration=0.03)
+
+            # Create pipeline config
+            config = PipelineConfig(
+                model_path=args.model,
+                api_listener=api_wrapper,
+                target_samplerate=16000,
+                target_channels=1,
+                use_multiprocessing=True,
+            )
+
+            # Manage context and lifecycle
+            async with mic_listener:
+                async with ScribePipeline(mic_listener, config) as pipeline:
+                    await pipeline.start_listener()
                     try:
-                        await pipeline.shutdown()
-                    except:
-                        logger.error("Two" + traceback.format_exc())
-                        
-                raise
-            
+                        await pipeline.run_until_error_or_interrupt()
+                    except (KeyboardInterrupt, asyncio.CancelledError):
+                        print("\nControl-C detected. Shutting down...")
+
         background_error_dict = None
         class MyTLC(TopLevelCallback):
-            
+
             async def on_error(self, error_dict: dict):
                 nonlocal background_error_dict
-                nonlocal api_wrapper
-                background_error_dict  = error_dict
-                api_wrapper.server.set_background_error(error_dict)
-            
+                background_error_dict = error_dict
+
         tlc = MyTLC()
         top_error_handler = TopErrorHandler(top_level_callback=tlc, logger=logger)
         top_error_handler.run(main_task)
-        print(f"{api_wrapper.server_type}.run() complete")
+        print("Microphone Listening complete")
     except KeyboardInterrupt:
         print("\nShutdown complete.")
         sys.exit(0)

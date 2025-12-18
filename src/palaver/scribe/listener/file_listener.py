@@ -11,7 +11,7 @@ import numpy as np
 import soundfile as sf
 
 from palaver.utils.top_error import get_error_handler
-from palaver.scribe.listen_api import Listener, ListenerCCSMixin, create_source_id
+from palaver.scribe.audio_listeners import AudioListener, AudioListenerCCSMixin, create_source_id
 from palaver.scribe.audio_events import (AudioEvent,
                                        AudioErrorEvent,
                                        AudioChunkEvent,
@@ -21,7 +21,7 @@ from palaver.scribe.audio_events import (AudioEvent,
 
 logger = logging.getLogger("FileListener")
 
-class FileListener(ListenerCCSMixin, Listener):
+class FileListener(AudioListenerCCSMixin, AudioListener):
     """ Implements the Listener interface by pulling audio data
     from one or more wav files, good for testing, may have some
     realword application for refining transcription via playback.

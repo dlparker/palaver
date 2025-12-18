@@ -7,7 +7,7 @@ from typing import Optional, Callable
 from pathlib import Path
 import traceback
 
-from palaver.scribe.listen_api import Listener
+from palaver.scribe.audio_listeners import AudioListener
 from palaver.scribe.listener.downsampler import DownSampler
 from palaver.scribe.listener.vad_filter import VADFilter
 from palaver.scribe.scriven.whisper_thread import WhisperThread
@@ -36,7 +36,7 @@ class PipelineConfig:
 
 class ScribePipeline:
 
-    def __init__(self, listener: Listener, config: PipelineConfig):
+    def __init__(self, listener: AudioListener, config: PipelineConfig):
         """
         Initialize the pipeline with a configured listener.
 
