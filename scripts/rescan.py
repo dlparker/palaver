@@ -7,7 +7,7 @@ from pprint import pprint
 from palaver.scribe.recorders.block_audio import BlockAudioRecorder
 from palaver.scribe.listener.file_listener import FileListener
 from palaver.scribe.core import PipelineConfig
-from palaver.scribe.script_utils import create_base_parser, validate_model_path, scribe_pipeline_context
+from script_utils import create_base_parser, validate_model_path, scribe_pipeline_context
 from palaver.utils.top_error import run_with_error_handler
 from palaver.scribe.loggers import setup_logging
 from api_wrapper import DefaultAPIWrapper
@@ -45,7 +45,7 @@ def main():
     args = parser.parse_args()
 
     setup_logging(default_level=args.log_level,
-                  info_loggers=[logger.name],
+                  info_loggers=[logger.name, 'BlockAudioRecorder','WhisperThread', 'Commands'],
                   more_loggers=[logger])
 
     # Validate model path

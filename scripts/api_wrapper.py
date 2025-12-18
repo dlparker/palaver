@@ -73,6 +73,7 @@ class DefaultAPIWrapper(ScribeAPIListener):
             print("-------------------------------------------")
             await self.handle_text_event(event.text_event)
         elif isinstance(event.command, StopBlockCommand):
+            await self.handle_text_event(event.text_event)
             if len(self.blocks) > 0:
                 last_block = self.blocks[-1]
                 if not last_block.finalized:
@@ -98,11 +99,11 @@ class DefaultAPIWrapper(ScribeAPIListener):
         # Fix bug: was `==` should be `in`
         if event.event_id in self.text_events:
             return
-        self.text_events[event.event_id] = event
 
         if len(self.blocks) > 0:
             last_block = self.blocks[-1]
             if not last_block.finalized:
+                self.text_events[event.event_id] = event
                 last_block.text_events[event.event_id] = event
                 logger.info(f"text {event.event_id} added to block")
                 for seg in event.segments:
@@ -112,7 +113,7 @@ class DefaultAPIWrapper(ScribeAPIListener):
                         logger.info("-----Adding text to block-----\n")
                         print(seg.text)
                         logger.info("----------\n")
-                self.full_text += seg.text + " "
+                    self.full_text += seg.text + " "
             else:
                 print(f"ignoring text {event.segments}")
 

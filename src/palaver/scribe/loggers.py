@@ -66,7 +66,7 @@ def get_loggers():
     res.append(logging.getLogger("MQTTPublisher"))
     res.append(logging.getLogger("BlockAudioRecorder"))
     res.append(logging.getLogger("Commands"))
-    res.append(logging.getLogger("WhisperThreadedBatch"))
+    res.append(logging.getLogger("WhisperThread"))
     res.append(logging.getLogger("ScribeCore"))
     res.append(logging.getLogger("MicServer"))
     res.append(logging.getLogger("PlaybackServer"))

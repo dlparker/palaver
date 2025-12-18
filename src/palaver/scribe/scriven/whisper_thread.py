@@ -26,7 +26,7 @@ from palaver.scribe.audio_events import (AudioEvent,
 from palaver.scribe.text_events import VTTSegment, TextEvent, TextEventListener
 
 
-logger = logging.getLogger("WhisperThreadedBatch")
+logger = logging.getLogger("WhisperThread")
 PRINTING = False
 class ScriveJob:
 
