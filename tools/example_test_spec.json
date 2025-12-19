@@ -1,9 +1,10 @@
 {
   "segments": [
-      {"text": "Rupert command.", "silence_after": 1.0},
-      {"text": "New text block.", "silence_after": 0.5},
+      {"text": "Wake up! Rupert!", "silence_after": 1.0},
+      {"text": "Command is new block.", "silence_after": 0.5},
       {"text": "This is the body of the note", "silence_after": 1.0},
-      {"text": "Rupert close command", "silence_after": 1.0},
+      {"text": "Rupert back to sleep", "silence_after": 1.0},
+      {"text": "Rupert signoff", "silence_after": 1.0},
       {"text": "extra stuff", "silence_after": 1.0}
   ]
 }

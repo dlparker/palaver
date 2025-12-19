@@ -23,17 +23,21 @@ logger = logging.getLogger("Commands")
 
 attention_phrases = ['rupert listen', 'rupert command', "rupert c'mon",
                      'rubik listen', 'rubik command', "rubik c'mon",
+                     "Wake up Rupert", "Rupert Wake up", 
                      'freddy listen']
 start_block_command = StartBlockCommand()
 stop_block_command = StopBlockCommand()
 
 control_commands = [
-    (['start a new note', 'start new note', 'start a note',  'take this down', 'new text block'],
+    (['start a new note', 'start new note',
+      'start a note',  'take this down', 'new text block',
+      'command is new block'],
      start_block_command),
     (['break break break', 
       'great great great', 'quick quick quick', 'click click click',
      'session end', 'end session',
-     'Rupert close command',
+     'Rupert back to sleep',
+     'Rupert signoff',
       ],
      stop_block_command),
     ]
