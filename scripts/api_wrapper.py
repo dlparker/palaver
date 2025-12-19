@@ -125,10 +125,6 @@ class DefaultAPIWrapper(ScribeAPIListener):
             pass
         elif isinstance(event, AudioStopEvent):
             logger.info("Got audio stop event %s", event)
-            if len(self.blocks) > 0:
-                last_block = self.blocks[-1]
-                if not last_block.finalized:
-                    await self.finalize_block(last_block)
         elif isinstance(event, AudioChunkEvent):
             if self.play_sound:
                 if not self.stream:

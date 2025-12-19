@@ -30,7 +30,11 @@ stop_block_command = StopBlockCommand()
 control_commands = [
     (['start a new note', 'start new note', 'start a note',  'take this down', 'new text block'],
      start_block_command),
-    (['break break break', 'session end', 'end session', 'great great great', 'quick quick quick', 'click click click'],
+    (['break break break', 
+      'great great great', 'quick quick quick', 'click click click',
+     'session end', 'end session',
+     'Rupert close command',
+      ],
      stop_block_command),
     ]
 
@@ -85,8 +89,8 @@ class CommandDispatch(TextEventListener):
                         self._alert = True
                         self._alert_text_event = event
                         break
-                elif alignment.score >= self._attention_score/2:
-                    logger.info("Close score %f for %s in %s", alignment.score, pattern, search_buffer)
+                elif alignment.score >= self._attention_score * 0.70:
+                    logger.info("Close score %f for '%s' in '%s'", alignment.score, pattern, search_buffer)
         if not self._alert and self._require_alerts:
             return
         issued = set()
@@ -95,7 +99,7 @@ class CommandDispatch(TextEventListener):
         for cmd_dev in self.command_defs.values():
             if self._in_block is not None and cmd_dev.command == start_block_command:
                 continue
-            logger.debug('Command checking "%s" against %s', search_buffer, cmd_dev.patterns)
+            logger.debug('Command checking "%s" against "%s"', search_buffer, cmd_dev.patterns)
             if cmd_dev.name in issued:
                 logger.debug('Command  "%s" already issued', cmd_dev.command.name)
                 continue
@@ -112,7 +116,7 @@ class CommandDispatch(TextEventListener):
                         tail = search_buffer[alignment.dest_end:]
                         cmd_event = ScribeCommandEvent(cmd_dev.command, pattern, event,
                                                        alignment.dest_start, target_string, self._alert_text_event)
-                        logger.info('Command "%s" issuing event on match %s to %s',
+                        logger.info('Command "%s" issuing event on match "%s" to "%s"',
                                     cmd_dev.command.name, pattern, target_string)
                         logger.debug('Command "%s" issuing event %s', cmd_dev.command.name, pformat(cmd_event))
                         await self.emitter.emit(ScribeCommandEvent, cmd_event)
@@ -124,8 +128,8 @@ class CommandDispatch(TextEventListener):
                             self._alert = False
                             self._in_block = None
                         break
-                elif alignment.score >= self._command_score/2:
-                    logger.info("Close score %f for %s in %s", alignment.score, pattern, search_buffer)
+                elif alignment.score >= self._command_score * 0.70:
+                    logger.info("Close score %f for '%s' in '%s'", alignment.score, pattern, search_buffer)
             logger.info('Command checking "%s" got %d matches', search_buffer, any_match)
 
     async def issue_block_end(self, start_event):

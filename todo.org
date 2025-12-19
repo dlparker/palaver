@@ -28,7 +28,9 @@ The tension is between:
 3. Being able to provide handling instructions to the LLM that get it in the
    right frame of mind, which is probably specific to the point, focus, context,
    topic of the text.
-   
+
+
+
 
 Want a nested command logic, so probably a tree structure. Want some commands to have a block of text attached that
 followed the command voicing, some should be standalone. When command end events get issued they should encapsulate
