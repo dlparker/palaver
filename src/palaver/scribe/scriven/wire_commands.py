@@ -28,7 +28,7 @@ start_block_command = StartBlockCommand()
 stop_block_command = StopBlockCommand()
 
 control_commands = [
-    (['start a new note', 'start new note', 'start a note',  'take this down'],
+    (['start a new note', 'start new note', 'start a note',  'take this down', 'new text block'],
      start_block_command),
     (['break break break', 'session end', 'end session', 'great great great', 'quick quick quick', 'click click click'],
      stop_block_command),
@@ -44,10 +44,10 @@ class BlockTracker:
 
 class CommandDispatch(TextEventListener):
 
-    def __init__(self, minimum_match = 75.0, attention_match=70.0, require_alerts=True) -> None:
+    def __init__(self, command_score = 75.0, attention_score=70.0, require_alerts=True) -> None:
         self.emitter = AsyncIOEventEmitter()
-        self._minimum_match = minimum_match
-        self._attention_match = attention_match
+        self._command_score = command_score
+        self._attention_score = attention_score
         self._require_alerts = require_alerts
         self.command_defs = {}
         self._alert = False
@@ -70,10 +70,10 @@ class CommandDispatch(TextEventListener):
             logger.debug('Attention check started, search buffer is %s', search_buffer)
             for pattern in attention_phrases:
                 alignment = fuzz.partial_ratio_alignment(pattern,  search_buffer)
-                if alignment.score >= self._attention_match:
+                if alignment.score >= self._attention_score * 0.9:
                     target_string = search_buffer[alignment.dest_start:alignment.dest_end]
                     score = fuzz.ratio(pattern, target_string)
-                    if score  >= self._attention_match:
+                    if score  >= self._attention_score:
                         if alignment.dest_start > 0:
                             head = search_buffer[:alignment.dest_start]
                         else:
@@ -85,6 +85,8 @@ class CommandDispatch(TextEventListener):
                         self._alert = True
                         self._alert_text_event = event
                         break
+                elif alignment.score >= self._attention_score/2:
+                    logger.info("Close score %f for %s in %s", alignment.score, pattern, search_buffer)
         if not self._alert and self._require_alerts:
             return
         issued = set()
@@ -99,10 +101,10 @@ class CommandDispatch(TextEventListener):
                 continue
             for pattern in cmd_dev.patterns:
                 alignment = fuzz.partial_ratio_alignment(pattern,  search_buffer)
-                if alignment.score >= self._minimum_match:
+                if alignment.score >= self._command_score * 0.9:
                     target_string = search_buffer[alignment.dest_start:alignment.dest_end]
                     score = fuzz.ratio(pattern, target_string)
-                    if score  >= self._minimum_match:
+                    if score  >= self._command_score:
                         if alignment.dest_start > 0:
                             head = search_buffer[:alignment.dest_start]
                         else:
@@ -122,6 +124,8 @@ class CommandDispatch(TextEventListener):
                             self._alert = False
                             self._in_block = None
                         break
+                elif alignment.score >= self._command_score/2:
+                    logger.info("Close score %f for %s in %s", alignment.score, pattern, search_buffer)
             logger.info('Command checking "%s" got %d matches', search_buffer, any_match)
 
     async def issue_block_end(self, start_event):
