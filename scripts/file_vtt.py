@@ -99,7 +99,7 @@ def main():
                 require_command_alerts=False,
                 vad_silence_ms=3000,
                 vad_speech_pad_ms=1000,
-                seconds_per_scan=2,
+                seconds_per_scan=3,
                 block_recorder=block_recorder,
             )
 

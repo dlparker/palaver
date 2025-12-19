@@ -34,7 +34,7 @@ class PipelineConfig:
     whisper_shutdown_timeout: float = 10.0
 
     # VAD configuration
-    vad_silence_ms: int = 2000           # Default from VADFilter
+    vad_silence_ms: int = 800           # Default from VADFilter
     vad_speech_pad_ms: int = 1500        # Default from VADFilter
     vad_threshold: float = 0.5           # Default from VADFilter
 

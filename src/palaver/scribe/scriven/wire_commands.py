@@ -21,10 +21,12 @@ from palaver.scribe.api import StartBlockCommand, StopBlockCommand
 
 logger = logging.getLogger("Commands")
 
-attention_phrases = ['rupert listen', 'rupert command', "rupert c'mon",
-                     'rubik listen', 'rubik command', "rubik c'mon",
-                     "Wake up Rupert", "Rupert Wake up", 
-                     'freddy listen']
+attention_phrases = []
+for name in  ['rupert', 'rubik', 'freddy']:
+    for signal in ["listen up", "wake up", "gear up", "stand up"]:
+        attention_phrases.append(f"{name} {signal} {name}")
+        attention_phrases.append(f"{name} {signal} ")
+        attention_phrases.append(f"{signal} {name}")
 start_block_command = StartBlockCommand()
 stop_block_command = StopBlockCommand()
 
@@ -37,6 +39,7 @@ control_commands = [
       'great great great', 'quick quick quick', 'click click click',
      'session end', 'end session',
      'Rupert back to sleep',
+     'Rupert vacation now',
      'Rupert signoff',
       ],
      stop_block_command),
