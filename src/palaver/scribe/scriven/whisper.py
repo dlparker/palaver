@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from threading import Event as TEvent
 import multiprocessing as mp
 from multiprocessing import Process, Queue as MPQueue, Event as MPEvent
+import subprocess
 import numpy as np
 from pywhispercpp.model import Model
 from eventemitter import AsyncIOEventEmitter
@@ -25,6 +26,16 @@ from palaver.scribe.audio_events import (AudioEvent,
 
 from palaver.scribe.text_events import TextEvent, TextEventListener
 
+def check_if_nvidia():
+    # Run vulkaninfo and capture its output
+    result = subprocess.check_output(['vulkaninfo', '--summary'], stderr=subprocess.STDOUT, text=True)
+    # Look for specific GPU names in the output
+    if "NVIDIA" in result:
+        return True
+    
+    return False
+
+INITIAL_PROMPT = "Rupert Command, Start a new note, new text block"
 
 logger = logging.getLogger("WhisperWrapper")
 PRINTING = False
@@ -48,14 +59,23 @@ class Worker:
         self.shutdown_event = shutdown_event
         self.model_path = model_path
         self.model = None
-
+        self.have_nvidia = check_if_nvidia()
+        print(f"\nHave nvidia check\n {self.have_nvidia}\n\n")
             
     def run(self):
-        self.model = Model(str(self.model_path),
-                           n_threads=8,
-                           print_realtime=False,
-                           print_progress=False,
-                           )
+        if self.have_nvidia and False:
+            self.model = Model(str(self.model_path),
+                               n_threads=8,
+                               print_realtime=False,
+                               print_progress=False,
+                               initial_prompt=INITIAL_PROMPT,
+                               )
+        else:
+            self.model = Model(str(self.model_path),
+                               n_threads=8,
+                               print_realtime=False,
+                               print_progress=False,
+                               )
 
         while not self.shutdown_event.is_set():
             try:
@@ -73,7 +93,16 @@ class Worker:
             logger.info("Worker starting job %d, %f seconds of sound",
                         job.job_id, job.last_chunk.timestamp-job.first_chunk.timestamp)
             start_time = time.time()
-            self.model.transcribe(media=job.data, new_segment_callback=on_segment,  single_segment=False)
+            if self.have_nvidia:
+                self.model.transcribe(media=job.data,
+                                      new_segment_callback=on_segment,
+                                      single_segment=False,
+                                      initial_prompt=INITIAL_PROMPT,
+                                      )
+            else:
+                self.model.transcribe(media=job.data,
+                                      new_segment_callback=on_segment,
+                                      single_segment=False)
             end_time = time.time()
             job.duration = end_time-start_time
             job.done = True
