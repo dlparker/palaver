@@ -67,26 +67,17 @@ class Worker:
                 logger.info("Worker got negative job id, shutting down")
                 return
                 
-            logger.info("Worker starting job %d, %f seconds of sound",
-                        job.job_id, job.last_chunk.timestamp-job.first_chunk.timestamp)
             def on_segment(segment):
                 job.text_segments.append(segment)
                 
+            logger.info("Worker starting job %d, %f seconds of sound",
+                        job.job_id, job.last_chunk.timestamp-job.first_chunk.timestamp)
             start_time = time.time()
             self.model.transcribe(media=job.data, new_segment_callback=on_segment,  single_segment=False)
             end_time = time.time()
             job.duration = end_time-start_time
             job.done = True
             # might or might not have data based on callback
-            if PRINTING:
-                print('\n\n---------------\n')
-                print("      JOB DONE      ")
-                print(f"job_id={job.job_id}, ")
-                print(f"first_chunk.timestamp = {job.first_chunk.timestamp}, last_chunk.timestamp = {job.last_chunk.timestamp}")
-                print(f"audio duration={job.last_chunk.timestamp-job.first_chunk.timestamp}")
-                print(f"datasize={len(job.data)}")
-                print(f"segments={job.text_segments}")
-                print('\n---------------\n\n')
             
             self.result_queue.put(job)
             logger.info("Worker finished job %d in %f seconds with segment count %d",
