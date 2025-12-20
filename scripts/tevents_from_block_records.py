@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import json
+import argparse
 from pprint import pprint
 from pathlib import Path
 from palaver.scribe.text_events import TextEvent
@@ -15,27 +16,17 @@ import soundfile as sf
 import sounddevice as sd
 
 
-async def main():
+async def get_text_events(path, printing=False):
 
-    last_event = None
-    class Catcher(CommandEventListener):
-
-        async def on_command_event(self, event: ScribeCommandEvent):
-            nonlocal last_event
-            last_event = event
-
-    cd = CommandDispatch()
-    catcher = Catcher()
-    cd.add_event_listener(catcher)
-    ev_file = Path(__file__).parent / "meta_events.json"
-    with open(ev_file) as f:
+    with open(path) as f:
         events = json.load(f)
 
     t_events = {}
     for event in events:
         if "ScribeCommandEvent" in event['classname']:
-            print('-------------')
-            pprint(event)
+            if printing:
+                print('-------------')
+                pprint(event)
             command = ScribeCommand(**event['properties']['command'])
             if 'properties' in event['properties']['text_event']:
                 kwargs = event['properties']['text_event']['properties']
@@ -58,27 +49,38 @@ async def main():
                                       segment_index = 0,
                                       matched_text = event['properties']['matched_text'],
                                       timestamp = event['properties']['timestamp'])
-            pprint(scev)
-            print('-------------')
+            if printing:
+                pprint(scev)
+                print('-------------')
         elif "TextEvent" in event['classname']:
             kwargs = event['properties']
             text_event = TextEvent(**kwargs)
             if text_event.event_id not in t_events:
                 t_events[text_event.event_id] = text_event
-        else:
-            pprint(event)
-        #tevent1 = TextEvent(text=text)
-        #await cd.on_text_event(tevent1)
-        #assert last_event is not None
+    return t_events
 
-    print('**'*80)
-    for key, item in t_events.items():
+async def main():
+
+    parser = argparse.ArgumentParser(
+        description="extract text events from block recorder meta_events.json",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    parser.add_argument(
+        'file_path',
+        type=Path,
+        nargs='?',
+        help=''
+    )
+    args = parser.parse_args()
+    if args.file_path is None:
+        parser.error("Must supply a file path")
+    
+    for item in (await get_text_events(args.file_path)).values():
         pprint(item)
+        
 if __name__=="__main__":
-    setup_logging(default_level="WARNING",
-                  info_loggers=[],
-                  debug_loggers=['Commands',],
-                  more_loggers=[])
+
     asyncio.run(main())
 
 
