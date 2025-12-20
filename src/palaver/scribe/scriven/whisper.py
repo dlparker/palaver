@@ -32,7 +32,10 @@ def check_if_nvidia():
     # Look for specific GPU names in the output
     if "NVIDIA" in result:
         return True
-    
+
+    import os
+    if os.environ.get("OVERRIDE_CUDA"):
+        return True
     return False
 
 INITIAL_PROMPT = "Rupert Command, Start a new note, new text block"
@@ -63,19 +66,11 @@ class Worker:
         print(f"\nHave nvidia check\n {self.have_nvidia}\n\n")
             
     def run(self):
-        if self.have_nvidia and False:
-            self.model = Model(str(self.model_path),
-                               n_threads=8,
-                               print_realtime=False,
-                               print_progress=False,
-                               initial_prompt=INITIAL_PROMPT,
-                               )
-        else:
-            self.model = Model(str(self.model_path),
-                               n_threads=8,
-                               print_realtime=False,
-                               print_progress=False,
-                               )
+        self.model = Model(str(self.model_path),
+                           n_threads=8,
+                           print_realtime=False,
+                           print_progress=False,
+                           )
 
         while not self.shutdown_event.is_set():
             try:
@@ -94,6 +89,7 @@ class Worker:
                         job.job_id, job.last_chunk.timestamp-job.first_chunk.timestamp)
             start_time = time.time()
             if self.have_nvidia:
+                print("Using initial prompt!")
                 self.model.transcribe(media=job.data,
                                       new_segment_callback=on_segment,
                                       single_segment=False,
@@ -103,6 +99,7 @@ class Worker:
                 self.model.transcribe(media=job.data,
                                       new_segment_callback=on_segment,
                                       single_segment=False)
+
             end_time = time.time()
             job.duration = end_time-start_time
             job.done = True
