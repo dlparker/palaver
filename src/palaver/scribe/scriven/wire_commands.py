@@ -21,12 +21,19 @@ from palaver.scribe.api import StartBlockCommand, StopBlockCommand
 
 logger = logging.getLogger("Commands")
 
-attention_phrases = []
-for name in  ['rupert', 'rubik', 'freddy']:
+alert_up_phrases = []
+for name in  ['rupert', 'rubik', 'rufus', 'freddy']:
     for signal in ["listen up", "wake up", "gear up", "stand up"]:
-        attention_phrases.append(f"{name} {signal} {name}")
-        attention_phrases.append(f"{name} {signal} ")
-        attention_phrases.append(f"{signal} {name}")
+        alert_up_phrases.append(f"{name} {signal} {name}")
+        alert_up_phrases.append(f"{name} {signal} ")
+        alert_up_phrases.append(f"{signal} {name}")
+
+alert_down_phrases = []
+for name in  ['rupert', 'rubik', 'rufus', 'freddy']:
+    for signal in ["vacation now", "shutdown", "hang up", ]:
+        alert_down_phrases.append(f"{name} {signal} {name}")
+        alert_down_phrases.append(f"{name} {signal} ")
+        alert_down_phrases.append(f"{signal} {name}")
 start_block_command = StartBlockCommand()
 stop_block_command = StopBlockCommand()
 
@@ -52,6 +59,9 @@ class BlockTracker:
     text_events: dict[uuid.UUID, TextEvent] = field(default_factory=dict)
     end_event: Optional[StopBlockCommand] = None
     finalized: Optional[bool] = False
+    buff: Optional[str]  = ""
+    buff_pos: int  = 0
+
 
 class CommandDispatch(TextEventListener):
 
@@ -64,6 +74,7 @@ class CommandDispatch(TextEventListener):
         self._alert = False
         self._alert_text_event = None
         self._in_block = None
+        self._free_text = ""
         for patterns, command in control_commands:
             self.register_command(command, patterns)
 
@@ -79,7 +90,7 @@ class CommandDispatch(TextEventListener):
         if not self._alert:
             search_buffer = event.text
             logger.debug('Attention check started, search buffer is %s', search_buffer)
-            for pattern in attention_phrases:
+            for pattern in alert_up_phrases:
                 alignment = fuzz.partial_ratio_alignment(pattern,  search_buffer)
                 if alignment.score >= self._attention_score * 0.9:
                     target_string = search_buffer[alignment.dest_start:alignment.dest_end]
@@ -99,6 +110,7 @@ class CommandDispatch(TextEventListener):
                 elif alignment.score >= self._attention_score * 0.70:
                     logger.info("Close score %f for '%s' in '%s'", alignment.score, pattern, search_buffer)
         if not self._alert and self._require_alerts:
+            self._free_text += event.text
             return
         issued = set()
         search_buffer = event.text
@@ -130,7 +142,12 @@ class CommandDispatch(TextEventListener):
                         issued.add(cmd_dev.name)
                         any_match + 1
                         if cmd_dev.command == start_block_command:
-                            self._in_block = cmd_event
+                            self._in_block = BlockTracker(start_event=cmd_event,
+                                                          text_events=[event,],
+                                                          buff=search_buffer,
+                                                          buff_pos=alignment.dest_end)
+                            logger.debug('New block tracker %s', self._in_block)
+                            self._free_text = ""
                         elif cmd_dev.command == stop_block_command:
                             self._alert = False
                             self._in_block = None
@@ -138,6 +155,8 @@ class CommandDispatch(TextEventListener):
                 elif alignment.score >= self._command_score * 0.70:
                     logger.info("Close score %f for '%s' in '%s'", alignment.score, pattern, search_buffer)
             logger.info('Command checking "%s" got %d matches', search_buffer, any_match)
+        if not self._in_block:
+            self._free_text += event.text
 
     async def issue_block_end(self, start_event):
         cmd_event = None
