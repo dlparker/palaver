@@ -112,8 +112,8 @@ class DefaultAPIWrapper(ScribeAPIListener):
                     print(event.text)
                     logger.info("----------\n")
                 self.full_text += event.text + " "
-            else:
-                print(f"ignoring text {event.text}")
+        else:
+            print(f"ignoring text {event.text}")
 
     async def on_text_event(self, event: TextEvent):
         """Called when new transcribed text is available."""

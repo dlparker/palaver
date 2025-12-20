@@ -50,7 +50,7 @@ def main():
     args = parser.parse_args()
 
     setup_logging(default_level=args.log_level,
-                  info_loggers=[logger.name, 'BlockAudioRecorder'],
+                  info_loggers=[logger.name, 'BlockAudioRecorder', 'Commands'],
                   debug_loggers=[],
                   more_loggers=[logger])
 

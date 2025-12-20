@@ -35,7 +35,8 @@ def check_if_nvidia():
     
     return False
 
-INITIAL_PROMPT = "Rupert Command, Start a new note, new text block"
+INITIAL_PROMPT = ("Rupert Command, Rupert Vacation Now, Rupert Signoff, break break break,"
+                  "Start a new note, new text block, take this down")
 
 logger = logging.getLogger("WhisperWrapper")
 PRINTING = False
@@ -61,21 +62,17 @@ class Worker:
         self.model = None
         self.have_nvidia = check_if_nvidia()
         print(f"\nHave nvidia check\n {self.have_nvidia}\n\n")
-            
+        self.initial_prompt = INITIAL_PROMPT
+
+    def set_initial_prompt(self, prompt):
+        self.initial_prompt = INITIAL_PROMPT
+        
     def run(self):
-        if self.have_nvidia and False:
-            self.model = Model(str(self.model_path),
-                               n_threads=8,
-                               print_realtime=False,
-                               print_progress=False,
-                               initial_prompt=INITIAL_PROMPT,
-                               )
-        else:
-            self.model = Model(str(self.model_path),
-                               n_threads=8,
-                               print_realtime=False,
-                               print_progress=False,
-                               )
+        self.model = Model(str(self.model_path),
+                           n_threads=8,
+                           print_realtime=False,
+                           print_progress=False,
+                           )
 
         while not self.shutdown_event.is_set():
             try:
@@ -93,16 +90,12 @@ class Worker:
             logger.info("Worker starting job %d, %f seconds of sound",
                         job.job_id, job.last_chunk.timestamp-job.first_chunk.timestamp)
             start_time = time.time()
-            if self.have_nvidia:
-                self.model.transcribe(media=job.data,
-                                      new_segment_callback=on_segment,
-                                      single_segment=False,
-                                      initial_prompt=INITIAL_PROMPT,
-                                      )
-            else:
-                self.model.transcribe(media=job.data,
-                                      new_segment_callback=on_segment,
-                                      single_segment=False)
+            logger.info('using initial prompt %s', self.initial_prompt)
+            self.model.transcribe(media=job.data,
+                                  new_segment_callback=on_segment,
+                                  single_segment=False,
+                                  initial_prompt=self.initial_prompt,
+                                  )
             end_time = time.time()
             job.duration = end_time-start_time
             job.done = True

@@ -45,7 +45,7 @@ def setup_logging(default_level="WARNING", info_loggers=None, debug_loggers=None
             'level': level,
             'propagate': False
         }
-        #print(f'adding logger {logger.name} {l_dict}')
+        print(f'adding logger {logger.name} {l_dict}')
         config_dict['loggers'][logger.name] = l_dict
 
     for logger in get_loggers():

@@ -31,7 +31,7 @@ def p_matcher(patterns: list[MatchPattern], text:str, ratio_min=80.0, word_ratio
     that certain voices and certain GPU options produce patterns of transcription
     errors. By recording those typical errors as alternates for actual words I want
     to detect, I can improve matching even where the whispercpp transcription cannot
-    be guided by using an initial_prompt. 
+    be guided by using an initial_prompt or where the voice is just too different
     
     """
     results = []

@@ -108,7 +108,7 @@ class CommandDispatch(TextEventListener):
                         self._alert_text_event = event
                         break
                 elif alignment.score >= self._attention_score * 0.70:
-                    logger.info("Close score %f for '%s' in '%s'", alignment.score, pattern, search_buffer)
+                    logger.debug("Close score %f for '%s' in '%s'", alignment.score, pattern, search_buffer)
         if not self._alert and self._require_alerts:
             self._free_text += event.text
             return
@@ -153,7 +153,7 @@ class CommandDispatch(TextEventListener):
                             self._in_block = None
                         break
                 elif alignment.score >= self._command_score * 0.70:
-                    logger.info("Close score %f for '%s' in '%s'", alignment.score, pattern, search_buffer)
+                    logger.debug("Close score %f for '%s' in '%s'", alignment.score, pattern, search_buffer)
             logger.info('Command checking "%s" got %d matches', search_buffer, any_match)
         if not self._in_block:
             self._free_text += event.text
