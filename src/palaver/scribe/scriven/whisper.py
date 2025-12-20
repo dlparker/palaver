@@ -94,6 +94,7 @@ class Worker:
                         job.job_id, job.last_chunk.timestamp-job.first_chunk.timestamp)
             start_time = time.time()
             if self.have_nvidia:
+                print(f"\n\nusing initial_prompt={INITIAL_PROMPT}\n\n")
                 self.model.transcribe(media=job.data,
                                       new_segment_callback=on_segment,
                                       single_segment=False,
