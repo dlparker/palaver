@@ -32,7 +32,10 @@ def check_if_nvidia():
     # Look for specific GPU names in the output
     if "NVIDIA" in result:
         return True
-    
+
+    import os
+    if os.environ.get("OVERRIDE_CUDA"):
+        return True
     return False
 
 INITIAL_PROMPT = ("Rupert Command, Rupert Vacation Now, Rupert Signoff, break break break,"
