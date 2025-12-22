@@ -1,13 +1,11 @@
 from dataclasses import dataclass
 from palaver.scribe.audio_events import AudioEvent, AudioEventListener, AudioChunkEvent
 from palaver.scribe.text_events import TextEvent, TextEventListener
-from palaver.scribe.command_events import ScribeCommandEvent, CommandEventListener, ScribeCommand
 from palaver.scribe.draft_events import DraftEvent, DraftEventListener
 
 
 class ScribeAPIListener(AudioEventListener,
                         TextEventListener,
-                        CommandEventListener,
                         DraftEventListener
                         ):
 
@@ -21,9 +19,6 @@ class ScribeAPIListener(AudioEventListener,
     async def on_pipeline_shutdown(self):
         pass
     
-    async def on_command_event(self, event:ScribeCommandEvent):
-        pass
-
     async def on_draft_event(self, event:DraftEvent):
         pass
 
@@ -44,19 +39,3 @@ class ScribeAPIListener(AudioEventListener,
 
     async def on_audio_chunk_event(self, event):
         pass
-
-@dataclass(kw_only=True)
-class StartBlockCommand(ScribeCommand):
-    name: str = "start_block"
-    starts_text_block: bool = True
-
-@dataclass(kw_only=True)
-class StopBlockCommand(ScribeCommand):
-    name: str = "stop_block"
-    stops_text_block: bool = True
-
-
-# patterns should have longest pattern first, then descending for similar patterns
-default_commands = []
-
-    

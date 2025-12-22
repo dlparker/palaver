@@ -318,3 +318,10 @@ class DraftMaker(TextEventListener, AudioEventListener):
             if draft:
                 new_event = DraftEndEvent(draft=draft, timestamp=event.timestamp)
                 await self.emitter.emit(DraftEvent, new_event)
+
+    async def force_end(self):
+        draft = await self.builder.end_of_text()
+        if draft:
+            new_event = DraftEndEvent(draft=draft, timestamp=event.timestamp)
+            await self.emitter.emit(DraftEvent, new_event)
+        

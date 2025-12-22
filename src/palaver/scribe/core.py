@@ -12,13 +12,11 @@ from palaver.scribe.audio.downsampler import DownSampler
 from palaver.scribe.audio.vad_filter import VADFilter
 from palaver.scribe.audio.audio_merge import AudioMerge
 from palaver.scribe.audio_events import AudioEvent, AudioStopEvent, AudioSpeechStartEvent, AudioSpeechStopEvent 
+from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent
 from palaver.scribe.scriven.whisper import WhisperWrapper
-from palaver.scribe.scriven.wire_commands import CommandDispatch
 from palaver.scribe.scriven.drafts import DraftMaker
-from palaver.scribe.command_events import ScribeCommandEvent, CommandEventListener
 from palaver.scribe.text_events import TextEventListener, TextEvent
 from palaver.scribe.api import ScribeAPIListener
-from palaver.scribe.api import default_commands, StartBlockCommand, StopBlockCommand
 
 logger = logging.getLogger("ScribeCore")
 
@@ -28,7 +26,6 @@ class PipelineConfig:
     """Configuration for the Scribe pipeline."""
     model_path: Path
     api_listener:ScribeAPIListener
-    require_command_alerts: bool = True
     target_samplerate: int = 16000
     target_channels: int = 1
     use_multiprocessing: bool = False
@@ -74,7 +71,6 @@ class ScribePipeline:
         self.downsampler: Optional[DownSampler] = None
         self.vadfilter: Optional[VADFilter] = None
         self.whisper_tool: Optional[WhisperWrapper] = None
-        self.command_dispatch: Optional[CommandDispatch]  = None
         self.draft_maker: Optional[DraftMaker]  = None
         self.audio_merge = None
         self.wav_recorder = None
@@ -87,8 +83,7 @@ class ScribePipeline:
                     downsampler=self.downsampler,
                     vadfilter=self.vadfilter,
                     transcription=self.whisper_tool,
-                    audio_merge=self.audio_merge,
-                    command_dispatch=self.command_dispatch)
+                    audio_merge=self.audio_merge)
     
     def add_api_listener(self, api_listener:ScribeAPIListener,
                                to_source: bool=False, to_VAD: bool=False, to_merge: bool=True):
@@ -101,7 +96,6 @@ class ScribePipeline:
         else:
             self.listener.add_event_listener(api_listener)
         self.whisper_tool.add_text_event_listener(api_listener)
-        self.command_dispatch.add_event_listener(api_listener)
         self.draft_maker.add_event_listener(api_listener)
         self._api_listeners.append(api_listener)
         
@@ -135,12 +129,6 @@ class ScribePipeline:
             use_mp=self.config.use_multiprocessing
         )
         self.vadfilter.add_event_listener(self.whisper_tool)
-
-        self.command_dispatch = CommandDispatch(require_alerts=self.config.require_command_alerts)
-        for patterns, command in default_commands:
-            self.command_dispatch.register_command(command, patterns)
-        # Attach to the text listener
-        self.whisper_tool.add_text_event_listener(self.command_dispatch)
 
         self.draft_maker = DraftMaker()
         # Attach to the text listener
@@ -258,9 +246,9 @@ class ScribePipeline:
 
 @dataclass
 class BlockTracker:
-    start_event: StartBlockCommand
+    start_event: DraftStartEvent
     text_events: dict[uuid, TextEvent] = field(default_factory=dict[uuid, TextEvent])
-    end_event: Optional[StopBlockCommand] = None
+    end_event: Optional[DraftEndEvent] = None
     finalized: Optional[bool] = False
 
     
@@ -287,8 +275,8 @@ class StreamMonitor(ScribeAPIListener):
     
     async def on_pipeline_shutdown(self):
         for block in self.blocks:
-            if isinstance(block.start_event.command, StartBlockCommand) and not block.finalized:
-                await self.core.command_dispatch.issue_block_end(block.start_event)
+            if isinstance(block.start_event, DraftStartEvent) and not block.finalized:
+                await self.core.command_dispatch.force_end()
 
     async def check_done(self, dump=False, why="check"):
         if dump:
@@ -362,13 +350,12 @@ class StreamMonitor(ScribeAPIListener):
             # had done last chunk
             self.audio_stop = event
         
-    async def on_command_event(self, event:ScribeCommandEvent):
-        from palaver.scribe.api import StartBlockCommand, StopBlockCommand
-        if isinstance(event.command, StartBlockCommand):
+    async def on_draft_event(self, event:DraftEvent):
+        if isinstance(event, DraftStartEvent):
             self.in_block_event = event
-            await self.check_done(dump=self.auto_dump, why="StartBlockCommand")
+            await self.check_done(dump=self.auto_dump, why="DraftStartEvent")
             self.blocks.append(BlockTracker(start_event=event))
-        elif isinstance(event.command, StopBlockCommand):
+        elif isinstance(event, DraftEndEvent):
             self.in_block_event = None
             await self.check_done(dump=self.auto_dump, why="block stop")
             if len(self.blocks) > 0:
