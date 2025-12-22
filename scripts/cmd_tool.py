@@ -252,11 +252,12 @@ class DraftBuilder:
                              matched.match_pattern.pattern, len(self.working_text))
             else:
                 logger.debug("New draft starting (one already current) on pattern %s", matched.match_pattern)
-                end_of_new = matched.match_end-matched.match_start
-                end_mark = TextMark(0, end_of_new,  matched.matched_text)
+                end_mark = TextMark(matched.match_start, matched.match_start, "")
                 self.current_draft.end_text = end_mark
                 self.current_draft.full_text = self.current_draft.text_buffer
                 self.current_draft.text_buffer = None
+                end_of_new = matched.match_end-matched.match_start
+                text_mark = TextMark(0, end_of_new,  matched.matched_text)
                 self.current_draft = Draft(start_text=text_mark)
                 self.working_text = ""
                 logger.debug("closed doc, working_text now %d long", len(self.working_text))
