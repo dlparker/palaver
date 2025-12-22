@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import uuid
+import time
 from dataclasses import dataclass, field
 from typing import Optional
 import sounddevice as sd
@@ -50,6 +51,7 @@ class DefaultAPIWrapper(ScribeAPIListener):
         self.text_events = {}
         self.last_block_name = None
         self.stream = None
+        self.start_time = time.time()
 
     async def on_pipeline_ready(self, pipeline):
         """Called when pipeline is ready."""
@@ -109,11 +111,13 @@ class DefaultAPIWrapper(ScribeAPIListener):
                     logger.info("-----Adding text to block-----\n%s", event.text)
                 else:
                     logger.info("-----Adding text to block-----\n")
-                    print(event.text)
+                    et = time.time() - self.start_time
+                    print(f"{et:7.4f}: {event.text}")
                     logger.info("----------\n")
                 self.full_text += event.text + " "
         else:
-            print(f"ignoring text {event.text}")
+            et = time.time() - self.start_time
+            print(f"{et:7.4f}: ignoring text {event.text}")
 
     async def on_text_event(self, event: TextEvent):
         """Called when new transcribed text is available."""

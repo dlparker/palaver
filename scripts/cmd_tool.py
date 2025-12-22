@@ -17,8 +17,13 @@ from loggers import setup_logging
 logger = logging.getLogger('DraftMaker')
 
 @dataclass
+class MatchPattern:
+    pattern: str
+    required_words: Optional[list[str]] = field(default_factory=list[str])
+    
+@dataclass
 class MatchResult:
-    match_pattern: str
+    match_pattern: MatchPattern
     match_start: int
     match_end: int
     matched_text: str
@@ -45,7 +50,7 @@ class Draft:
     end_text: Optional[TextMark] = None
     sections: Optional[list[Section]] = field(default_factory=list[Section])
     full_text: Optional[str] = field(default_factory=str)
-    working_text:  Optional[str] = field(default_factory=str)
+    text_buffer: Optional[str] = field(default_factory=str)
     timestamp: float = field(default_factory=time.time)
     draft_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
@@ -74,14 +79,14 @@ def clean_text_with_mapping(text: str) -> tuple[str, list[int]]:
     return "".join(cleaned), mapping
 
 FIX_STOP_WORDS=True
-def match_first(patterns: list[str], text: str, ratio_min: float = 80.0) -> List[MatchResult]:
+def match_first(patterns: list[MatchPattern], text: str, ratio_min: float = 80.0) -> List[MatchResult]:
     """
     Sliding window fuzzy matcher to first match for any pattern above threshold.
     """
     cleaned_text, text_mapping = clean_text_with_mapping(text)
     results = []
-    for pattern in patterns:
-        cleaned_pattern, _ = clean_text_with_mapping(pattern)
+    for pattern_spec in patterns:
+        cleaned_pattern, _ = clean_text_with_mapping(pattern_spec.pattern)
         
         # Sliding window: Check substrings roughly pattern length + fuzz room
         pat_len = len(cleaned_pattern)
@@ -93,9 +98,30 @@ def match_first(patterns: list[str], text: str, ratio_min: float = 80.0) -> List
             if end > len(cleaned_text):
                 end = len(cleaned_text)
             sub = cleaned_text[start:end]
+
+            # if there are any required words, make sure they are present first
+            if len(pattern_spec.required_words) > 0:
+                any_failed = False
+                for word in pattern_spec.required_words:
+                    best_score = 0
+                    for subw in sub.split():
+                        score = fuzz.ratio(word, subw)
+                        best_score = max(score, best_score)
+                        if score >= 90:
+                            break
+                    if best_score < 90:
+                        # this generates a ton of messages because of the whole
+                        # window thing
+                        #logger.debug("%s required word '%s' low score %f in %s",
+                        #            pattern_spec.pattern, word, best_score, sub)
+                        any_failed = True
+                        break
+                if any_failed:
+                    continue
             
             alignment = fuzz.partial_ratio_alignment(cleaned_pattern, sub)
             if alignment.score >= ratio_min:
+                # now check for required words if any
                 # Alignment indices are relative to sub; adjust to full cleaned_text
                 abs_start = start + alignment.dest_start
                 abs_end = start + alignment.dest_end
@@ -103,7 +129,7 @@ def match_first(patterns: list[str], text: str, ratio_min: float = 80.0) -> List
                 orig_end = text_mapping[abs_end - 1] + 1 if abs_end > 0 else len(text)
                 matched_string = text[orig_start:orig_end]
                 result = MatchResult(
-                    match_pattern=pattern,
+                    match_pattern=pattern_spec,
                     match_start=orig_start,
                     match_end=orig_end,
                     matched_text=matched_string,
@@ -136,6 +162,7 @@ def match_first(patterns: list[str], text: str, ratio_min: float = 80.0) -> List
             if FIX_STOP_WORDS:
                 msplit = max_len_item.matched_text.lower().split()
                 first, last = msplit[0], msplit[-1]
+                pattern = max_len_item.match_pattern.pattern 
                 psplit = pattern.lower().split()
                 pfirst, plast = psplit[0], psplit[-1]
                 if first not in psplit or last not in psplit:
@@ -160,8 +187,13 @@ def match_first(patterns: list[str], text: str, ratio_min: float = 80.0) -> List
                     max_len_item.matched_text = text[new_start:new_end]
                     max_len_item.match_start = new_start
                     max_len_item.match_end = new_end
-        logger.debug("Returning result for pattern '%s' in patterns: '%s'",
-                     max_len_item.match_pattern, patterns)
+        logger.debug("Returning result %f for pattern '%s(%s)' found '%s' %d to %d",
+                     max_len_item.score,
+                     max_len_item.match_pattern.pattern,
+                     max_len_item.match_pattern.required_words,
+                     max_len_item.matched_text,
+                     max_len_item.match_start,
+                     max_len_item.match_end)
         return max_len_item
     return None
 
@@ -175,12 +207,12 @@ class DraftBuilder:
         self.section_start_patterns = []
         self.section_end_patterns = []
         self.current_section = None
-        self.roll_size = 500
+        self.roll_size = 100
 
-    def add_draft_start_pattern(self, pattern):
+    def add_draft_start_pattern(self, pattern: MatchPattern):
         self.draft_start_patterns.append(pattern)
 
-    def add_draft_end_pattern(self, pattern):
+    def add_draft_end_pattern(self, pattern: MatchPattern):
         self.draft_end_patterns.append(pattern)
 
     async def new_text(self, text):
@@ -195,59 +227,60 @@ class DraftBuilder:
         if len(self.working_text) > 0 and not self.working_text[-1].isspace():
             self.working_text += " "
         self.working_text += " ".join(text.split())
-        logger.debug("Adding %d bytes to working text, now %d long",
-                     len(text), len(self.working_text)) 
+        logger.debug("Adding %d bytes to working text, now '%s'",
+                     len(text), self.working_text) 
         patterns = self.draft_start_patterns + self.draft_end_patterns 
         patterns += self.section_start_patterns + self.section_end_patterns 
 
         last_draft = self.current_draft
         matched = match_first(patterns, self.working_text)
         if not matched:
-            logger.debug("No match in new text (plus buffer) %s", text)
-            if not self.current_draft and len(self.working_text) > self.roll_size:
+            logger.debug("No match in '%s'", self.working_text)
+            if len(self.working_text) > self.roll_size:
                 logger.debug("Rolled working text back to %d bytes", len(self.working_text))
                 self.working_text = self.working_text[-self.roll_size:]
-            return self.current_draft, last_draft
+            if self.current_draft:
+                self.current_draft.text_buffer += f"{text} "
+            return self.current_draft, last_draft if last_draft != self.current_draft else None
         if matched.match_pattern in self.draft_start_patterns:
             if not self.current_draft:
-                logger.debug("New draft starting (none current) on pattern %s", matched.match_pattern)
                 text_mark = TextMark(0, matched.match_end-matched.match_start,  matched.matched_text)
                 text_mark = TextMark(matched.match_start, matched.match_end, matched.matched_text)
-                self.current_draft = Draft(start_text=text_mark,
-                                           full_text=self.working_text[matched.match_start:matched.match_end])
-                self.working_text = self.working_text[matched.match_end:]
+                self.current_draft = Draft(start_text=text_mark)
+                self.working_text = ""
+                logger.debug("New draft starting (none current) on pattern %s, truncating working to %d",
+                             matched.match_pattern.pattern, len(self.working_text))
             else:
                 logger.debug("New draft starting (one already current) on pattern %s", matched.match_pattern)
-                end = len(self.working_text) - matched.match_start
-                end_mark = TextMark(end, end, "")
-                self.current_draft.end_text = end_mark
-                self.current_draft.full_text += self.working_text[:matched.match_start]
-                self.working_text = self.working_text[matched.match_start:]
                 end_of_new = matched.match_end-matched.match_start
-                text_mark = TextMark(0, end_of_new,  matched.matched_text)
-                self.current_draft = Draft(start_text=text_mark,
-                                           full_text=self.working_text[:end_of_new])
-                self.working_text = self.working_text[matched.match_end:]
+                end_mark = TextMark(0, end_of_new,  matched.matched_text)
+                self.current_draft.end_text = end_mark
+                self.current_draft.full_text = self.current_draft.text_buffer
+                self.current_draft.text_buffer = None
+                self.current_draft = Draft(start_text=text_mark)
+                self.working_text = ""
                 logger.debug("closed doc, working_text now %d long", len(self.working_text))
         elif matched.match_pattern in self.draft_end_patterns:
             if not self.current_draft:
-                logger.warning("Got end of draft signal when no current draft!")
+                self.working_text = ""
+                logger.warning("Got end of draft signal when no current draft! truncating working to %d",
+                               len(self.working_text))
             else:
                 logger.debug("Ending current draft on pattern %s", matched.match_pattern)
                 end_mark = TextMark(matched.match_start, matched.match_end, matched.matched_text)
                 self.current_draft.end_text = end_mark
-                self.current_draft.full_text += self.working_text[:matched.match_end]
-                self.working_text = self.working_text[matched.match_end:]
+                self.current_draft.full_text = self.current_draft.text_buffer
+                self.current_draft.text_buffer = None
+                self.working_text = ""
                 logger.debug("closed doc, working_text now %d long", len(self.working_text))
                 self.current_draft = None
-        return self.current_draft, last_draft
+        return self.current_draft, last_draft if last_draft != self.current_draft else None
 
     async def end_of_text(self):
         if self.current_draft:
             end = len(self.working_text)
             end_mark = TextMark(end, end, "")
             self.current_draft.end_text = end_mark
-            self.current_draft.full_text += self.working_text
             self.working_text = ""
             draft = self.current_draft
             self.current_draft = None
@@ -264,9 +297,9 @@ async def t_bounds():
     ]
     
     builder = DraftBuilder()
-    builder.add_draft_start_pattern("rupert wake up new document")
-    builder.add_draft_end_pattern("rupert stop close document")
-    builder.add_draft_end_pattern("rupert listen end document")
+    builder.add_draft_start_pattern(MatchPattern("rupert wake up new document"))
+    builder.add_draft_end_pattern(MatchPattern("rupert stop close document"))
+    builder.add_draft_end_pattern(MatchPattern("rupert listen end document"))
     
     current_draft = None
     drafts = {}

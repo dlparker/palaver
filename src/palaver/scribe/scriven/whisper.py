@@ -45,12 +45,13 @@ logger = logging.getLogger("WhisperWrapper")
 PRINTING = False
 class ScriveJob:
 
-    def __init__(self, job_id: int, data: np.ndarray, first_chunk: AudioChunkEvent, last_chunk:AudioChunkEvent):
+    def __init__(self, job_id: int, data: np.ndarray, first_chunk: AudioChunkEvent, last_chunk:AudioChunkEvent, initial_prompt:str = None):
         self.job_id = job_id
         self.data = data # numpy array
         self.done = False
         self.first_chunk = first_chunk # contains numpy array
         self.last_chunk = last_chunk # contains numpy array in 
+        self.initial_prompt = initial_prompt
         self.duration = None
         self.text_segments = []
 
@@ -67,9 +68,6 @@ class Worker:
         print(f"\nHave nvidia check\n {self.have_nvidia}\n\n")
         self.initial_prompt = INITIAL_PROMPT
 
-    def set_initial_prompt(self, prompt):
-        self.initial_prompt = INITIAL_PROMPT
-        
     def run(self):
         self.model = Model(str(self.model_path),
                            n_threads=8,
@@ -93,11 +91,15 @@ class Worker:
             logger.info("Worker starting job %d, %f seconds of sound",
                         job.job_id, job.last_chunk.timestamp-job.first_chunk.timestamp)
             start_time = time.time()
+            if job.initial_prompt is not None:
+                prompt = job.initial_prompt
+            else:
+                prompt = self.initial_prompt
             logger.info('using initial prompt %s', self.initial_prompt)
             self.model.transcribe(media=job.data,
                                   new_segment_callback=on_segment,
                                   single_segment=False,
-                                  initial_prompt=self.initial_prompt,
+                                  initial_prompt=prompt,
                                   )
             end_time = time.time()
             job.duration = end_time-start_time
@@ -170,6 +172,7 @@ class WhisperWrapper:
         self._job_id_counter = 0
         self._last_result_id = 0
         self._process = None
+        self._initial_prompt = INITIAL_PROMPT
         self._use_mp = use_mp
         if self._use_mp:
             self._job_queue = MPQueue()
@@ -189,6 +192,9 @@ class WhisperWrapper:
 
     def get_config(self):
         return dict(self._config)
+
+    def set_initial_prompt(self, prompt):
+        self._initial_prompt = prompt
 
     def sound_pending(self):
         if self._last_result_id < self._job_id_counter:
@@ -410,7 +416,8 @@ class WhisperWrapper:
         job =  ScriveJob(job_id=self._job_id_counter,
                          data=np.zeros(size, dtype=np.float32),
                          first_chunk = self._first_chunk,
-                         last_chunk = self._last_chunk)
+                         last_chunk = self._last_chunk,
+                         initial_prompt=self._initial_prompt)
         job.data[:] = self._buffer[:size]
         self._buffer_pos = 0
         self._first_chunk = None

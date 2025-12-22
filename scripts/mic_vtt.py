@@ -5,6 +5,7 @@ import asyncio
 from pathlib import Path
 
 from palaver.scribe.recorders.block_audio import BlockAudioRecorder
+from palaver.scribe.recorders.wav_recorder import WavAudioRecorder
 from palaver.scribe.audio.mic_listener import MicListener
 from palaver.scribe.core import PipelineConfig
 from script_utils import create_base_parser, validate_model_path, scribe_pipeline_context, run_with_error_handler
@@ -26,7 +27,14 @@ def create_parser():
         '--output-dir',
         type=Path,
         default=None,
-        help='Enable recording and save WAV file to this directory (disabled if not provided)'
+        help='Enable block recording to this directory (disabled if not provided)'
+    )
+
+    parser.add_argument(
+        '--wav','-w',
+        type=Path,
+        default=None,
+        help='Enable recording and save to this WAV file (disabled if not provided)'
     )
 
     return parser
@@ -54,6 +62,10 @@ def main():
         block_recorder = BlockAudioRecorder(args.output_dir)
         logger.info(f"Block recorder enabled: {args.output_dir}")
 
+    wav_recorder = None
+    if args.wav:
+        wav_recorder = WavAudioRecorder(args.wav)
+        logger.info(f"Wav recorder enabled: {args.wav}")
     try:
         async def main_task():
             # Create listener
@@ -68,9 +80,10 @@ def main():
                 use_multiprocessing=True,
                 block_recorder=block_recorder,
             )
-
             # Run pipeline with automatic context management
             async with scribe_pipeline_context(mic_listener, config) as pipeline:
+                if args.wav:
+                    pipeline.add_api_listener(wav_recorder)
                 await pipeline.start_listener()
                 try:
                     await pipeline.run_until_error_or_interrupt()

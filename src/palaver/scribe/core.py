@@ -203,7 +203,9 @@ class ScribePipeline:
         except (KeyboardInterrupt, asyncio.CancelledError):
             logger.info("Shutdown signal received")
             raise
-        
+
+    def prime_pump(self, initial_prompt):
+        self.whisper_tool.set_initial_prompt(initial_prompt)
         
     def set_background_error(self, error_dict):
         self.background_error = error_dict
