@@ -279,6 +279,8 @@ class DraftBuilder:
             end = len(self.working_text)
             end_mark = TextMark(end, end, "")
             self.current_draft.end_text = end_mark
+            self.current_draft.full_text = self.current_draft.text_buffer
+            self.current_draft.text_buffer = None
             self.working_text = ""
             draft = self.current_draft
             self.current_draft = None
