@@ -44,7 +44,7 @@ class APIWrapper(ScribeAPIListener):
             self.builder.add_draft_end_pattern(ep)
 
     async def on_pipeline_ready(self, pipeline):
-        if True:
+        if False:
             prompt = ""
             for sp in doc_start_patterns:
                 prompt += sp.pattern  + ". "
