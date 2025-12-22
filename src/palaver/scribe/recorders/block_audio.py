@@ -70,8 +70,6 @@ def pre_serialize_events(event_set):
     for event in event_set:
         if isinstance(event, DraftEvent):
             save_data = {'classname': str(event.__class__), 'properties': asdict(event)}
-            if event.text_event is not None:
-                save_data['properties']['text_event'] = {'classname': str(TextEvent), 'properties': asdict(event.text_event)}
             result.append(save_data)
         if not isinstance(event, AudioChunkEvent):
             result.append({'classname': str(event.__class__), 'properties': asdict(event)})
