@@ -42,7 +42,10 @@ default_draft_start_patterns = []
 default_draft_end_patterns = []
 
 for name in ['rupert', 'bubba', 'freddy', 'babbage']:
-    for doc_name in ["draft", "document"]:
+    pattern = f"{name} take this down now"
+    pat = MatchPattern(pattern, [name,])
+    default_draft_start_patterns.append(pat)
+    for doc_name in ["draft", "document", "paper"]:
         for preamble in ["", 'hey', 'wake up']:
             for start in ['start', 'begin', 'new']:
                 pattern = f"{preamble} {name} {start} {doc_name}"
