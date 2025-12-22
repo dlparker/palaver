@@ -3,7 +3,6 @@ import sys
 import logging
 from pathlib import Path
 
-from palaver.scribe.recorders.block_audio import BlockAudioRecorder
 from palaver.scribe.audio.file_listener import FileListener
 from palaver.scribe.core import PipelineConfig
 from script_utils import create_base_parser, validate_model_path, scribe_pipeline_context, run_with_error_handler
@@ -50,7 +49,7 @@ def main():
     args = parser.parse_args()
 
     setup_logging(default_level=args.log_level,
-                  info_loggers=[logger.name, 'BlockAudioRecorder', 'Commands'],
+                  info_loggers=[logger.name,],
                   debug_loggers=[],
                   more_loggers=[logger])
 
@@ -62,24 +61,17 @@ def main():
     if not args.file.exists():
         parser.error(f"Audio file does not exist: {args.file}")
 
-    # Create API wrapper with optional sound playback
-    api_wrapper = DefaultAPIWrapper(play_sound=args.play_sound)
 
-    # Setup block recorder if requested
-    block_recorder = None
+    # Setup draft recorder if requested
+    draft_recorder = None
     if args.output_dir:
         sim_timing = False
-        if sim_timing:
-            chunk_ring_seconds = 3
-        else:
-            # Note: There is something causing chunk events to get delayed
-            # in delivery to the block recorder when we playback a file at
-            # full data speed. This workaround uses a larger ring buffer.
-            # The operational modes will be more like a mic or streaming.
-            chunk_ring_seconds = 12
-        block_recorder = BlockAudioRecorder(args.output_dir, chunk_ring_seconds)
-        logger.info(f"Block recorder enabled: {args.output_dir}")
+        draft_recorder = DravfRecorder(args.output_dir)
+        logger.info(f"Draft recorder enabled: {args.output_dir}")
 
+    # Create API wrapper with optional sound playback
+    api_wrapper = DefaultAPIWrapper(draft_recorder=draft_recorder, play_sound=args.play_sound)
+    
     try:
         async def main_task():
             # Create listener
@@ -99,7 +91,6 @@ def main():
                 vad_silence_ms=3000,
                 vad_speech_pad_ms=1000,
                 seconds_per_scan=3,
-                block_recorder=block_recorder,
             )
 
             # Run pipeline with automatic context management

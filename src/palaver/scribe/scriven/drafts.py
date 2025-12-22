@@ -48,10 +48,21 @@ for name in ['rupert', 'bubba', 'freddy', 'babbage']:
                 pattern = f"{preamble} {name} {start} {doc_name}"
                 pat = MatchPattern(pattern, [name, doc_name, start])
                 default_draft_start_patterns.append(pat)
+                pattern = f"{preamble} {name} {start} {doc_name} now"
+                pat = MatchPattern(pattern, [name, doc_name, start])
+                default_draft_start_patterns.append(pat)
             for stop in ['stop', 'close', 'end']:
                 pattern = f"{preamble} {name} {stop} {doc_name}"
                 pat = MatchPattern(pattern, [name, doc_name, stop])
                 default_draft_end_patterns.append(pat)
+                pattern = f"{preamble} {name} {stop} {doc_name} now"
+                pat = MatchPattern(pattern, [name, doc_name, stop])
+                default_draft_end_patterns.append(pat)
+
+pat = MatchPattern("break break break")
+default_draft_end_patterns.append(pat)
+pat = MatchPattern("stop stop stop")
+default_draft_end_patterns.append(pat)
                 
 
     
@@ -303,14 +314,14 @@ class DraftMaker(TextEventListener, AudioEventListener):
         current_draft,last_draft = await self.builder.new_text(event.text)
         if last_draft:
             # closed a draft
-            new_event = DraftEndEvent(draft=last_draft, timestamp=event.timestamp)
+            new_event = DraftEndEvent(draft=last_draft, timestamp=event.audio_end_time)
             await self.emitter.emit(DraftEvent, new_event)
             self.current_draft = None
             if self.current_draft == last_draft:
                 self.current_draft = None
         if current_draft and self.current_draft is None:
             # new draft
-            new_event = DraftStartEvent(draft=current_draft, timestamp=event.timestamp)
+            new_event = DraftStartEvent(draft=current_draft, timestamp=event.audio_start_time)
             await self.emitter.emit(DraftEvent, new_event)
             self.current_draft = current_draft
             
@@ -324,6 +335,6 @@ class DraftMaker(TextEventListener, AudioEventListener):
     async def force_end(self):
         draft = await self.builder.end_of_text()
         if draft:
-            new_event = DraftEndEvent(draft=draft, timestamp=event.timestamp)
+            new_event = DraftEndEvent(draft=draft, timestamp=time.time())
             await self.emitter.emit(DraftEvent, new_event)
         

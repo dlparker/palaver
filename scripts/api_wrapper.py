@@ -18,7 +18,7 @@ logger = logging.getLogger("DefaultAPIWrapper")
 
 class DefaultAPIWrapper(ScribeAPIListener):
 
-    def __init__(self, play_sound: bool = False):
+    def __init__(self, draft_recorder = None, play_sound: bool = False):
         super().__init__()
         self.play_sound = play_sound
         self.full_text = ""
@@ -27,9 +27,11 @@ class DefaultAPIWrapper(ScribeAPIListener):
         self.last_block_name = None
         self.stream = None
         self.start_time = time.time()
+        self.draft_recorder = draft_recorder
 
     async def on_pipeline_ready(self, pipeline):
-        pass
+        if self.draft_recorder:
+            pipeline.add_api_listener(self.draft_recorder)
 
     async def on_pipeline_shutdown(self):
         pass

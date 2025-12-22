@@ -4,7 +4,7 @@ import logging
 import asyncio
 from pathlib import Path
 
-from palaver.scribe.recorders.block_audio import BlockAudioRecorder
+from palaver.scribe.recorders.draft_recorder import DraftRecorder
 from palaver.scribe.recorders.wav_recorder import WavAudioRecorder
 from palaver.scribe.audio.mic_listener import MicListener
 from palaver.scribe.core import PipelineConfig
@@ -27,7 +27,7 @@ def create_parser():
         '--output-dir',
         type=Path,
         default=None,
-        help='Enable block recording to this directory (disabled if not provided)'
+        help='Enable draft recording to this directory (disabled if not provided)'
     )
 
     parser.add_argument(
@@ -53,14 +53,14 @@ def main():
     # Validate model path
     validate_model_path(args, parser)
 
-    # Create API wrapper
-    api_wrapper = DefaultAPIWrapper()
-
-    # Setup block recorder if requested
-    block_recorder = None
+    # Setup draft recorder if requested
+    draft_recorder = None
     if args.output_dir:
-        block_recorder = BlockAudioRecorder(args.output_dir)
-        logger.info(f"Block recorder enabled: {args.output_dir}")
+        draft_recorder = DraftRecorder(args.output_dir)
+        logger.info(f"Draft recorder enabled: {args.output_dir}")
+
+    # Create API wrapper
+    api_wrapper = DefaultAPIWrapper(draft_recorder=draft_recorder)
 
     wav_recorder = None
     if args.wav:
@@ -78,7 +78,6 @@ def main():
                 target_samplerate=16000,
                 target_channels=1,
                 use_multiprocessing=True,
-                block_recorder=block_recorder,
             )
             # Run pipeline with automatic context management
             async with scribe_pipeline_context(mic_listener, config) as pipeline:

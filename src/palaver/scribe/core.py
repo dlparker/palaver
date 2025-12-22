@@ -40,9 +40,6 @@ class PipelineConfig:
     whisper_buffer_samples: Optional[int] = None
     seconds_per_scan: Optional[float] = None  # Alternative to buffer_samples
 
-    # Optional block recorder
-    block_recorder: Optional = None  # BlockAudioRecorder instance
-
     def __post_init__(self):
         """Validate configuration."""
         if self.whisper_buffer_samples is not None and self.seconds_per_scan is not None:
@@ -154,10 +151,6 @@ class ScribePipeline:
         self.add_api_listener(self._stream_monitor, to_merge=True)
         self.add_api_listener(self.config.api_listener, to_merge=True)
 
-        # Wire block recorder if provided
-        if self.config.block_recorder is not None:
-            self.add_api_listener(self.config.block_recorder, to_merge=True)
-            logger.info("BlockAudioRecorder wired to pipeline")
 
         self._pipeline_setup_complete = True
         logger.info("Pipeline setup complete")
@@ -276,7 +269,7 @@ class StreamMonitor(ScribeAPIListener):
     async def on_pipeline_shutdown(self):
         for block in self.blocks:
             if isinstance(block.start_event, DraftStartEvent) and not block.finalized:
-                await self.core.command_dispatch.force_end()
+                await self.core.draft_maker.force_end()
 
     async def check_done(self, dump=False, why="check"):
         if dump:

@@ -38,7 +38,7 @@ def check_if_nvidia():
         return True
     return False
 
-INITIAL_PROMPT = "Rupert, Freddy, Bubba, Babbage"
+INITIAL_PROMPT = "Rupert, Freddy, Bubba, Babbage, draft, close"
 
 logger = logging.getLogger("WhisperWrapper")
 PRINTING = False
