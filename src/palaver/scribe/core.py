@@ -14,6 +14,7 @@ from palaver.scribe.audio.audio_merge import AudioMerge
 from palaver.scribe.audio_events import AudioEvent, AudioStopEvent, AudioSpeechStartEvent, AudioSpeechStopEvent 
 from palaver.scribe.scriven.whisper import WhisperWrapper
 from palaver.scribe.scriven.wire_commands import CommandDispatch
+from palaver.scribe.scriven.drafts import DraftMaker
 from palaver.scribe.command_events import ScribeCommandEvent, CommandEventListener
 from palaver.scribe.text_events import TextEventListener, TextEvent
 from palaver.scribe.api import ScribeAPIListener
@@ -74,6 +75,7 @@ class ScribePipeline:
         self.vadfilter: Optional[VADFilter] = None
         self.whisper_tool: Optional[WhisperWrapper] = None
         self.command_dispatch: Optional[CommandDispatch]  = None
+        self.draft_maker: Optional[DraftMaker]  = None
         self.audio_merge = None
         self.wav_recorder = None
         self.text_logger = None
@@ -100,6 +102,7 @@ class ScribePipeline:
             self.listener.add_event_listener(api_listener)
         self.whisper_tool.add_text_event_listener(api_listener)
         self.command_dispatch.add_event_listener(api_listener)
+        self.draft_maker.add_event_listener(api_listener)
         self._api_listeners.append(api_listener)
         
     async def setup_pipeline(self):
@@ -136,9 +139,15 @@ class ScribePipeline:
         self.command_dispatch = CommandDispatch(require_alerts=self.config.require_command_alerts)
         for patterns, command in default_commands:
             self.command_dispatch.register_command(command, patterns)
-        # Attach the command listener
+        # Attach to the text listener
         self.whisper_tool.add_text_event_listener(self.command_dispatch)
 
+        self.draft_maker = DraftMaker()
+        # Attach to the text listener
+        self.whisper_tool.add_text_event_listener(self.draft_maker)
+        # Attach to the audio listener
+        self.listener.add_event_listener(self.draft_maker)
+        
         # Apply VAD configuration from PipelineConfig
         self.vadfilter.reset(
             silence_ms=self.config.vad_silence_ms,

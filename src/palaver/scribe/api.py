@@ -2,11 +2,14 @@ from dataclasses import dataclass
 from palaver.scribe.audio_events import AudioEvent, AudioEventListener, AudioChunkEvent
 from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.command_events import ScribeCommandEvent, CommandEventListener, ScribeCommand
+from palaver.scribe.draft_events import DraftEvent, DraftEventListener
 
 
 class ScribeAPIListener(AudioEventListener,
                         TextEventListener,
-                        CommandEventListener):
+                        CommandEventListener,
+                        DraftEventListener
+                        ):
 
     def __init__(self, split_audio=False, split_vad_audio=False):
         self.split_audio = split_audio
@@ -19,6 +22,9 @@ class ScribeAPIListener(AudioEventListener,
         pass
     
     async def on_command_event(self, event:ScribeCommandEvent):
+        pass
+
+    async def on_draft_event(self, event:DraftEvent):
         pass
 
     async def on_text_event(self, event: TextEvent):

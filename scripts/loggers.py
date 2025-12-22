@@ -62,11 +62,9 @@ def get_loggers():
     res.append(logging.getLogger("FileListener"))
     res.append(logging.getLogger("AudioMerge"))
     res.append(logging.getLogger("MicListener"))
-    res.append(logging.getLogger("MQTTPublisher"))
     res.append(logging.getLogger("BlockAudioRecorder"))
     res.append(logging.getLogger("Commands"))
+    res.append(logging.getLogger("DraftMaker"))
     res.append(logging.getLogger("WhisperWrapper"))
     res.append(logging.getLogger("ScribeCore"))
-    res.append(logging.getLogger("MicServer"))
-    res.append(logging.getLogger("PlaybackServer"))
     return res
