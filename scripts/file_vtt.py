@@ -15,7 +15,7 @@ logger = logging.getLogger("ScribePlayback")
 
 def create_parser():
     """Create the argument parser for file playback."""
-    default_model = Path("models/ggml-medium.en.bin")
+    default_model = Path("models/ggml-base.en.bin")
     parser = create_base_parser(
         'Scribe Playback - Audio transcription from file',
         default_model
