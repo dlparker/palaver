@@ -18,6 +18,8 @@ from sounder import play_signal_sound
 logger = logging.getLogger("MatchTester")
 
 doc_start_patterns = [
+    MatchPattern("rupert start draft", ['rupert', 'draft', 'start']),
+    MatchPattern("wake up rupert start draft", ['rupert', 'draft', 'start']),
     MatchPattern("wake up rupert new document", ['rupert', 'document', 'new']),
     MatchPattern("wake up rupert new draft", ['rupert', 'draft', 'new']),
     MatchPattern("rupert wake up new document",['rupert','documentt', 'new']),
