@@ -21,8 +21,7 @@ from palaver.scribe.audio_events import (
 )
 from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.api import ScribeAPIListener
-from palaver.scribe.command_events import ScribeCommandEvent
-from palaver.scribe.api import StartBlockCommand, StopBlockCommand
+from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent
 
 logger = logging.getLogger("BlockAudioRecorder")
 @dataclass
@@ -48,10 +47,10 @@ class TextBlock:
     channels: Optional[int] = None
     timestamp: float = field(default_factory=time.time)
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    events: list[AudioEvent | TextEvent | ScribeCommandEvent] =   field(
-        default_factory=list[AudioEvent | TextEvent | ScribeCommandEvent])
-    meta_events: list[AudioEvent | TextEvent | ScribeCommandEvent] =   field(
-        default_factory=list[AudioEvent | TextEvent | ScribeCommandEvent])
+    events: list[AudioEvent | TextEvent | DraftEvent] =   field(
+        default_factory=list[AudioEvent | TextEvent | DraftEvent])
+    meta_events: list[AudioEvent | TextEvent | DraftEvent] =   field(
+        default_factory=list[AudioEvent | TextEvent | DraftEvent])
 
 
 class NpEncoder(json.JSONEncoder):
@@ -158,14 +157,13 @@ class BlockAudioRecorder(ScribeAPIListener):
     def get_last_block(self):
         return self._last_block
     
-    async def on_command_event(self, event:ScribeCommandEvent):
-        command = event.command
-        if isinstance(command, StartBlockCommand) or isinstance(command, StopBlockCommand):
+    async def on_draft_event(self, event:DraftEvent):
+        if isinstance(event, DraftStartEvent) or isinstance(event, DraftEndEvent):
             self._last_block = self._current_block
             await self._save_block()
             await self._close_block()
             self._full_text = ""
-        if isinstance(command, StartBlockCommand):
+        if isinstance(event, DraftStartEvent):
             self.make_new_block(event)
             if self._last_speech_start_event:
                 self._current_block.events.append(self._last_speech_start_event)
