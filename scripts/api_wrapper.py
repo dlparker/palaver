@@ -42,7 +42,7 @@ class DefaultAPIWrapper(ScribeAPIListener):
             print(f"\n\n{et:7.4}: New draft\n\n")
             self.current_draft = event.draft
         if isinstance(event, DraftEndEvent):
-            print(f"\n\n{et:7.4}Finihsed draft\n\n")
+            print(f"\n\n{et:7.4} Finished draft\n\n")
             self.current_draft = None
             print('-'*100)
             print(event.draft.full_text)

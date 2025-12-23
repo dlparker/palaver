@@ -34,6 +34,13 @@ def create_parser():
     )
 
     parser.add_argument(
+        '--rescan-path',
+        type=Path,
+        default=None,
+        help='Rescan the selected file using longer windows'
+    )
+
+    parser.add_argument(
         'file',
         type=Path,
         nargs='?',
@@ -53,14 +60,28 @@ def main():
                   debug_loggers=[],
                   more_loggers=[logger])
 
-    # Validate paths
-    validate_model_path(args, parser)
 
-    if not args.file:
-        parser.error("Audio file argument is required")
-    if not args.file.exists():
+    seconds_per_scan = 2
+    if not args.file and not args.rescan_path:
+        parser.error("Audio file argument is required or --rescan-path")
+        
+    if args.file and args.rescan_path:
+        parser.error("Choose one ,--rescan-path or file argument")
+    if args.file and not args.file.exists():
         parser.error(f"Audio file does not exist: {args.file}")
+    if args.rescan_path and not args.rescan_path.exists():
+        parser.error(f"Rescan path  does not exist: {args.rescan_path}")
+    if args.rescan_path:
+        filepath = args.rescan_path
+        model = Path("models/multilang_whisper_large3_turbo.ggml")
+        print(f"rescan forcing model to {model}")
+        seconds_per_scan = 15
+    else:
+        filepath = args.file
+        model = args.model
 
+    if not model.exists():
+        parser.error(f"Model file does not exist: {model}")
 
     # Setup draft recorder if requested
     draft_recorder = None
@@ -76,21 +97,21 @@ def main():
         async def main_task():
             # Create listener
             file_listener = FileListener(
-                audio_file=args.file,
+                audio_file=filepath,
                 chunk_duration=0.03,
                 simulate_timing=False,
             )
 
             # Create pipeline config with playback-specific settings
             config = PipelineConfig(
-                model_path=args.model,
+                model_path=model,
                 api_listener=api_wrapper,
                 target_samplerate=16000,
                 target_channels=1,
                 use_multiprocessing=True,
                 vad_silence_ms=3000,
                 vad_speech_pad_ms=1000,
-                seconds_per_scan=3,
+                seconds_per_scan=seconds_per_scan,
             )
 
             # Run pipeline with automatic context management

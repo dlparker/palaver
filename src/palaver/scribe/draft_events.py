@@ -27,7 +27,6 @@ class Draft:
     end_text: Optional[TextMark] = None
     sections: Optional[list[Section]] = field(default_factory=list[Section])
     full_text: Optional[str] = field(default_factory=str)
-    text_buffer: Optional[str] = field(default_factory=str)
     timestamp: float = field(default_factory=time.time)
     draft_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
