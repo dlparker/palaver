@@ -33,7 +33,7 @@ from palaver.scribe.audio_events import (AudioEvent,
                                          )
 from palaver.utils.top_error import TopErrorHandler, TopLevelCallback
 from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent, Draft
-from palaver.scribe.recorders.draft_recorder import DraftRecorder
+from palaver.scribe.recorders.sql_drafts import SQLDraftRecorder
 from palaver.scribe.text_events import TextEvent
 from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.audio.mic_listener import MicListener
@@ -246,7 +246,7 @@ async def test_process_note1_mic_mock():
                 seconds_per_scan=2,
             )
 
-            draft_recorder = DraftRecorder(recorder_dir)
+            draft_recorder = SQLDraftRecorder(recorder_dir)
             logger.info(f"Draft recorder enabled: {recorder_dir}")
             # Run pipeline with automatic context management
             async with mic_listener:

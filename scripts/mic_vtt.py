@@ -4,7 +4,7 @@ import logging
 import asyncio
 from pathlib import Path
 
-from palaver.scribe.recorders.draft_recorder import DraftRecorder
+from palaver.scribe.recorders.sql_drafts import SQLDraftRecorder
 from palaver.scribe.recorders.wav_recorder import WavAudioRecorder
 from palaver.scribe.audio.mic_listener import MicListener
 from palaver.scribe.core import PipelineConfig
@@ -56,7 +56,7 @@ def main():
     # Setup draft recorder if requested
     draft_recorder = None
     if args.output_dir:
-        draft_recorder = DraftRecorder(args.output_dir)
+        draft_recorder = SQLDraftRecorder(args.output_dir)
         logger.info(f"Draft recorder enabled: {args.output_dir}")
 
     # Create API wrapper

@@ -23,6 +23,7 @@ class DraftRecord(SQLModel, table=True):
     __tablename__ = "drafts"
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    draft_id: str = Field(index=True)  # UUID for draft lookup
     timestamp: float  # Original draft timestamp
     full_text: str
     classname: str
@@ -177,6 +178,7 @@ class SQLDraftRecorder(ScribeAPIListener):
         with Session(self._engine) as session:
             # Create draft record
             draft_record = DraftRecord(
+                draft_id=str(self._current_draft.draft_id),
                 timestamp=self._current_draft.timestamp,
                 full_text=self._current_draft.full_text,
                 classname=str(self._current_draft.__class__),
@@ -211,6 +213,13 @@ class SQLDraftRecorder(ScribeAPIListener):
             return list(session.exec(statement).all())
 
     def get_draft_by_id(self, draft_id: int) -> Optional[DraftRecord]:
-        """Get a specific draft with its events"""
+        """Get a specific draft by database ID"""
         with Session(self._engine) as session:
             return session.get(DraftRecord, draft_id)
+
+    def get_draft_by_uuid(self, draft_uuid: str) -> Optional[DraftRecord]:
+        """Get a specific draft by its draft_id (UUID)"""
+        with Session(self._engine) as session:
+            from sqlmodel import select
+            statement = select(DraftRecord).where(DraftRecord.draft_id == draft_uuid)
+            return session.exec(statement).first()

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from palaver.scribe.audio.file_listener import FileListener
 from palaver.scribe.core import PipelineConfig
+from palaver.scribe.recorders.sql_drafts import SQLDraftRecorder
 from script_utils import create_base_parser, validate_model_path, scribe_pipeline_context, run_with_error_handler
 from loggers import setup_logging
 from api_wrapper import DefaultAPIWrapper
@@ -87,7 +88,7 @@ def main():
     draft_recorder = None
     if args.output_dir:
         sim_timing = False
-        draft_recorder = DravfRecorder(args.output_dir)
+        draft_recorder = SQLDraftRecorder(args.output_dir)
         logger.info(f"Draft recorder enabled: {args.output_dir}")
 
     # Create API wrapper with optional sound playback
