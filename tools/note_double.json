@@ -1,10 +1,10 @@
 {
   "segments": [
-      {"text": "Wake up! Rupert! start, draft, now", "silence_after": 1.0},
+      {"text": "Wake up! Rupert! start start, draft, now", "silence_after": 1.0},
       {"text": "This is the body of the first note", "silence_after": 1.0},
-      {"text": "Rupert! break!", "silence_after": 1.0},
+      {"text": "Rupert! break! break!", "silence_after": 1.0},
       {"text": "hey Freddy! start, draft, now", "silence_after": 1.0},
       {"text": "This is the body of the second note", "silence_after": 1.0},
-      {"text": "Freddy! stop!", "silence_after": 1.0}
+      {"text": "Freddy! stop! break! break!", "silence_after": 1.0}
   ]
 }
