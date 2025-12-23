@@ -57,7 +57,7 @@ def main():
 
     setup_logging(default_level=args.log_level,
                   info_loggers=[logger.name,],
-                  debug_loggers=[],
+                  debug_loggers=['DraftMaker' ],
                   more_loggers=[logger])
 
 

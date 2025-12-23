@@ -69,7 +69,7 @@ class VADFilter(AudioEventListener):
         self._silence_ms = silence_ms
         self._threshold = threshold
         self._speech_pad_ms = speech_pad_ms
-        logger.info(f"[DEBUG] Creating VAD: silence_threshold={silence_ms}ms, vad_threshold={threshold}")
+        logger.info(f"Creating VAD: silence_threshold={silence_ms}ms, vad_threshold={threshold}")
         vad = VADIterator(
             _vad_model,
             threshold=self._threshold,
@@ -90,7 +90,7 @@ class VADFilter(AudioEventListener):
                                                 last_in_speech_chunk_time=end_time,
                                                 )
                 await self.emitter.emit(AudioEvent, my_event)
-                logger.debug("[Speech end on audio end] %s", my_event)
+                logger.info("[Speech end on audio end] %s", my_event)
             event.in_speech = self._in_speech
             await self.emitter.emit(AudioEvent, event)
             return

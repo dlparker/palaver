@@ -7,7 +7,7 @@ from palaver.scribe.draft_events import DraftEvent, DraftEventListener
 class ScribeAPIListener(AudioEventListener,
                         TextEventListener,
                         DraftEventListener
-                        ):
+                        ):  # pragma: no cover
 
     def __init__(self, split_audio=False, split_vad_audio=False):
         self.split_audio = split_audio

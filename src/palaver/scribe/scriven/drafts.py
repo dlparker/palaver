@@ -12,6 +12,7 @@ import uuid
 
 from eventemitter import AsyncIOEventEmitter
 from rapidfuzz import fuzz
+from palaver.utils.top_error import get_error_handler
 from palaver.scribe.audio_events import AudioEvent, AudioStopEvent, AudioEventListener
 from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.draft_events import (DraftEvent,
@@ -44,6 +45,18 @@ for name in ['rupert', 'bubba', 'freddy', 'babbage']:
     pattern = f"{name} take this down now"
     pat = MatchPattern(pattern, [name,])
     default_draft_start_patterns.append(pat)
+    pattern = f"{name} break"
+    pat = MatchPattern(pattern, [name, 'break'])
+    default_draft_end_patterns.append(pat)
+    pattern = f"{name} great"
+    pat = MatchPattern(pattern, [name,'great'])
+    default_draft_end_patterns.append(pat)
+    pattern = f"{name} stop"
+    pat = MatchPattern(pattern, [name, 'stop'])
+    default_draft_end_patterns.append(pat)
+    pattern = f"{name} stop now"
+    pat = MatchPattern(pattern, [name,'stop'])
+    default_draft_end_patterns.append(pat)
     for doc_name in ["draft", "document", "paper"]:
         for preamble in ["", 'hey ', 'wake up ']:
             for glue in ['', 'a ', 'the ', 'uh ']:
@@ -67,6 +80,8 @@ for name in ['rupert', 'bubba', 'freddy', 'babbage']:
 
 pat = MatchPattern("break break break")
 default_draft_end_patterns.append(pat)
+pat = MatchPattern("great great great")
+default_draft_end_patterns.append(pat)
 pat = MatchPattern("stop stop stop")
 default_draft_end_patterns.append(pat)
                 
@@ -87,127 +102,6 @@ def clean_text_with_mapping(text: str) -> tuple[str, list[int]]:
             mapping.append(i)  # Record original index
     return "".join(cleaned), mapping
 
-FIX_STOP_WORDS=True
-def match_first(patterns: list[MatchPattern], text: str, ratio_min: float = 80.0) -> List[MatchResult]:
-    """
-    Sliding window fuzzy matcher to first match for any pattern above threshold.
-    """
-    cleaned_text, text_mapping = clean_text_with_mapping(text)
-    results = []
-    for pattern_spec in patterns:
-        cleaned_pattern, _ = clean_text_with_mapping(pattern_spec.pattern)
-        
-        # Sliding window: Check substrings roughly pattern length + fuzz room
-        pat_len = len(cleaned_pattern)
-        best_results = []  # Collect all above threshold for this pattern
-        
-        for start in range(len(cleaned_text) - pat_len + 1):
-            # Window slightly larger than pattern for fuzz
-            end = start + pat_len + 10  # Padding for inserts/deletes
-            if end > len(cleaned_text):
-                end = len(cleaned_text)
-            sub = cleaned_text[start:end]
-
-            # if there are any required words, make sure they are present first
-            if len(pattern_spec.required_words) > 0:
-                any_failed = False
-                for word in pattern_spec.required_words:
-                    best_score = 0
-                    for subw in sub.split():
-                        score = fuzz.ratio(word, subw)
-                        best_score = max(score, best_score)
-                        if score >= 80:
-                            break
-                    if best_score < 80:
-                        # this generates a ton of messages because of the whole
-                        # window thing
-                        #if word in ["rupert", "start", "draft"]:
-                            #logger.debug("%s required word '%s' low score %f in %s",
-                             #            pattern_spec.pattern, word, best_score, sub)
-                        any_failed = True
-                        break
-                if any_failed:
-                    continue
-            
-            alignment = fuzz.partial_ratio_alignment(cleaned_pattern, sub)
-            if alignment.score >= ratio_min:
-                # now check for required words if any
-                # Alignment indices are relative to sub; adjust to full cleaned_text
-                abs_start = start + alignment.dest_start
-                abs_end = start + alignment.dest_end
-                orig_start = text_mapping[abs_start] if abs_start < len(text_mapping) else len(text)
-                orig_end = text_mapping[abs_end - 1] + 1 if abs_end > 0 else len(text)
-                matched_string = text[orig_start:orig_end]
-                result = MatchResult(
-                    match_pattern=pattern_spec,
-                    match_start=orig_start,
-                    match_end=orig_end,
-                    matched_text=matched_string,
-                    score=alignment.score
-                )
-                best_results.append(result)
-        
-        if best_results:
-            best_results.sort(key=lambda r: r.match_start)
-            results.extend(best_results)
-    
-    if results:
-        # find the one that starts first and is longest
-
-        results.sort(key=lambda r: r.match_start)
-        start_pos = results[0].match_start
-        max_len_item = None
-        for item in results:
-            if item.match_start > start_pos:
-                continue
-            if max_len_item is None:
-                max_len_item = item
-            elif item.match_end > max_len_item.match_end:
-                max_len_item = item
-            
-            # The matched string can be off, as the alignment dodad does not
-            # work like you'd think, so we need to do some addition checks and maybe
-            # adjustments. The code here may fix things that happen when your input
-            # string includes an "a" or a "the", or a "uh"
-            if FIX_STOP_WORDS:
-                msplit = max_len_item.matched_text.lower().split()
-                first, last = msplit[0], msplit[-1]
-                pattern = max_len_item.match_pattern.pattern 
-                psplit = pattern.lower().split()
-                pfirst, plast = psplit[0], psplit[-1]
-                if first not in psplit or last not in psplit:
-                    new_start = orig_start
-                    new_end = orig_end
-                    if first not in pattern.lower():
-                        if first in pfirst:
-                            pos = orig_start - len(pfirst)
-                            try:
-                                index = text[pos:].find(pfirst)
-                                new_start = pos + index
-                            except ValueError:
-                                pass
-                    if last not in pattern.lower():
-                        if last in plast:
-                            new_sub = text[new_start:]
-                            try:
-                                index = new_sub.find(plast)
-                                new_end = index + len(plast)
-                            except ValueError:
-                                pass
-                    max_len_item.matched_text = text[new_start:new_end]
-                    max_len_item.match_start = new_start
-                    max_len_item.match_end = new_end
-        logger.debug("Returning result %f for pattern '%s(%s)' found '%s' %d to %d",
-                     max_len_item.score,
-                     max_len_item.match_pattern.pattern,
-                     max_len_item.match_pattern.required_words,
-                     max_len_item.matched_text,
-                     max_len_item.match_start,
-                     max_len_item.match_end)
-        return max_len_item
-    return None
-
-FIX_STOP_WORDS=True
 def match_first(patterns: list[MatchPattern], text: str, ratio_min: float = 85.0) -> list[MatchResult]:
     results = []
     cleaned_text, text_mapping = clean_text_with_mapping(text)
@@ -386,10 +280,13 @@ class DraftBuilder:
 
     async def end_of_text(self):
         if self.current_draft:
+            logger.debug("Ending current draft on call to end_of_text")
             end = len(self.working_text)
             end_mark = TextMark(end, end, "")
             self.current_draft.end_text = end_mark
             self.current_draft.full_text = self.draft_text
+            if self.current_draft.full_text.strip()  == '':
+                self.current_draft.full_text = self.working_text
             draft = self.current_draft
             self.current_draft = None
             return draft
@@ -437,15 +334,12 @@ class DraftMaker(TextEventListener, AudioEventListener):
             await self.handle_text_event(event, '')
             
     async def on_audio_event(self, event: AudioEvent):
-        if isinstance(event, AudioStopEvent):
-            draft = await self.builder.end_of_text()
-            if draft:
-                new_event = DraftEndEvent(draft=draft, timestamp=event.timestamp)
-                await self.emitter.emit(DraftEvent, new_event)
-
+        pass
+    
     async def force_end(self):
         draft = await self.builder.end_of_text()
         if draft:
             new_event = DraftEndEvent(draft=draft, timestamp=time.time())
             await self.emitter.emit(DraftEvent, new_event)
+            logger.info("Emitted draft end on force_end")
         

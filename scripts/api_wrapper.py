@@ -37,12 +37,13 @@ class DefaultAPIWrapper(ScribeAPIListener):
         pass
 
     async def on_draft_event(self, event: DraftEvent):
-        et = time.time() - self.start_time
+        now = time.time() 
+        et = now - self.start_time
         if isinstance(event, DraftStartEvent):
-            print(f"\n\n{et:7.4}: New draft\n\n")
+            print(f"\n\n{now} - {et:7.4}: New draft\n\n")
             self.current_draft = event.draft
         if isinstance(event, DraftEndEvent):
-            print(f"\n\n{et:7.4} Finished draft\n\n")
+            print(f"\n\n{now} - {et:7.4} Finished draft\n\n")
             self.current_draft = None
             print('-'*100)
             print(event.draft.full_text)
@@ -50,9 +51,10 @@ class DefaultAPIWrapper(ScribeAPIListener):
             
     async def on_text_event(self, event: TextEvent):
         """Called when new transcribed text is available."""
-        et = time.time() - self.start_time
-        print(f"-------- Text at {et:7.4f} -------")
-        print(f"{et:7.4f}: {event.text}")
+        now = time.time() 
+        et = now - self.start_time
+        print(f"-------- Text at {et:7.4f} - {now} -------")
+        print(f"{now} - {et:7.4f}: {event.text}")
 
     async def on_audio_event(self, event: AudioEvent):
         """Handle audio events - optionally play sound and finalize blocks."""

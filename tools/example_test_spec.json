@@ -1,7 +1,7 @@
 {
   "segments": [
-      {"text": "Wake up! Rupert! start, draft, now", "silence_after": 1.0},
+      {"text": "Hey Rupert! start start, draft, now", "silence_after": 1.0},
       {"text": "This is the body of the note", "silence_after": 1.0},
-      {"text": "break break break", "silence_after": 1.0}
+      {"text": "Rupert! stop! break! break! break!", "silence_after": 1.0}
   ]
 }

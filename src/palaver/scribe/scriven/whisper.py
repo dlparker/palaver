@@ -187,6 +187,7 @@ class WhisperWrapper:
         self._worker_task = None
         self._sender_task = None
         self._error_task = None
+        self._audio_stop_event = None
         self._emitter = AsyncIOEventEmitter()
 
     def get_config(self):
@@ -196,14 +197,12 @@ class WhisperWrapper:
         self._initial_prompt = prompt
 
     def sound_pending(self):
-        if self._last_result_id < self._job_id_counter:
-            return True
-        if self._buffer_pos > 0:
+        if self._last_result_id < self._job_id_counter or self._buffer_pos > 0:
             return True
         return False
 
     async def flush_pending(self, wait_for_result=True, timeout=10.0):
-        if self._buffer_pos == 0 and self._last_result_id == self._job_id_counter:
+        if self._buffer_pos == 0:
             return False
         last_result = self._last_result_id
         last_job = self._job_id_counter
@@ -226,23 +225,6 @@ class WhisperWrapper:
             raise Exception("cannot do that when worker running")
         self._config['buffer_samples'] = new_samples
         self._buffer = np.zeros(new_samples, dtype=np.float32)
-        
-    async def update_config(self, new_config):
-        if new_config['model_path'] != self._model_path:
-            if self._worker_running:
-                raise Exception("dynmaic model change not yet implemented")
-            self._config['model_path'] = self._model_path = new_config['model_path']
-        if new_config['buffer_samples'] != self._config['buffer_samples']:
-            if self._worker_running:
-                raise Exception("dynmaic buffer size change yet implemented")
-            self._config['buffer_samples'] = new_config['buffer_samples']
-        if new_config['pre_buffer_seconds'] != self._config['pre_buffer_seconds']:
-            if self._worker_running:
-                raise Exception("dynmaic pre_buffer size change yet implemented")
-            self._config['pre_buffer_seconds'] = new_config['pre_buffer_seconds']
-        if new_config['require_speech'] != self._config['require_speech'] and self._worker_running:
-            self._config['require_speech'] = new_config['require_speech']
-            await self.set_in_speech(new_config['require_speech'])
         
     async def start(self):
         if self._config['pre_buffer_seconds']  > 0:
@@ -366,6 +348,10 @@ class WhisperWrapper:
         if isinstance(event, AudioSpeechStartEvent):
             await self.set_in_speech(True)
         elif isinstance(event, AudioSpeechStopEvent):
+            if self._last_chunk:
+                logger.info("End of speech %s should push, last chunk is %s", event, self._last_chunk)
+            else:
+                logger.info("End of speech %s no push, last chunk is None", event)
             await self.set_in_speech(False) # does push if needed
         elif isinstance(event, AudioChunkEvent) and not self._in_speech and self._pre_buffer is not None:
             self._pre_buffer.add(event)
@@ -379,6 +365,8 @@ class WhisperWrapper:
                     await self._handle_chunk(pre_event)
             await self._handle_chunk(event)
         elif isinstance(event, AudioStopEvent):
+            logger.info("End of audio %s last chunk is %s", event, self._last_chunk)
+            self._audio_stop_event = event
             await self.set_in_speech(False) # does push if needed
         
     def add_text_event_listener(self, e_listener: TextEventListener) -> None:
@@ -422,6 +410,7 @@ class WhisperWrapper:
         self._first_chunk = None
         self._last_chunk = None
         self._job_queue.put_nowait(job)
+        logger.info("pushed job %d, %d pending", job.job_id, job.job_id-self._last_result_id)
         
     async def _sender(self):
         # this is wrapped in an error handler when created, so just let
@@ -435,8 +424,9 @@ class WhisperWrapper:
             if self._result_queue.qsize() > 0:                
                 job = self._result_queue.get()
                 self._last_result_id = job.job_id
-                logger.info("Dequeued finished job %d in %f seconds with segment count %d",
-                            job.job_id, job.duration, len(job.text_segments))
+                logger.info("Dequeued finished job %d in %f seconds with segment count %d, %d jobs pending",
+                            job.job_id, job.duration, len(job.text_segments),
+                            self._job_id_counter - 1 - self._last_result_id)
                 if len(job.text_segments) == 1 and job.text_segments[0].text == "[BLANK_AUDIO]":
                     logger.info("\n-- blank segment ---\n")
                 elif len(job.text_segments) > 0:

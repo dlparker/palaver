@@ -170,21 +170,23 @@ class ScribePipeline:
             while True:
                 await asyncio.sleep(0.01)
                 if await self._stream_monitor.check_done():
-                    print('\n\n!!!!!!!!!!!!!!!!!!!! input done !!!!!!!!!!!!!!!!!!!\n\n')
+                    print(f'\n!!!!!!!!!!!!!!!!!!!! {time.time()}: input done !!!!!!!!!!!!!!!!!!!\n')
                     await asyncio.sleep(0.01)
                     busy = self.whisper_tool.sound_pending()
                     if busy:
-                        print('\n\n\n!!!!!!!!!!!!!!!!!!!! Whisper NOT done, waiting !!!!!!!!!!!!!!!!!!!\n\n')
+                        print(f'\n!!!!!!!!!!!!!!!!!!!! {time.time()}: Whisper NOT done, waiting !!!!!!!!!!!!!!!!!!!\n')
                     max_wait = 60
                     start_time = time.time()
+                    await self.whisper_tool.flush_pending()
+                    busy = self.whisper_tool.sound_pending()
                     while busy and time.time() - start_time < max_wait:
                         await asyncio.sleep(0.01)
                         busy = self.whisper_tool.sound_pending()
                     if busy:
                         logger.error(f"Whisper failed to complete pending audio in {max_wait} seconds")
                         raise Exception(f"Whisper failed to complete pending audio in {max_wait} seconds")
-                    await self.draft_maker.force_end()
-                    print('\n\n\n!!!!!!!!!!!!!!!!!!!! Starting shutdown !!!!!!!!!!!!!!!!!!!\n\n')
+                    await asyncio.sleep(0.1)
+                    print(f'\n!!!!!!!!!!!!!!!!!!!! {time.time()}: Starting shutdown !!!!!!!!!!!!!!!!!!!\n')
                     await self.shutdown()
                     break
                 if self.background_error:
@@ -257,7 +259,7 @@ class StreamMonitor(ScribeAPIListener):
         self.last_text = None
         self.all_done = False
         self.last_chunk = None
-        self.in_block_event = None
+        self.in_draft_event = None
         self.auto_dump = False
         self.blocks = []
 
@@ -272,13 +274,13 @@ class StreamMonitor(ScribeAPIListener):
             if isinstance(block.start_event, DraftStartEvent) and not block.finalized:
                 await self.core.draft_maker.force_end()
 
-    async def check_done(self, dump=False, why="check"):
+    async def check_done(self, dump=False, why="check"): # pragma: no cover
         if dump:
             from pprint import pformat
             print("----- DUMP DUMP DUMP DUMP DUMP ---------------")
             print(f"reason: {why}")
         # everything good case is
-        if self.audio_stop and self.in_block_event is None:
+        if self.audio_stop and self.in_draft_event is None:
             self.all_done = True
         if self.audio_stop and self.speech_stop:
             # this should always happen since the VAD (or shim)
@@ -293,15 +295,15 @@ class StreamMonitor(ScribeAPIListener):
                     print(f"sound between last text and speech_stop = {diff}")
                     print(f"last_chunk = {self.speech_stop.last_in_speech_chunk_time}")
                     print(f"last_text  = {self.last_text.audio_end_time}")
-                if diff < 0.5:
+                if diff > 0.5:
                     # this is not going to be precise. The VAD does buffering andpadding,
                     # it will never report the exact last block
-                    self.all_done = True
+                    await self.core.whisper_tool.flush_pending()
+                    self.all_done = False
             else:
                 if dump:
                     print(f"Never saw text and audio is stopped, checking whisper for pending")
-                    return True
-            
+                    self.all_done = True
         if not dump:
             return self.all_done
         print(f"all_done: {self.all_done}")
@@ -324,8 +326,8 @@ class StreamMonitor(ScribeAPIListener):
         else:
             print("")
         print("********")
-        print("in_block_event:")
-        print(pformat(self.in_block_event))
+        print("in_draft_event:")
+        print(pformat(self.in_draft_event))
             
         print("----- END END END END DUMP ---------------")
         return self.all_done
@@ -346,11 +348,11 @@ class StreamMonitor(ScribeAPIListener):
         
     async def on_draft_event(self, event:DraftEvent):
         if isinstance(event, DraftStartEvent):
-            self.in_block_event = event
+            self.in_draft_event = event
             await self.check_done(dump=self.auto_dump, why="DraftStartEvent")
             self.blocks.append(BlockTracker(start_event=event))
         elif isinstance(event, DraftEndEvent):
-            self.in_block_event = None
+            self.in_draft_event = None
             await self.check_done(dump=self.auto_dump, why="block stop")
             if len(self.blocks) > 0:
                 last_block = self.blocks[-1]

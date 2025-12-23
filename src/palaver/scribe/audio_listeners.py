@@ -38,7 +38,7 @@ class AudioListenerCCSMixin:
     async def emit_event(self, event: AudioEvent) -> None:
         await self.emitter.emit(AudioEvent, event)
 
-    async def _handle_background_error(self, exception: Exception, source: str) -> None:
+    async def _handle_background_error(self, exception: Exception, source: str) -> None: # pragma: no cover
         """
         Handle errors that occur in background tasks.
 

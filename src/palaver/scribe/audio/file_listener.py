@@ -104,8 +104,6 @@ class FileListener(AudioListenerCCSMixin, AudioListener):
                     # because things downstream care about it, such as the ring buffer
                     await asyncio.sleep(self.chunk_duration)
             break
-        if not self._simulate_timing:
-            await asyncio.sleep(self.chunk_duration * 100)
         await self.emit_event(AudioStopEvent(source_id=self.source_id,
                                              timestamp=self._duration_cursor,
                                              stream_start_time=self._fake_stream_start_time))
