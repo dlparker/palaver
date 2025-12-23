@@ -183,7 +183,8 @@ class ScribePipeline:
                     if busy:
                         logger.error(f"Whisper failed to complete pending audio in {max_wait} seconds")
                         raise Exception(f"Whisper failed to complete pending audio in {max_wait} seconds")
-                    print('\n\n\n!!!!!!!!!!!!!!!!!!!! Starting shutodwn !!!!!!!!!!!!!!!!!!!\n\n')
+                    await self.draft_maker.force_end()
+                    print('\n\n\n!!!!!!!!!!!!!!!!!!!! Starting shutdown !!!!!!!!!!!!!!!!!!!\n\n')
                     await self.shutdown()
                     break
                 if self.background_error:

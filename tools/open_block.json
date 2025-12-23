@@ -1,6 +1,6 @@
 {
   "segments": [
-    {"text": "Clerk, start a new note", "silence_after": 1.0},
-    {"text": "This is the body of the block", "silence_after": 2.0}
+      {"text": "Wake up! Rupert! start draft now", "silence_after": 1.0},
+      {"text": "This is the body of the note", "silence_after": 1.0}
   ]
 }

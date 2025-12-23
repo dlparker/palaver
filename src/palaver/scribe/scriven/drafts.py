@@ -22,7 +22,6 @@ from palaver.scribe.draft_events import (DraftEvent,
                                          Section,
                                          TextMark)
                                          
-from loggers import setup_logging
 logger = logging.getLogger('DraftMaker')
 
 @dataclass
@@ -46,22 +45,25 @@ for name in ['rupert', 'bubba', 'freddy', 'babbage']:
     pat = MatchPattern(pattern, [name,])
     default_draft_start_patterns.append(pat)
     for doc_name in ["draft", "document", "paper"]:
-        for preamble in ["", 'hey', 'wake up']:
-            for glue in ['', 'a', 'the', 'uh']:
+        for preamble in ["", 'hey ', 'wake up ']:
+            for glue in ['', 'a ', 'the ', 'uh ']:
                 for start in ['start', 'begin', 'new']:
-                    pattern = f"{preamble} {name} {start} {glue} {doc_name}"
+                    pattern = f"{preamble}{name} {start} {glue}{doc_name}"
                     pat = MatchPattern(pattern, [name, doc_name, start])
                     default_draft_start_patterns.append(pat)
-                    pattern = f"{preamble} {name} {start} {glue} {doc_name} now"
+                    pattern = f"{preamble}{name} {start} {glue}{doc_name} now"
                     pat = MatchPattern(pattern, [name, doc_name, start])
                     default_draft_start_patterns.append(pat)
-                for stop in ['stop', 'close', 'end']:
-                    pattern = f"{preamble} {name} {stop} {glue} {doc_name}"
+                for stop in ['stop', 'close', 'end' ]:
+                    pattern = f"{preamble}{name} {stop} {glue}{doc_name}"
                     pat = MatchPattern(pattern, [name, doc_name, stop])
                     default_draft_end_patterns.append(pat)
-                    pattern = f"{preamble} {name} {stop} {glue} {doc_name} now"
+                    pattern = f"{preamble}{name} {stop} {glue}{doc_name} now"
                     pat = MatchPattern(pattern, [name, doc_name, stop])
                     default_draft_end_patterns.append(pat)
+                pattern = f"{preamble}{name} vacation now"
+                pat = MatchPattern(pattern, [name, 'vacation'])
+                default_draft_end_patterns.append(pat)
 
 pat = MatchPattern("break break break")
 default_draft_end_patterns.append(pat)
@@ -387,9 +389,7 @@ class DraftBuilder:
             end = len(self.working_text)
             end_mark = TextMark(end, end, "")
             self.current_draft.end_text = end_mark
-            self.current_draft.full_text = self.current_draft.text_buffer
-            self.current_draft.text_buffer = None
-            self.working_text = ""
+            self.current_draft.full_text = self.draft_text
             draft = self.current_draft
             self.current_draft = None
             return draft
@@ -408,7 +408,15 @@ class DraftMaker(TextEventListener, AudioEventListener):
         self.emitter.on(DraftEvent, e_listener.on_draft_event)
 
     async def on_text_event(self, event: TextEvent):
-        current_draft,last_draft = await self.builder.new_text(event.text)
+        await self.handle_text_event(event)
+        
+    async def handle_text_event(self, event:TextEvent, new_text=None):
+        if new_text is None:
+            check_text = event.text
+        else:
+            check_text = new_text
+        found_signal = False
+        current_draft,last_draft = await self.builder.new_text(check_text)
         if last_draft:
             # closed a draft
             new_event = DraftEndEvent(draft=last_draft, timestamp=event.audio_end_time)
@@ -416,11 +424,17 @@ class DraftMaker(TextEventListener, AudioEventListener):
             self.current_draft = None
             if self.current_draft == last_draft:
                 self.current_draft = None
+            found_signal = True
         if current_draft and self.current_draft is None:
             # new draft
             new_event = DraftStartEvent(draft=current_draft, timestamp=event.audio_start_time)
             await self.emitter.emit(DraftEvent, new_event)
             self.current_draft = current_draft
+            found_signal = True
+        if found_signal and len(self.builder.working_text) > 10:
+            # there may be addition draft signals in the text, for instance if
+            # the text is very long
+            await self.handle_text_event(event, '')
             
     async def on_audio_event(self, event: AudioEvent):
         if isinstance(event, AudioStopEvent):

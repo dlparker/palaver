@@ -1,9 +1,7 @@
 {
   "segments": [
-      {"text": "Wake up! Rupert!", "silence_after": 1.0},
-      {"text": "Command is new block.", "silence_after": 0.5},
+      {"text": "Wake up! Rupert! start, draft, now", "silence_after": 1.0},
       {"text": "This is the body of the note", "silence_after": 1.0},
-      {"text": "Rupert! Vacation! Now!", "silence_after": 1.0},
-      {"text": "Rupert back to sleep", "silence_after": 1.0}
+      {"text": "break break break", "silence_after": 1.0}
   ]
 }

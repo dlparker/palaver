@@ -8,7 +8,9 @@ import pytest
 import asyncio
 import sys
 import os
+import time
 import uuid
+from pprint import pprint
 from dataclasses import dataclass, field
 from pathlib import Path
 import json
@@ -26,44 +28,32 @@ from palaver.scribe.audio_events import (AudioEvent,
                                          AudioEventListener,
                                          )
 from palaver.utils.top_error import TopErrorHandler, TopLevelCallback
-from palaver.scribe.command_events import ScribeCommandEvent
+from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent, Draft
+from palaver.scribe.recorders.draft_recorder import DraftRecorder
 from palaver.scribe.text_events import TextEvent
 from palaver.scribe.api import ScribeAPIListener
-from palaver.scribe.api import StartBlockCommand, StopBlockCommand
 from palaver.scribe.audio.file_listener import FileListener
-from palaver.scribe.recorders.block_audio import BlockAudioRecorder
 from palaver.scribe.core import PipelineConfig, ScribePipeline
 
 
 logger = logging.getLogger("test_code")
 
 @dataclass
-class BlockTracker:
-    """Tracks a text block from start to end."""
-    start_event: StartBlockCommand
+class DraftTracker:
+    draft: Draft
+    start_event: DraftStartEvent
     text_events: dict[uuid.UUID, TextEvent] = field(default_factory=dict)
-    end_event: Optional[StopBlockCommand] = None
+    end_event: Optional[DraftEndEvent] = None
     finalized: Optional[bool] = False
 
 
 class APIWrapper(ScribeAPIListener):
 
-    def __init__(self, play_sound: bool = False):
-        """
-        Initialize the API wrapper.
-
-        Args:
-            play_sound: If True, play audio through speakers during processing
-        """
+    def __init__(self):
         super().__init__()
-        self.play_sound = play_sound
-        self.full_text = ""
-        self.blocks = []
-        self.text_events = {}
-        self.last_block_name = None
-        self.stream = None
-        self.have_pipeline_ready = False
+        self.drafts = {}
         self.pipeline = None
+        self.have_pipeline_ready = False
         self.have_pipeline_shutdown = False
 
     async def on_pipeline_ready(self, pipeline):
@@ -71,71 +61,23 @@ class APIWrapper(ScribeAPIListener):
         self.pipeline = pipeline
         
     async def on_pipeline_shutdown(self):
-        """Handle pipeline shutdown - finalize any open blocks."""
         self.have_pipeline_shutdown = True
-        await asyncio.sleep(0.01)
-        if len(self.blocks) > 0:
-            last_block = self.blocks[-1]
-            if not last_block.finalized:
-                await self.finalize_block(last_block)
-
-    async def on_command_event(self, event: ScribeCommandEvent):
-        """Handle command events (start/stop block)."""
-        if isinstance(event.command, StartBlockCommand):
-            self.blocks.append(BlockTracker(start_event=event))
-            await self.handle_text_event(event.text_event)
-        elif isinstance(event.command, StopBlockCommand):
-            if len(self.blocks) > 0:
-                last_block = self.blocks[-1]
-                if not last_block.finalized:
-                    last_block.end_event = event
-                    await self.finalize_block(last_block)
-
-    async def finalize_block(self, block):
-        block.finalized = True
-
-    async def handle_text_event(self, event: TextEvent):
-        """Handle text events - accumulate text and track in blocks."""
-        # Fix bug: was `==` should be `in`
-        if event.event_id in self.text_events:
-            return
-        self.text_events[event.event_id] = event
-
-        if len(self.blocks) > 0:
-            last_block = self.blocks[-1]
-            if not last_block.finalized:
-                last_block.text_events[event.event_id] = event
-                logger.info(f"text {event.event_id} added to block")
-                self.full_text += event.text + " "
-            else:
-                logger.info(f"ignoring text {event.text}")
-
+    
     async def on_text_event(self, event: TextEvent):
-        """Called when new transcribed text is available."""
-        await self.handle_text_event(event)
+        print(event.text)
+        
+    async def on_draft_event(self, event: DraftEvent):
+        if isinstance(event, DraftStartEvent):
+            self.drafts[event.draft.draft_id] = DraftTracker(event.draft, start_event=event)
+        elif isinstance(event, DraftEndEvent):
+            pprint(event.draft)
+            if event.draft.draft_id in self.drafts:
+                self.drafts[event.draft.draft_id].draft = event.draft
+                self.drafts[event.draft.draft_id].end_event = event
+            else:
+                self.drafts[event.draft.draft_id] = DraftTracker(event.draft, start_event=None, end_event=event)
+                
 
-    async def on_audio_event(self, event: AudioEvent):
-        """Handle audio events - optionally play sound and finalize blocks."""
-        if isinstance(event, AudioStartEvent):
-            pass
-        elif isinstance(event, AudioStopEvent):
-            logger.info("Got audio stop event %s", event)
-            if len(self.blocks) > 0:
-                last_block = self.blocks[-1]
-                if not last_block.finalized:
-                    await self.finalize_block(last_block)
-        elif isinstance(event, AudioChunkEvent):
-            if self.play_sound:
-                if not self.stream:
-                    self.stream = sd.OutputStream(
-                        samplerate=event.sample_rate,
-                        channels=event.channels,
-                        blocksize=event.blocksize,
-                        dtype=event.datatype,
-                    )
-                    self.stream.start()
-                audio = event.data
-                self.stream.write(audio)
 
 CHUNK_SEC = 0.03
 
@@ -146,15 +88,15 @@ async def test_process_note1_file():
     assert audio_file.exists()
     model = Path(__file__).parent.parent / "models" / "ggml-base.en.bin"
     assert model.exists()
-    logging.info(f"TESTING FILE INPUT: {audio_file}")
+    logger.info(f"TESTING FILE INPUT: {audio_file}")
     api_wrapper = APIWrapper()
     recorder_dir = Path(__file__).parent / "recorder_output"
     # clean it up before running
     if recorder_dir.exists():
         shutil.rmtree(recorder_dir)
         
-    chunk_ring_seconds = 12
-    block_recorder = BlockAudioRecorder(recorder_dir, chunk_ring_seconds)
+    draft_recorder = DraftRecorder(recorder_dir)
+    logger.info(f"Draft recorder enabled: {recorder_dir}")
     
     async def main_task(model, file_path):
         # Create listener
@@ -171,16 +113,15 @@ async def test_process_note1_file():
             target_samplerate=16000,
             target_channels=1,
             use_multiprocessing=True,
-            require_command_alerts=False,
             vad_silence_ms=3000,
             vad_speech_pad_ms=1000,
             seconds_per_scan=2,
-            block_recorder=block_recorder,
         )
 
         # Run pipeline with automatic context management
         async with file_listener:
             async with ScribePipeline(file_listener, config) as pipeline:
+                pipeline.add_api_listener(draft_recorder)
                 await pipeline.start_listener()
                 await pipeline.run_until_error_or_interrupt()
 
@@ -195,13 +136,17 @@ async def test_process_note1_file():
     await handler.async_run(main_task, model, audio_file)
 
     assert background_error_dict is None
-    assert len(api_wrapper.blocks) == 1
+    start_time = time.time()
+    while len(api_wrapper.drafts) < 1 and time.time() - start_time < 5:
+        await asyncio.sleep(0.1)
+    assert len(api_wrapper.drafts)  == 1
     assert api_wrapper.have_pipeline_ready
     assert api_wrapper.have_pipeline_shutdown
-    assert api_wrapper.full_text != ""
-    out_dir = list(recorder_dir.glob("block-*"))[0]
+    out_dir = list(recorder_dir.glob("draft-*"))[0]
     with open(out_dir / "first_draft.txt") as f:
-        draft = f.read()
-
-    assert draft.strip().startswith(api_wrapper.full_text.strip())
+        file_draft = f.read()
+    dt = next(iter(api_wrapper.drafts.values()))
+    draft = dt.draft
+    assert draft.full_text != ""
+    assert draft.full_text == file_draft
     shutil.rmtree(recorder_dir)

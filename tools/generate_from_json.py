@@ -283,6 +283,12 @@ Examples:
     )
 
     parser.add_argument(
+        "--output-single",
+        type=Path,
+        help="Output a single WAV file path, voice spec required",
+    )
+
+    parser.add_argument(
         "--temp-dir",
         type=Path,
         default=Path("tests/audio_samples/temp"),
@@ -301,8 +307,12 @@ Examples:
         help="Play each segment through speakers as it's generated"
     )
 
+    single_spec = None
     args = parser.parse_args()
-
+    if args.output_single:
+        if args.voices is None or len(args.voices) != 1:
+            parser.error("You must specify a single voice for single file output")
+        single_spec = (args.output_single, expand_voice_name(args.voices[0]))
     try:
         # Load and validate JSON
         print(f"\n{'='*70}")
@@ -315,7 +325,9 @@ Examples:
         print(f"✓ Loaded {len(segments)} segments\n")
 
         # Determine models to use
-        if args.model:
+        if single_spec:
+            models_to_use = [single_spec[1]]
+        elif args.model:
             models_to_use = [expand_voice_name(args.model)]
         else:
             models_to_use = [expand_voice_name(v) for v in args.voices]
@@ -344,7 +356,9 @@ Examples:
                 continue
 
             # Derive output path with voice suffix (unless single model and custom output)
-            if args.output:
+            if single_spec is not None:
+                output_wav = single_spec[0]
+            elif args.output:
                 output_wav = args.output.with_stem(f"{args.output.stem}_{voice_name}" if len(models_to_use) > 1 else args.output.stem)
             else:
                 output_wav = derive_output_path(args.json_file, voice_name)
