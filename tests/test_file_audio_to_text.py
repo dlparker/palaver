@@ -81,23 +81,23 @@ class APIWrapper(ScribeAPIListener):
 
 CHUNK_SEC = 0.03
 
-    
-async def test_process_note1_file():
-    # Verify test file exists
-    audio_file = Path(__file__).parent / "audio_samples" / "note1.wav"
-    assert audio_file.exists()
+
+async def _process_audio_file_test(audio_file: Path, expected_drafts: int):
+    """Common test logic for processing audio files with draft recording."""
     model = Path(__file__).parent.parent / "models" / "ggml-base.en.bin"
+    assert audio_file.exists()
     assert model.exists()
     logger.info(f"TESTING FILE INPUT: {audio_file}")
+
     api_wrapper = APIWrapper()
     recorder_dir = Path(__file__).parent / "recorder_output"
     # clean it up before running
     if recorder_dir.exists():
         shutil.rmtree(recorder_dir)
-        
+
     draft_recorder = DraftRecorder(recorder_dir)
     logger.info(f"Draft recorder enabled: {recorder_dir}")
-    
+
     async def main_task(model, file_path):
         # Create listener
         file_listener = FileListener(
@@ -137,151 +137,12 @@ async def test_process_note1_file():
 
     assert background_error_dict is None
     start_time = time.time()
-    while len(api_wrapper.drafts) < 1 and time.time() - start_time < 5:
-        await asyncio.sleep(0.1)
-    assert len(api_wrapper.drafts)  == 1
-    assert api_wrapper.have_pipeline_ready
-    assert api_wrapper.have_pipeline_shutdown
-    out_dir = list(recorder_dir.glob("draft-*"))[0]
-    with open(out_dir / "first_draft.txt") as f:
-        file_draft = f.read()
-    dt = next(iter(api_wrapper.drafts.values()))
-    draft = dt.draft
-    assert draft.full_text != ""
-    assert draft.full_text == file_draft
-    shutil.rmtree(recorder_dir)
-
-async def test_process_open_draft_file():
-    # Verify test file exists
-    audio_file = Path(__file__).parent / "audio_samples" / "open_draft.wav"
-    assert audio_file.exists()
-    model = Path(__file__).parent.parent / "models" / "ggml-base.en.bin"
-    assert model.exists()
-    logger.info(f"TESTING FILE INPUT: {audio_file}")
-    api_wrapper = APIWrapper()
-    recorder_dir = Path(__file__).parent / "recorder_output"
-    # clean it up before running
-    if recorder_dir.exists():
-        shutil.rmtree(recorder_dir)
-        
-    draft_recorder = DraftRecorder(recorder_dir)
-    logger.info(f"Draft recorder enabled: {recorder_dir}")
-    
-    async def main_task(model, file_path):
-        # Create listener
-        file_listener = FileListener(
-            audio_file=file_path,
-            chunk_duration=0.03,
-            simulate_timing=False,
-        )
-
-        # Create pipeline config with playback-specific settings
-        config = PipelineConfig(
-            model_path=model,
-            api_listener=api_wrapper,
-            target_samplerate=16000,
-            target_channels=1,
-            use_multiprocessing=True,
-            vad_silence_ms=3000,
-            vad_speech_pad_ms=1000,
-            seconds_per_scan=2,
-        )
-
-        # Run pipeline with automatic context management
-        async with file_listener:
-            async with ScribePipeline(file_listener, config) as pipeline:
-                pipeline.add_api_listener(draft_recorder)
-                await pipeline.start_listener()
-                await pipeline.run_until_error_or_interrupt()
-
-    background_error_dict = None
-    class ErrorCallback(TopLevelCallback):
-        async def on_error(self, error_dict: dict):
-            nonlocal background_error_dict
-            background_error_dict = error_dict
-
-    # Run with standard error handling
-    handler = TopErrorHandler(top_level_callback=ErrorCallback(), logger=logger)
-    await handler.async_run(main_task, model, audio_file)
-
-    assert background_error_dict is None
-    start_time = time.time()
-    while len(api_wrapper.drafts) < 1 and time.time() - start_time < 5:
-        await asyncio.sleep(0.1)
-    assert len(api_wrapper.drafts)  == 1
-    assert api_wrapper.have_pipeline_ready
-    assert api_wrapper.have_pipeline_shutdown
-    out_dir = list(recorder_dir.glob("draft-*"))[0]
-    with open(out_dir / "first_draft.txt") as f:
-        file_draft = f.read()
-    dt = next(iter(api_wrapper.drafts.values()))
-    draft = dt.draft
-    assert draft.full_text != ""
-    assert draft.full_text == file_draft
-    shutil.rmtree(recorder_dir)
-    
-async def test_process_double_draft_file():
-    # Verify test file exists
-    audio_file = Path(__file__).parent / "audio_samples" / "note_double.wav"
-    assert audio_file.exists()
-    model = Path(__file__).parent.parent / "models" / "ggml-base.en.bin"
-    assert model.exists()
-    logger.info(f"TESTING FILE INPUT: {audio_file}")
-    api_wrapper = APIWrapper()
-    recorder_dir = Path(__file__).parent / "recorder_output"
-    # clean it up before running
-    if recorder_dir.exists():
-        shutil.rmtree(recorder_dir)
-        
-    draft_recorder = DraftRecorder(recorder_dir)
-    logger.info(f"Draft recorder enabled: {recorder_dir}")
-    
-    async def main_task(model, file_path):
-        # Create listener
-        file_listener = FileListener(
-            audio_file=file_path,
-            chunk_duration=0.03,
-            simulate_timing=False,
-        )
-
-        # Create pipeline config with playback-specific settings
-        config = PipelineConfig(
-            model_path=model,
-            api_listener=api_wrapper,
-            target_samplerate=16000,
-            target_channels=1,
-            use_multiprocessing=True,
-            vad_silence_ms=3000,
-            vad_speech_pad_ms=1000,
-            seconds_per_scan=2,
-        )
-
-        # Run pipeline with automatic context management
-        async with file_listener:
-            async with ScribePipeline(file_listener, config) as pipeline:
-                pipeline.add_api_listener(draft_recorder)
-                await pipeline.start_listener()
-                await pipeline.run_until_error_or_interrupt()
-
-    background_error_dict = None
-    class ErrorCallback(TopLevelCallback):
-        async def on_error(self, error_dict: dict):
-            nonlocal background_error_dict
-            background_error_dict = error_dict
-
-    # Run with standard error handling
-    handler = TopErrorHandler(top_level_callback=ErrorCallback(), logger=logger)
-    await handler.async_run(main_task, model, audio_file)
-
-    assert background_error_dict is None
-    start_time = time.time()
-    expected_drafts = 2
     while len(api_wrapper.drafts) < expected_drafts and time.time() - start_time < 5:
         await asyncio.sleep(0.1)
-        
-    assert len(api_wrapper.drafts)  == expected_drafts
+    assert len(api_wrapper.drafts) == expected_drafts
     assert api_wrapper.have_pipeline_ready
     assert api_wrapper.have_pipeline_shutdown
+
     for index, out_dir in enumerate(recorder_dir.glob("draft-*")):
         with open(out_dir / "first_draft.json") as f:
             file_draft_json = f.read()
@@ -291,6 +152,22 @@ async def test_process_double_draft_file():
             draft = dt.draft
             assert draft.full_text != ""
             assert draft.full_text == file_draft.full_text
+            with open(out_dir / "first_draft.txt") as f:
+                text_content = f.read()
+            assert draft.full_text == text_content
     assert index == expected_drafts - 1
     shutil.rmtree(recorder_dir)
+
+
+async def test_process_note1_file():
+    audio_file = Path(__file__).parent / "audio_samples" / "note1.wav"
+    await _process_audio_file_test(audio_file, expected_drafts=1)
+
+async def test_process_open_draft_file():
+    audio_file = Path(__file__).parent / "audio_samples" / "open_draft.wav"
+    await _process_audio_file_test(audio_file, expected_drafts=1)
+    
+async def test_process_double_draft_file():
+    audio_file = Path(__file__).parent / "audio_samples" / "note_double.wav"
+    await _process_audio_file_test(audio_file, expected_drafts=2)
     
