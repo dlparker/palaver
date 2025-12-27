@@ -9,7 +9,13 @@ from typing import Set, Dict, Any
 
 import numpy as np
 
-from palaver.scribe.audio_events import AudioEvent, AudioEventListener
+from palaver.scribe.audio_events import (
+    AudioEvent,
+    AudioEventListener,
+    AudioRingBuffer,
+    AudioChunkEvent,
+    AudioSpeechStartEvent,
+)
 from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.draft_events import DraftEvent, DraftEventListener
 from palaver.stage_markers import Stage, stage
@@ -26,13 +32,30 @@ class EventRouter(AudioEventListener, TextEventListener, DraftEventListener):
     - Clients must explicitly subscribe to "AudioChunkEvent" to receive chunks
     - AudioChunkEvent only sent when in_speech=True (VAD detected speech)
 
+    Pre-buffering support:
+    - Buffers recent AudioChunkEvents (silence) before speech detection
+    - When AudioSpeechStartEvent arrives, emits buffered chunks first
+    - Compensates for VAD latency to capture actual speech start
+
     This is a pure routing component with no FastAPI dependencies, making it
     reusable across different server implementations.
     """
 
-    def __init__(self):
+    def __init__(self, pre_buffer_seconds: float = 1.0):
+        """Initialize EventRouter with optional pre-buffering.
+
+        Args:
+            pre_buffer_seconds: Seconds of audio to buffer before speech detection.
+                               Default 1.0 matches WhisperWrapper. Set to 0 to disable.
+        """
         self.clients: Dict[Any, Set[str]] = {}
         self._lock = asyncio.Lock()
+
+        # Pre-buffer for capturing audio before VAD detects speech
+        if pre_buffer_seconds > 0:
+            self._pre_buffer = AudioRingBuffer(max_seconds=pre_buffer_seconds)
+        else:
+            self._pre_buffer = None
 
     async def register_client(self, websocket: Any, event_types: Set[str]):
         """Register a websocket client for specific event types.
@@ -57,7 +80,26 @@ class EventRouter(AudioEventListener, TextEventListener, DraftEventListener):
                 logger.info("Client unregistered")
 
     async def on_audio_event(self, event: AudioEvent) -> None:
-        """Receive audio events from pipeline and route to clients."""
+        """Receive audio events from pipeline and route to clients.
+
+        For AudioChunkEvents with in_speech=False, buffer them for pre-buffering.
+        They will be emitted before AudioSpeechStartEvent to capture speech start.
+        """
+        # Buffer silence chunks for pre-buffering (before speech detection)
+        if (isinstance(event, AudioChunkEvent) and
+            not getattr(event, 'in_speech', False) and
+            self._pre_buffer is not None):
+            self._pre_buffer.add(event)
+            # Don't route silence chunks yet - they'll be emitted with speech start
+            return
+
+        # When speech starts, emit buffered chunks first to capture actual speech start
+        if isinstance(event, AudioSpeechStartEvent):
+            if self._pre_buffer and self._pre_buffer.has_data():
+                logger.info(f"Emitting {len(self._pre_buffer.buffer)} pre-buffered chunks before speech start")
+                for buffered_event in self._pre_buffer.get_all(clear=True):
+                    await self._route_event(buffered_event)
+
         await self._route_event(event)
 
     async def on_text_event(self, event: TextEvent) -> None:
