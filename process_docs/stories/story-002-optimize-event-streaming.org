@@ -1,0 +1,71 @@
+#+TITLE: Story 002: Optimize Event Streaming - Server-side Filtering and VAD Audio
+#+AUTHOR: Dennis Parker
+#+DATE: 2025-12-27
+#+PROPERTY: STORY_ID 002
+#+PROPERTY: STAGE POC
+#+PROPERTY: STATUS Draft
+
+* Story Overview
+
+** Title
+Optimize event streaming with server-side filtering and VAD audio routing
+
+** Story ID
+002
+
+** Stage
+POC
+
+** Status
+Draft
+
+* Description
+
+Improve the Event Net server efficiency by implementing three optimizations:
+
+1. **Server-side chunk filtering**: Move AudioChunkEvent filtering from client to server. Server should not send AudioChunkEvent to clients unless explicitly subscribed, avoiding unnecessary network traffic.
+
+2. **VAD audio routing**: Call =add_api_listener= with =to_VAD=True= instead of default =to_merge=. This routes 16kHz downsampled audio from the VAD filter instead of the original 44.1kHz samples, reducing data volume.
+
+3. **Speech-only audio**: Send AudioChunkEvent only when the =in_speech= flag is True. This means clients receive audio chunks only during VAD-detected speech segments, skipping silence and irrelevant sound.
+
+The system should accept subscription messages that can include or exclude specific event types:
+- ={"subscribe": ["all"]}= - All events except AudioChunkEvent (default behavior)
+- ={"subscribe": ["all", "AudioChunkEvent"]}= - Explicitly include chunks
+- ={"subscribe": ["TextEvent", "DraftStartEvent", "DraftEndEvent"]}= - Specific types only
+
+* Constraints
+
+- Keep at POC stage - this is primarily testing the =to_VAD= configuration which has been less tested than the default =to_merge= configuration
+- Maintain backward compatibility with Story 001 test client (existing subscription format should still work)
+- Do not add extensive error handling or retry logic (POC stage guidelines)
+- Focus on proving the optimization concept works correctly
+
+* Tasks
+
+[This section will be populated by the agent during planning phase.]
+
+* Implementation Notes
+
+[The agent will track progress here during implementation.]
+
+* Review & Retrospective
+
+[After implementation, this section captures the review process and outcomes]
+
+* Related Work
+
+** Related Stories
+- Story-001: Event Net POC (baseline implementation)
+
+** Beads Tasks
+[To be populated during implementation]
+
+** Git Commits
+[To be populated during implementation]
+
+* References
+
+- Story 001 implementation: =scripts/server.py=, =scripts/test_client.py=
+- VAD configuration: =to_VAD= parameter in =add_api_listener=
+- AudioChunkEvent: =in_speech= flag indicates VAD-detected speech
