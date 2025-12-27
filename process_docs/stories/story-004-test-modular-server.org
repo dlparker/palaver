@@ -153,10 +153,19 @@ tests/
 - No network required - TestClient provides HTTP interface without actual networking
 - Tests verify pipeline state, client count, draft recording status
 
-** 2025-12-27 Tasks 1-2 progress
+** 2025-12-27 Task 3 Complete - Event streaming integration tests (palaver-dbl)
+- Created =tests/test_event_streaming.py= using FastAPI TestClient websocket testing
+- 5 tests covering websocket protocol and router integration
+- 93% events router coverage
+- Tests verify: router factory, connection acceptance, subscription protocol, server context integration, multiple clients
+- Note: Full async pipeline testing complex with TestClient; event routing logic thoroughly tested in unit tests
+- Simplified approach focuses on router factory integration and websocket protocol basics
+
+** 2025-12-27 Tasks 1-3 Complete - Story Status
 - Direct router testing pattern established and working well
 - 82% overall test coverage achieved (user confirmed adequate)
-- Two integration tests remaining (event streaming, full server)
+- Three of four tasks complete (EventRouter, status router, event streaming)
+- Task 4 (full server integration) pending - may not be needed given adequate coverage
 
 * Review & Retrospective
 
@@ -176,7 +185,9 @@ tests/
 - palaver-olk: Full server integration test
 
 ** Git Commits
-[To be populated during implementation]
+- 9e957ed: [Story-004] Add unit tests for EventRouter (palaver-kgp)
+- ce0ee85: [Story-004] Add unit tests for status router with TestClient (palaver-eaj)
+- 319f0cb: [Story-004] Add integration tests for event streaming router (palaver-dbl)
 
 * References
 
