@@ -17,7 +17,7 @@ Refactor FastAPI server to modular architecture with pluggable routers
 Prototype
 
 ** Status
-Draft
+Complete
 
 * Description
 
@@ -92,11 +92,109 @@ src/palaver/fastapi/
 
 * Tasks
 
-[This section will be populated by the agent during planning phase.]
+** PLANNED Task 1: Create fastapi directory structure (palaver-tq2)
+- Create =src/palaver/fastapi/= directory with =__init__.py=
+- Create =src/palaver/fastapi/routers/= subdirectory with =__init__.py=
+
+** PLANNED Task 2: Extract EventRouter to event_router.py (palaver-223)
+- Extract EventRouter class from =scripts/server.py= (lines 33-118)
+- Move to =src/palaver/fastapi/event_router.py=
+- Keep as pure routing logic with no FastAPI dependencies
+- Dependencies: Task 1
+
+** PLANNED Task 3: Create EventNetServer base class (palaver-d59)
+- Create =EventNetServer= in =src/palaver/fastapi/server.py=
+- Implement pipeline lifecycle management with lifespan context
+- Provide shared context (pipeline, event_router, config) for routers
+- Expose =add_router()= method for composition
+- Dependencies: Task 1
+
+** PLANNED Task 4: Create event streaming router factory (palaver-yon)
+- Implement =create_event_router(server)= in =src/palaver/fastapi/routers/events.py=
+- Returns FastAPI APIRouter with websocket endpoint
+- Uses EventRouter from shared server context
+- Dependencies: Task 2, Task 3
+
+** PLANNED Task 5: Create status router (palaver-c3y)
+- Implement =create_status_router(server)= in =src/palaver/fastapi/routers/status.py=
+- Provides =/status= and =/health= endpoints
+- Demonstrates router pattern for future extensions
+- Dependencies: Task 3
+
+** PLANNED Task 6: Refactor scripts/server.py to composition (palaver-m78)
+- Simplify =scripts/server.py= to use EventNetServer
+- Keep argparse for command-line options
+- Compose routers: =server.add_router(create_event_router(server))=
+- Remove business logic (moved to modules)
+- Dependencies: Task 4, Task 5
+
+** PLANNED Task 7: Test with existing test_client.py (palaver-tmm)
+- Verify all Story 002 functionality preserved
+- Server-side filtering, VAD routing, speech-only chunks working
+- Existing test client works without modification
+- Dependencies: Task 6
 
 * Implementation Notes
 
-[The agent will track progress here during implementation.]
+** 2025-12-27 Implementation started
+- Created beads issues for all tasks (palaver-tq2 through palaver-tmm)
+- Set up task dependencies to ensure proper implementation order
+- Approach: Extract components from monolithic =scripts/server.py= to modular architecture
+
+** 2025-12-27 Task 1 Complete - Directory structure (palaver-tq2)
+- Created =src/palaver/fastapi/= directory with =__init__.py=
+- Created =src/palaver/fastapi/routers/= subdirectory with =__init__.py=
+- Added package-level imports for EventRouter and EventNetServer
+
+** 2025-12-27 Task 2 Complete - EventRouter extraction (palaver-223)
+- Extracted EventRouter class from =scripts/server.py= (lines 33-118)
+- Moved to =src/palaver/fastapi/event_router.py=
+- Maintained pure routing logic with no FastAPI dependencies
+- Updated stage decorator to =@stage(Stage.PROTOTYPE, track_coverage=True)=
+- Preserved all Story 002 functionality: server-side filtering, speech-only chunks
+
+** 2025-12-27 Task 3 Complete - EventNetServer base class (palaver-d59)
+- Created =src/palaver/fastapi/server.py= with EventNetServer class
+- Implemented pipeline lifecycle management via =lifespan()= context manager
+- Provides shared context (pipeline, event_router, config) accessible to routers
+- Exposed =add_router()= method for router composition
+- Added transitional import for DefaultAPIWrapper from scripts (TODO: move to src)
+
+** 2025-12-27 Task 4 Complete - Event streaming router factory (palaver-yon)
+- Implemented =create_event_router(server)= in =src/palaver/fastapi/routers/events.py=
+- Returns FastAPI APIRouter with =/events= websocket endpoint
+- Uses EventRouter from shared server context
+- Preserves original subscription protocol and event routing logic
+
+** 2025-12-27 Task 5 Complete - Status router (palaver-c3y)
+- Implemented =create_status_router(server)= in =src/palaver/fastapi/routers/status.py=
+- Provides =/health= endpoint (simple health check)
+- Provides =/status= endpoint (detailed server status with pipeline state, client count)
+- Demonstrates router factory pattern for future extensions
+
+** 2025-12-27 Task 6 Complete - Refactor scripts/server.py (palaver-m78)
+- Simplified =scripts/server.py= from 348 lines to 101 lines (71% reduction)
+- Removed EventRouter and EventNetServer class definitions (now imports)
+- Kept argparse command-line interface intact
+- Implemented composition pattern:
+  - =server.add_router(create_event_router(server))=
+  - =server.add_router(create_status_router(server))=
+- All business logic moved to modules
+
+** 2025-12-27 Task 7 Complete - Testing (palaver-tmm)
+- Verified server starts successfully with refactored architecture
+- Tested =/health= endpoint: returns ={"status": "healthy"}=
+- Tested =/status= endpoint: shows pipeline state, client count, model path
+- Tested websocket connection with existing =test_client.py=
+- Client successfully connected and subscribed to events
+- All Story 002 functionality preserved (server-side filtering, VAD routing confirmed in logs)
+- No modifications required to test client (backward compatibility maintained)
+
+** 2025-12-27 Implementation complete
+- All 7 tasks completed successfully
+- All acceptance criteria met
+- Prototype stage quality achieved: clean interfaces, good separation of concerns
+- 71% reduction in scripts/server.py size demonstrates successful refactoring
 
 * Review & Retrospective
 
@@ -109,7 +207,13 @@ src/palaver/fastapi/
 - Story-002: Optimize Event Streaming (current server functionality)
 
 ** Beads Tasks
-[To be populated during implementation]
+- palaver-tq2: Create fastapi directory structure
+- palaver-223: Extract EventRouter to event_router.py
+- palaver-d59: Create EventNetServer base class
+- palaver-yon: Create event streaming router factory
+- palaver-c3y: Create status router
+- palaver-m78: Refactor scripts/server.py to composition
+- palaver-tmm: Test with existing test_client.py
 
 ** Git Commits
 [To be populated during implementation]

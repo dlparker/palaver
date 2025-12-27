@@ -32,19 +32,33 @@ Work is organized into **Stories** (higher-level goals) and **Tasks** (implement
 - Each Story has: Title, ID, Stage assignment, Description, Constraints, Tasks, Retrospective
 - Stories define WHAT to accomplish and at WHAT quality level (via Stage)
 
-**Tasks** are tracked using beads:
-- Use `bd` commands (see Quick Reference below)
-- Link to parent Story in task description
+**Tasks** are tracked using beads issues:
+- **CRITICAL**: You MUST create beads issues for all Story tasks
+- Use `bd create` commands (see Quick Reference below)
+- Link to parent Story in task description/title
 - Tasks define HOW to implement the Story
+- Update task status as you work (`bd update`, `bd close`)
 
-**Workflow:**
-1. Human creates Story document with Stage assignment
-2. You create Tasks (beads issues) to plan the work
-3. Human reviews and approves Tasks
-4. You implement Tasks, marking code with stage decorators
-5. Human reviews results
-6. You write Retrospective section in Story document
-7. Story marked complete
+**Mandatory Workflow:**
+
+1. **Human creates Story document** with Stage assignment
+2. **You create beads issues** for each planned task:
+   ```bash
+   bd create --title="[Story-003] Extract EventRouter to module" --type=task --priority=2
+   bd create --title="[Story-003] Create EventNetServer base class" --type=task --priority=2
+   # ... one issue per task
+   ```
+3. **Human reviews and approves** the task breakdown
+4. **You implement** each task:
+   - Mark task as `in_progress`: `bd update <id> --status=in_progress`
+   - Implement code with stage decorators
+   - Mark task as complete: `bd close <id>`
+   - Reference beads issue in commit message
+5. **Human reviews** implementation results
+6. **You write Retrospective** section in Story document
+7. **Story marked complete**, beads issues linked in "Related Work > Beads Tasks" section
+
+**IMPORTANT**: Do NOT track tasks only in the Story document - always create beads issues. This provides persistent tracking across sessions and enables dependency management.
 
 See `process_docs/guardrails_0.1.org` for complete workflow details.
 
