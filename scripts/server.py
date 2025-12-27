@@ -75,8 +75,18 @@ class EventRouter(AudioEventListener, TextEventListener, DraftEventListener):
         pass
 
     async def _route_event(self, event: Any):
-        """Route event to subscribed clients."""
+        """Route event to subscribed clients.
+
+        Server-side filtering:
+        - "all" means all event types EXCEPT AudioChunkEvent
+        - Client must explicitly subscribe to "AudioChunkEvent" to receive chunks
+        - AudioChunkEvent only sent when in_speech=True (VAD detected speech)
+        """
         event_type = type(event).__name__
+
+        # Skip AudioChunkEvent if not in speech (silence/irrelevant sound)
+        if event_type == "AudioChunkEvent" and not getattr(event, 'in_speech', False):
+            return
 
         # Convert event to JSON-serializable dict
         event_dict = self._serialize_event(event, event_type)
@@ -85,7 +95,17 @@ class EventRouter(AudioEventListener, TextEventListener, DraftEventListener):
         async with self._lock:
             dead_clients = []
             for websocket, subscribed_types in self.clients.items():
-                if "all" in subscribed_types or event_type in subscribed_types:
+                # Check if client should receive this event
+                should_send = False
+
+                if event_type in subscribed_types:
+                    # Explicitly subscribed to this event type
+                    should_send = True
+                elif "all" in subscribed_types and event_type != "AudioChunkEvent":
+                    # "all" means everything except AudioChunkEvent
+                    should_send = True
+
+                if should_send:
                     try:
                         await websocket.send_json(event_dict)
                     except Exception as e:
@@ -207,8 +227,8 @@ class EventNetServer:
                 async with ScribePipeline(self.mic_listener, config) as pipeline:
                     self.pipeline = pipeline
 
-                    # Add event router as listener
-                    pipeline.add_api_listener(self.event_router)
+                    # Add event router as listener (to_VAD=True for 16kHz downsampled audio)
+                    pipeline.add_api_listener(self.event_router, to_VAD=True)
 
                     # Start listening
                     await pipeline.start_listener()

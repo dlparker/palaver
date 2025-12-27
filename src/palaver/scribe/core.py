@@ -83,15 +83,24 @@ class ScribePipeline:
                     audio_merge=self.audio_merge)
     
     def add_api_listener(self, api_listener:ScribeAPIListener,
-                               to_source: bool=False, to_VAD: bool=False, to_merge: bool=True):
+                               to_source: bool=False, to_VAD: bool=False, to_merge: bool=False):
+        # If no attachment point specified, default to merge
+        if not (to_source or to_VAD or to_merge):
+            to_merge = True
+
+        # Ensure only one attachment point is selected
         if sum((to_source, to_VAD, to_merge)) > 1:
             raise Exception('You can supply at most one value for audio event attachement')
+
+        # Attach to the selected point in the pipeline
         if to_merge:
             self.audio_merge.add_event_listener(api_listener)
         elif to_VAD:
             self.vadfilter.add_event_listener(api_listener)
-        else:
+        else:  # to_source
             self.listener.add_event_listener(api_listener)
+
+        # Always add text and draft event listeners
         self.whisper_tool.add_text_event_listener(api_listener)
         self.draft_maker.add_event_listener(api_listener)
         self._api_listeners.append(api_listener)

@@ -53,14 +53,22 @@ async def event_client(
                     continue
 
                 event_count += 1
-                print(f"[{event_count}] {event_type}")
 
-                # Remove data field from AudioChunkEvent to avoid huge output
-                if event_type == AudioEventType.audio_chunk and "data" in event:
-                    event_copy = event.copy()
-                    event_copy["data"] = f"<{len(event['data'])} samples>"
-                    print(f"    {json.dumps(event_copy, indent=2)}\n")
+                # Special handling for AudioChunkEvent to highlight key info
+                if event_type == AudioEventType.audio_chunk:
+                    sample_rate = event.get("sample_rate", "unknown")
+                    in_speech = event.get("in_speech", False)
+                    data_len = len(event.get("data", []))
+                    print(f"[{event_count}] {event_type} - {sample_rate}Hz, in_speech={in_speech}, {data_len} samples")
+
+                    if "data" in event:
+                        event_copy = event.copy()
+                        event_copy["data"] = f"<{data_len} samples>"
+                        print(f"    {json.dumps(event_copy, indent=2)}\n")
+                    else:
+                        print(f"    {json.dumps(event, indent=2)}\n")
                 else:
+                    print(f"[{event_count}] {event_type}")
                     print(f"    {json.dumps(event, indent=2)}\n")
 
         except websockets.exceptions.ConnectionClosed:
@@ -93,9 +101,15 @@ def create_parser():
     )
 
     parser.add_argument(
+        '--with-chunks',
+        action='store_true',
+        help='Subscribe to AudioChunkEvent (speech-only chunks with in_speech=True). Server filters by default.'
+    )
+
+    parser.add_argument(
         '--show-chunks',
         action='store_true',
-        help='Include AudioChunkEvent in output (default: exclude)'
+        help='Print AudioChunkEvent to console (default: show summary only). Requires --with-chunks.'
     )
 
     return parser
@@ -107,6 +121,10 @@ def main():
 
     # Convert event list to set
     event_types = set(args.events)
+
+    # Add AudioChunkEvent if --with-chunks is specified
+    if args.with_chunks:
+        event_types.add("AudioChunkEvent")
 
     # Run client
     try:
