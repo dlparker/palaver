@@ -63,8 +63,6 @@ class Worker:
         self.shutdown_event = shutdown_event
         self.model_path = model_path
         self.model = None
-        self.have_nvidia = check_if_nvidia()
-        print(f"\nHave nvidia check\n {self.have_nvidia}\n\n")
         self.initial_prompt = INITIAL_PROMPT
 
     def run(self):
@@ -143,7 +141,7 @@ def process_worker_wrapper(job_queue: MPQueue, result_queue: MPQueue,
     logger.info(f"Worker process %i for model %s exiting", os.getpid(), model_path)
     return None
 
-BUFFER_SAMPLES = 30000   
+BUFFER_SAMPLES = 5 * 16000  
 
 class WhisperWrapper:
 
@@ -221,8 +219,6 @@ class WhisperWrapper:
                     raise Exception("Timeout waiting for flushed job")
             
     async def set_buffer_samples(self, new_samples):
-        if self._worker_running:
-            raise Exception("cannot do that when worker running")
         self._config['buffer_samples'] = new_samples
         self._buffer = np.zeros(new_samples, dtype=np.float32)
         

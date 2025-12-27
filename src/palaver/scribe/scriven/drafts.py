@@ -41,41 +41,39 @@ class MatchResult:
 default_draft_start_patterns = []
 default_draft_end_patterns = []
 
-for name in ['rupert', 'bubba', 'freddy', 'babbage']:
+for name in ['rupert', 'freddy',]:
     pattern = f"{name} take this down now"
     pat = MatchPattern(pattern, [name,])
     default_draft_start_patterns.append(pat)
-    pattern = f"{name} break"
+
+    pattern = f"{name} break break "
     pat = MatchPattern(pattern, [name, 'break'])
     default_draft_end_patterns.append(pat)
-    pattern = f"{name} great"
+    pattern = f"{name} great great"
     pat = MatchPattern(pattern, [name,'great'])
     default_draft_end_patterns.append(pat)
-    pattern = f"{name} stop"
+    pattern = f"{name} stop stop"
     pat = MatchPattern(pattern, [name, 'stop'])
     default_draft_end_patterns.append(pat)
     pattern = f"{name} stop now"
     pat = MatchPattern(pattern, [name,'stop'])
     default_draft_end_patterns.append(pat)
-    for doc_name in ["draft", "document", "paper"]:
-        for preamble in ["", 'hey ', 'wake up ']:
+    for doc_name in ["draft",]:
+        for preamble in ['hey ', 'wake up ']:
             for glue in ['', 'a ', 'the ', 'uh ']:
-                for start in ['start', 'begin', 'new']:
+                for start in ['start', 'new']:
                     pattern = f"{preamble}{name} {start} {glue}{doc_name}"
                     pat = MatchPattern(pattern, [name, doc_name, start])
                     default_draft_start_patterns.append(pat)
                     pattern = f"{preamble}{name} {start} {glue}{doc_name} now"
                     pat = MatchPattern(pattern, [name, doc_name, start])
                     default_draft_start_patterns.append(pat)
-                for stop in ['stop', 'close', 'end' ]:
-                    pattern = f"{preamble}{name} {stop} {glue}{doc_name}"
-                    pat = MatchPattern(pattern, [name, doc_name, stop])
-                    default_draft_end_patterns.append(pat)
-                    pattern = f"{preamble}{name} {stop} {glue}{doc_name} now"
-                    pat = MatchPattern(pattern, [name, doc_name, stop])
-                    default_draft_end_patterns.append(pat)
-                pattern = f"{preamble}{name} vacation now"
-                pat = MatchPattern(pattern, [name, 'vacation'])
+            for stop in ['stop', 'close', 'end' ]:
+                pattern = f"{preamble}{name} {stop} {doc_name}"
+                pat = MatchPattern(pattern, [name, doc_name, stop])
+                default_draft_end_patterns.append(pat)
+                pattern = f"{preamble}{name} {stop} {doc_name} now"
+                pat = MatchPattern(pattern, [name, doc_name, stop])
                 default_draft_end_patterns.append(pat)
 
 pat = MatchPattern("break break break")
