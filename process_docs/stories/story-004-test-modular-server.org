@@ -1,0 +1,127 @@
+#+TITLE: Story 004: Add Tests for Modular Server Architecture
+#+AUTHOR: Claude Code
+#+DATE: 2025-12-27
+#+PROPERTY: STORY_ID 004
+#+PROPERTY: STAGE Prototype
+#+PROPERTY: STATUS Draft
+
+* Story Overview
+
+** Title
+Add comprehensive tests for refactored server architecture
+
+** Story ID
+004
+
+** Stage
+Prototype
+
+** Status
+Draft
+
+* Description
+
+Add test coverage for the modular server architecture introduced in Story 003. Tests should focus on:
+- Direct testing of EventRouter (no HTTP stack)
+- Testing router factories with minimal FastAPI test infrastructure
+- Integration testing with mocked audio input (following existing test patterns)
+- Full server integration with draft completion monitoring
+
+This establishes the testing foundation for the Prototype stage architecture, enabling confident iteration and future extensions.
+
+** Testing Strategy
+
+*** 1. Unit Test: EventRouter (=tests/test_event_router.py=)
+- Test EventRouter directly as pure Python component (no FastAPI/HTTP)
+- Mock websocket objects for client registration/unregistration
+- Test event routing logic (server-side filtering, "all" subscription, AudioChunkEvent filtering)
+- Test event serialization (dataclasses, numpy arrays, nested structures)
+- Verify in_speech filtering for AudioChunkEvent
+- Fast, isolated, easy to debug
+
+*** 2. Unit Test: Status Router (=tests/test_status_router.py=)
+- Use FastAPI TestClient for synchronous HTTP testing
+- Create minimal test app with status router
+- Test /health endpoint (basic health check)
+- Test /status endpoint (pipeline state, client count, model path)
+- Mock EventNetServer for shared context
+- No actual pipeline startup (just router logic)
+
+*** 3. Integration Test: Event Streaming with Mock Audio (=tests/test_event_streaming.py=)
+- Combine MockStream pattern from =test_mic_mock_to_text.py=
+- Use websocket test client (FastAPI websocket testing or httpx)
+- Feed audio file through mocked MicListener
+- Verify events flow through websocket
+- Monitor draft completion (pattern from =test_file_audio_to_text.py=)
+- Test subscription protocol ("all", explicit event types)
+- Verify server-side filtering and VAD routing
+
+*** 4. Full Server Integration Test (=tests/test_server_integration.py=)
+- Test complete EventNetServer with both routers
+- Mock audio input, verify draft recording
+- Test /health and /status endpoints during pipeline operation
+- Verify client count updates in /status
+- Test graceful shutdown
+- End-to-end validation of Story 003 architecture
+
+** File Structure
+#+begin_src
+tests/
+├── test_event_router.py           # Unit test - EventRouter
+├── test_status_router.py          # Unit test - status router
+├── test_event_streaming.py        # Integration - websocket + mock audio
+└── test_server_integration.py    # Integration - full server
+#+end_src
+
+** Acceptance Criteria
+
+1. EventRouter unit tests cover routing logic, filtering, and serialization
+2. Status router tests verify /health and /status endpoints
+3. Event streaming test verifies websocket subscription and event flow
+4. Integration test verifies full server operation with draft completion
+5. Tests follow existing patterns (MockStream, draft monitoring)
+6. Tests can run without actual microphone hardware
+7. All tests pass with Prototype stage code quality
+
+* Constraints
+
+- Prototype stage testing: focus on interfaces and key functionality, not edge cases
+- Reuse existing test patterns (MockStream, APIWrapper, draft monitoring)
+- Direct router testing preferred over full HTTP stack where possible
+- Use FastAPI's built-in test tools (TestClient, websocket testing)
+- Tests should be fast and isolated (no network dependencies)
+- Mock hardware dependencies (microphone, audio devices)
+- Tests document the expected behavior of the modular architecture
+
+* Tasks
+
+[This section will be populated during planning phase - beads issues will be created]
+
+* Implementation Notes
+
+[Track progress here during implementation]
+
+* Review & Retrospective
+
+[After implementation, captures review process and outcomes]
+
+* Related Work
+
+** Related Stories
+- Story-003: Refactor Server Architecture (code being tested)
+- Story-002: Optimize Event Streaming (functionality to preserve)
+- Story-001: Event Net POC (original implementation)
+
+** Beads Tasks
+[To be populated during implementation]
+
+** Git Commits
+[To be populated during implementation]
+
+* References
+
+- Existing test patterns: =test_mic_mock_to_text.py=, =test_file_audio_to_text.py=
+- FastAPI testing docs: https://fastapi.tiangolo.com/tutorial/testing/
+- FastAPI websocket testing: https://fastapi.tiangolo.com/advanced/websockets/
+- TestClient: https://www.starlette.io/testclient/
+- Components under test: =src/palaver/fastapi/= (EventRouter, EventNetServer, routers)
