@@ -95,11 +95,68 @@ tests/
 
 * Tasks
 
-[This section will be populated during planning phase - beads issues will be created]
+** PLANNED Task 1: Unit test EventRouter - direct testing (palaver-kgp)
+- Create =tests/test_event_router.py=
+- Test client registration/unregistration
+- Test event routing logic (subscriptions, "all" filtering)
+- Test server-side filtering (AudioChunkEvent exclusion)
+- Test event serialization (dataclasses, numpy arrays, nested structures)
+- Test in_speech filtering for AudioChunkEvent
+- No HTTP/FastAPI dependencies - pure Python unit test
+
+** PLANNED Task 2: Unit test status router with TestClient (palaver-eaj)
+- Create =tests/test_status_router.py=
+- Use FastAPI TestClient for HTTP testing without network
+- Test =/health= endpoint
+- Test =/status= endpoint
+- Mock EventNetServer for shared context
+- No actual pipeline startup
+
+** PLANNED Task 3: Integration test event streaming with mock audio (palaver-dbl)
+- Create =tests/test_event_streaming.py=
+- Reuse MockStream pattern from =test_mic_mock_to_text.py=
+- Use websocket test client (FastAPI/httpx)
+- Feed audio file through mocked MicListener
+- Verify events flow through websocket
+- Test subscription protocol ("all", explicit types)
+- Monitor draft completion (pattern from =test_file_audio_to_text.py=)
+- Dependencies: Task 1
+
+** PLANNED Task 4: Full server integration test (palaver-olk)
+- Create =tests/test_server_integration.py=
+- Test complete EventNetServer with both routers
+- Mock audio input, verify draft recording
+- Test =/health= and =/status= endpoints during operation
+- Verify client count updates in =/status=
+- Test graceful shutdown
+- End-to-end validation of Story 003 architecture
+- Dependencies: Task 2, Task 3
 
 * Implementation Notes
 
-[Track progress here during implementation]
+** 2025-12-27 Implementation started
+- Created beads issues for all 4 tasks (palaver-kgp, palaver-eaj, palaver-dbl, palaver-olk)
+- Set up task dependencies for proper ordering
+- Approach: Layered testing from unit tests to integration tests
+
+** 2025-12-27 Task 1 Complete - EventRouter unit tests (palaver-kgp)
+- Created =tests/test_event_router.py= with pure Python unit tests
+- No HTTP/FastAPI dependencies - MockWebSocket for testing
+- 9 tests covering all routing logic, filtering, serialization
+- 95% EventRouter coverage achieved
+- Tests document expected behavior: "all" excludes AudioChunkEvent, in_speech filtering works
+
+** 2025-12-27 Task 2 Complete - Status router tests (palaver-eaj)
+- Created =tests/test_status_router.py= using FastAPI TestClient
+- 5 tests covering /health and /status endpoints
+- 100% status router coverage
+- No network required - TestClient provides HTTP interface without actual networking
+- Tests verify pipeline state, client count, draft recording status
+
+** 2025-12-27 Tasks 1-2 progress
+- Direct router testing pattern established and working well
+- 82% overall test coverage achieved (user confirmed adequate)
+- Two integration tests remaining (event streaming, full server)
 
 * Review & Retrospective
 
@@ -113,7 +170,10 @@ tests/
 - Story-001: Event Net POC (original implementation)
 
 ** Beads Tasks
-[To be populated during implementation]
+- palaver-kgp: Unit test EventRouter - direct testing
+- palaver-eaj: Unit test status router with TestClient
+- palaver-dbl: Integration test event streaming with mock audio
+- palaver-olk: Full server integration test
 
 ** Git Commits
 [To be populated during implementation]
