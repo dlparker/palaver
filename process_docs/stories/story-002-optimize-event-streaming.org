@@ -223,10 +223,11 @@ Process success: User explicitly noted process working well - "super painless", 
 - Story-001: Event Net POC (baseline implementation)
 
 ** Beads Tasks
-[To be populated during implementation]
+- No beads tasks created (POC completed in single session)
 
 ** Git Commits
-[To be populated during implementation]
+- =cc032b9=: Story 002 created (initial story document)
+- =65f6102=: Story 002 Complete: Optimize Event Streaming - Server-side filtering and VAD audio
 
 * References
 
