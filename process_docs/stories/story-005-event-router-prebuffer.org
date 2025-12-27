@@ -1,0 +1,222 @@
+#+TITLE: Story 005: Add Pre-Buffer to EventRouter for Better Speech Capture
+#+AUTHOR: Claude Code
+#+DATE: 2025-12-27
+#+PROPERTY: STORY_ID 005
+#+PROPERTY: STAGE Prototype
+#+PROPERTY: STATUS Draft
+
+* Story Overview
+
+** Title
+Add AudioRingBuffer pre-buffering to EventRouter for improved speech start capture
+
+** Story ID
+005
+
+** Stage
+Prototype
+
+** Status
+Draft
+
+* Description
+
+Add pre-buffering capability to EventRouter to capture audio samples that arrive just before VAD detects speech start. This addresses the VAD signal delay issue where speech detection "goes high" slightly after speech actually begins, causing the first syllables to be cut off.
+
+** Problem
+
+The VAD (Voice Activity Detection) has inherent latency - it signals AudioSpeechStartEvent a few hundred milliseconds after speech actually begins. Without pre-buffering:
+
+1. AudioChunkEvents arriving just before VAD triggers are lost
+2. Websocket clients miss the actual start of speech
+3. Whisper transcription quality suffers from missing initial syllables
+4. EventRouter and WhisperWrapper have inconsistent behavior (WhisperWrapper already does pre-buffering)
+
+** Solution
+
+Implement the same AudioRingBuffer pattern used in WhisperWrapper:
+
+1. Maintain ring buffer of recent AudioChunkEvents (including silence/non-speech)
+2. When AudioSpeechStartEvent arrives, emit buffered chunks first
+3. Then emit the AudioSpeechStartEvent
+4. Continue with normal event routing
+
+This ensures websocket clients receive the complete speech segment including the actual start.
+
+** Architecture Changes
+
+*** EventRouter Enhancement (=src/palaver/fastapi/event_router.py=)
+
+Add pre-buffering support:
+- Optional AudioRingBuffer with configurable duration (default 1.0 second)
+- Buffer AudioChunkEvents when in_speech=False
+- Emit buffered events before AudioSpeechStartEvent
+- Clear buffer after emitting
+
+*** Configuration
+- =pre_buffer_seconds= parameter (default 1.0, matching WhisperWrapper)
+- =pre_buffer_seconds=0= disables pre-buffering (backward compatible)
+
+** Acceptance Criteria
+
+1. EventRouter accepts =pre_buffer_seconds= configuration parameter
+2. AudioRingBuffer created when pre_buffer_seconds > 0
+3. AudioChunkEvents buffered when in_speech=False (silence)
+4. Buffered events sent to clients before AudioSpeechStartEvent
+5. Buffer cleared after emission to prevent duplicate sends
+6. Tests verify pre-buffer behavior (buffer fill, emission order, clearing)
+7. Behavior matches WhisperWrapper pattern (consistency)
+8. Backward compatible (pre_buffer_seconds=0 disables feature)
+
+* Constraints
+
+- Prototype stage quality: focus on core functionality, not edge cases
+- Reuse existing AudioRingBuffer class from audio_events.py
+- Maintain EventRouter interface compatibility (optional parameter)
+- Pre-buffering only applies to AudioChunkEvent (not other event types)
+- Buffer only sent for in_speech=False → in_speech=True transitions
+- Don't buffer events for clients that don't subscribe to AudioChunkEvent
+
+* Tasks
+
+** PLANNED Task 1: Add pre_buffer configuration to EventRouter (palaver-???)
+- Add =__init__= parameter: =pre_buffer_seconds: float = 1.0=
+- Create AudioRingBuffer instance when pre_buffer_seconds > 0
+- Store pre_buffer instance as =self._pre_buffer=
+- Handle pre_buffer_seconds=0 case (no buffering)
+
+** PLANNED Task 2: Implement AudioChunkEvent buffering (palaver-???)
+- In =on_audio_event()=, detect AudioChunkEvent with in_speech=False
+- Add to =self._pre_buffer= when not in speech
+- Track speech state to detect transitions
+
+** PLANNED Task 3: Emit buffered events before speech start (palaver-???)
+- In =on_audio_event()=, detect AudioSpeechStartEvent
+- If =self._pre_buffer.has_data()=, emit buffered chunks first
+- Then emit AudioSpeechStartEvent
+- Clear buffer after emission
+- Dependencies: Task 1, Task 2
+
+** PLANNED Task 4: Add tests for pre-buffer behavior (palaver-???)
+- Test pre-buffer creation (enabled/disabled based on config)
+- Test buffering of silence AudioChunkEvents
+- Test emission order (buffered chunks → speech start event)
+- Test buffer clearing after emission
+- Test no buffering when pre_buffer_seconds=0
+- Add to =tests/test_event_router.py=
+- Dependencies: Task 1, Task 2, Task 3
+
+** PLANNED Task 5: Integration test with event streaming (palaver-???)
+- Test pre-buffer with websocket client
+- Verify client receives buffered chunks before speech start
+- Verify correct event ordering
+- Add to =tests/test_event_streaming.py=
+- Dependencies: Task 4
+
+** PLANNED Task 6: Manual verification with live server (palaver-???)
+- Start server with pre-buffering enabled
+- Connect websocket client
+- Verify speech capture improvement
+- Compare with/without pre-buffering
+- Document results in story
+- Dependencies: Task 5
+
+* Implementation Notes
+
+** Design Decisions
+
+*** Why reuse AudioRingBuffer?
+- Already exists in =palaver.scribe.audio_events=
+- Proven implementation used in WhisperWrapper
+- Handles time-based buffering correctly
+- No need to reinvent the wheel
+
+*** Why only buffer in_speech=False chunks?
+- Matches WhisperWrapper behavior
+- Speech segments already captured by normal routing
+- Pre-buffer solves the "missed start" problem specifically
+- Keeps buffer small and focused
+
+*** Why emit before AudioSpeechStartEvent?
+- Chronological order: buffered audio happened before VAD triggered
+- Allows clients to reconstruct full audio timeline
+- Matches actual audio stream timing
+
+*** Why clear buffer after emission?
+- Prevents sending same chunks on next speech segment
+- Keeps memory usage bounded
+- Each speech segment gets fresh pre-buffer
+
+** Configuration Default
+
+Using 1.0 second to match WhisperWrapper:
+- Line 151 in whisper.py: ='pre_buffer_seconds': 1.0=
+- Proven to work well for VAD latency compensation
+- Not too much overhead (16000 samples @ 16kHz = 64KB per second)
+
+** Backward Compatibility
+
+Setting =pre_buffer_seconds=0= disables feature:
+- No AudioRingBuffer created
+- No buffering behavior
+- Existing tests continue to pass
+- Allows gradual rollout
+
+* Related Work
+
+** Related Stories
+- Story-003: Refactor Server Architecture (EventRouter implementation)
+- Story-004: Add Tests for Modular Server (testing foundation)
+- Story-002: Optimize Event Streaming (server-side filtering)
+
+** Related Code
+- =src/palaver/scribe/audio_events.py=: AudioRingBuffer implementation
+- =src/palaver/scribe/scriven/whisper.py=: WhisperWrapper pre-buffer pattern (lines 226-229, 352-362)
+- =src/palaver/fastapi/event_router.py=: EventRouter to enhance
+
+** Beads Tasks
+[To be created during implementation]
+
+** Git Commits
+[To be populated during implementation]
+
+* References
+
+** AudioRingBuffer Usage in WhisperWrapper
+- Initialization (line 226-229):
+  #+begin_src python
+  if self._config['pre_buffer_seconds'] > 0:
+      self._pre_buffer = AudioRingBuffer(max_seconds=self._config['pre_buffer_seconds'])
+  else:
+      self._pre_buffer = None
+  #+end_src
+
+- Buffering silence (lines 352-353):
+  #+begin_src python
+  elif isinstance(event, AudioChunkEvent) and not self._in_speech and self._pre_buffer is not None:
+      self._pre_buffer.add(event)
+  #+end_src
+
+- Emitting before speech (lines 355-361):
+  #+begin_src python
+  elif isinstance(event, AudioChunkEvent) and self._in_speech:
+      if self._pre_buffer and self._pre_buffer.has_data():
+          # We collected some while not in speech, get those
+          # and process those first. Helps avoid dropped
+          # words at the beginning when doing VAD
+          for pre_event in self._pre_buffer.get_all(clear=True):
+              await self._handle_chunk(pre_event)
+      await self._handle_chunk(event)
+  #+end_src
+
+** Key Classes
+- =AudioRingBuffer= (audio_events.py): Time-based ring buffer for audio events
+- =EventRouter= (event_router.py): Event routing to websocket clients
+- =AudioChunkEvent=: Audio data chunks with in_speech flag
+- =AudioSpeechStartEvent=: VAD detected speech start
+
+** Testing Patterns
+- Pure Python unit tests (test_event_router.py)
+- MockWebSocket for testing without HTTP stack
+- Event emission verification
+- State transition testing
