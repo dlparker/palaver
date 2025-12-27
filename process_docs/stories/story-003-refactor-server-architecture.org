@@ -1,0 +1,123 @@
+#+TITLE: Story 003: Refactor Server Architecture - Modular Router Composition
+#+AUTHOR: Dennis Parker
+#+DATE: 2025-12-27
+#+PROPERTY: STORY_ID 003
+#+PROPERTY: STAGE Prototype
+#+PROPERTY: STATUS Draft
+
+* Story Overview
+
+** Title
+Refactor FastAPI server to modular architecture with pluggable routers
+
+** Story ID
+003
+
+** Stage
+Prototype
+
+** Status
+Draft
+
+* Description
+
+Refactor the monolithic =scripts/server.py= into a modular architecture that supports:
+- Pluggable routers for different server variants (status monitoring, draft editing UI, etc.)
+- Reusable EventRouter component for event streaming
+- Shared pipeline/database context across routers
+- Simple composition pattern in scripts
+
+This establishes the architectural foundation for future server variants while maintaining current functionality.
+
+** Architecture Components
+
+*** 1. EventRouter component (=src/palaver/fastapi/event_router.py=)
+- Extract EventRouter class from =scripts/server.py=
+- Keep as pure event routing logic (no FastAPI coupling)
+- Reusable across different server implementations
+
+*** 2. EventNetServer base class (=src/palaver/fastapi/server.py=)
+- Manages FastAPI app lifecycle
+- Handles pipeline startup/shutdown in lifespan context
+- Provides shared context (pipeline, db, config) for routers
+- Exposes =add_router()= method for composing functionality
+
+*** 3. Event streaming router factory (=src/palaver/fastapi/routers/events.py=)
+- =create_event_router(server)= factory function
+- Creates FastAPI router with websocket endpoint
+- Uses EventRouter from shared server context
+- Returns APIRouter ready to include in app
+
+*** 4. Status router (=src/palaver/fastapi/routers/status.py=) - Example
+- =create_status_router(server)= factory function
+- Provides basic =/status= and =/health= endpoints
+- Demonstrates the router pattern for future extensions
+
+*** 5. Refactored startup script (=scripts/server.py=)
+- Keep argparse for command-line options
+- Instantiate EventNetServer with config
+- Compose routers: =server.add_router(create_event_router(server))=
+- Simple, declarative server composition
+
+** File Structure
+#+begin_src
+src/palaver/fastapi/
+├── __init__.py
+├── server.py          # EventNetServer base class
+├── event_router.py    # EventRouter component (extracted)
+└── routers/
+    ├── __init__.py
+    ├── events.py      # create_event_router() factory
+    └── status.py      # create_status_router() factory
+#+end_src
+
+** Acceptance Criteria
+
+1. EventRouter extracted to standalone module, fully functional
+2. EventNetServer base class manages pipeline lifecycle
+3. Event streaming works via router factory composition
+4. Status router provides basic health/status endpoints
+5. =scripts/server.py= simplified to argparse + composition
+6. All Story 002 functionality preserved (server-side filtering, VAD routing, speech-only chunks)
+7. Existing test client (=scripts/test_client.py=) works without modification
+
+* Constraints
+
+- Maintain backward compatibility - existing server behavior unchanged
+- Keep =scripts/server.py= simple - no business logic, just composition
+- EventRouter should have no FastAPI dependencies (pure routing logic)
+- Prototype stage quality: clean interfaces, basic tests, good separation of concerns
+- Don't add features beyond current server - focus on refactoring structure
+- Factory functions preferred over classes for router creation (simplicity)
+
+* Tasks
+
+[This section will be populated by the agent during planning phase.]
+
+* Implementation Notes
+
+[The agent will track progress here during implementation.]
+
+* Review & Retrospective
+
+[After implementation, this section captures the review process and outcomes]
+
+* Related Work
+
+** Related Stories
+- Story-001: Event Net POC (original server implementation)
+- Story-002: Optimize Event Streaming (current server functionality)
+
+** Beads Tasks
+[To be populated during implementation]
+
+** Git Commits
+[To be populated during implementation]
+
+* References
+
+- Current server: =scripts/server.py= (Story 002 implementation)
+- EventRouter logic: Lines 33-118 in =scripts/server.py=
+- EventNetServer logic: Lines 151-241 in =scripts/server.py=
+- FastAPI Router documentation: https://fastapi.tiangolo.com/tutorial/bigger-applications/
+- FastAPI Lifespan events: https://fastapi.tiangolo.com/advanced/events/
