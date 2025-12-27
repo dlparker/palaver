@@ -34,61 +34,179 @@ None
 
 * Tasks
 
-[This section will be populated by the agent during planning phase.
-Each task should be specific and actionable.]
+** PLANNED Task 1: Create FastAPI server with websocket endpoint
+- Estimated scope: small
+- Dependencies: none
+- Details: Basic FastAPI app with single websocket route for event streaming
+- Libraries: fastapi, uvicorn (already in pyproject.toml per git status showing fastapi branch)
 
-** PLANNED Task 1: [Description]
-- Estimated scope: [small/medium/large]
-- Dependencies: [other tasks or stories]
+** PLANNED Task 2: Integrate audio pipeline into server
+- Estimated scope: medium
+- Dependencies: Task 1
+- Details: Instantiate MicListener → DownSampler → VADFilter → WhisperThread pipeline in server startup
+- Reuse existing components from src/palaver/scribe/
 
-** PLANNED Task 2: [Description]
-- Estimated scope: [small/medium/large]
-- Dependencies: [other tasks or stories]
+** PLANNED Task 3: Implement event subscription and routing
+- Estimated scope: medium
+- Dependencies: Task 1, Task 2
+- Details:
+  - Event listener that receives all pipeline events
+  - Registry of websocket clients with their event type subscriptions
+  - Route events to subscribed clients
+  - JSON serialization of events (numpy arrays → lists)
+
+** PLANNED Task 4: Create simple test client
+- Estimated scope: small
+- Dependencies: Task 1, Task 3
+- Details:
+  - Python script using websockets library
+  - Connects to server websocket
+  - Subscribes to all event types
+  - Prints events (excluding AudioChunkEvent to avoid spam)
+
+** PLANNED Task 5: Test complete flow
+- Estimated scope: small
+- Dependencies: All previous tasks
+- Details:
+  - Run server
+  - Run test client
+  - Verify events flow from mic → pipeline → websocket → client
+  - Test with actual speech (trigger VAD, Whisper transcription)
 
 * Implementation Notes
 
-[The agent will track progress here during implementation. This section
-documents decisions made, challenges encountered, and how they were resolved.]
+** 2025-12-27 Implementation started
+- Approach: POC implementation with FastAPI websockets
+- Created two scripts:
+  - =scripts/server.py= - FastAPI server with websocket endpoint
+  - =scripts/test_client.py= - Simple websocket client for testing
 
-** [Date] Implementation started
-- Approach: [brief description]
+** 2025-12-27 Key architectural decisions
+- Used FastAPI =lifespan= context manager for pipeline lifecycle management
+  - Pipeline starts with server, shuts down cleanly on exit
+  - Nested context managers: MicListener → ScribePipeline → Server
+- Created =EventRouter= class implementing both =AudioEventListener= and =TextEventListener=
+  - Maintains registry of websocket clients with their event type subscriptions
+  - Routes events to subscribed clients
+  - Handles JSON serialization (numpy arrays → lists)
+- Simple subscription protocol:
+  - Client sends: ={"subscribe": ["EventType1", "EventType2", ...]}=
+  - Or: ={"subscribe": ["all"]}=
+- All new code marked with =@stage(Stage.POC, track_coverage=False)=
 
-** [Date] [Notable decision or challenge]
-- Issue: [what came up]
-- Resolution: [how it was handled]
+** 2025-12-27 Dependencies added
+- Added to =pyproject.toml=:
+  - =fastapi>=0.115.0=
+  - =uvicorn>=0.32.0=
+  - =websockets>=14.0=
+- Note: =pywhispercpp= installed from local fork at =~/projects/3rd/pywhispercpp=
+
+** 2025-12-27 Implementation status
+- Tasks 1-4 complete (server, pipeline integration, routing, test client)
+- Task 5 remaining: Manual testing of complete flow
+- Both modules load successfully (syntax validated)
+
+** 2025-12-27 Bug fixes
+- Added missing =on_draft_event=, =on_pipeline_ready=, =on_pipeline_shutdown= to EventRouter
+- Set up TopErrorHandler context in lifespan to satisfy pipeline requirements
+- Fixed event type comparison in test client:
+  - Was comparing against class name string ="AudioChunkEvent"=
+  - Should compare against enum value =AudioEventType.audio_chunk= (="AUDIO_CHUNK")=
+  - Server serializes the event's =event_type= field (enum value), not class name
+- Fixed DraftEvent serialization:
+  - Draft object contains nested dataclasses (TextMark, Section)
+  - Implemented recursive serialization in =_serialize_value= method
+  - Now handles nested dataclasses, lists, and numpy arrays properly
+
+** 2025-12-27 Task 5 Complete - Manual testing successful
+- Server and client working together successfully
+- All event types verified flowing through websocket:
+  - =AUDIO_SPEECH_START= / =AUDIO_SPEECH_STOP= (VAD detection)
+  - =TextEvent= (Whisper transcription)
+  - =DraftStartEvent= (command "start new draft" detected)
+  - =DraftEndEvent= (command "break break break" detected, includes full draft)
+  - =AudioChunkEvent= properly filtered on client side
+- Tested with speech: "Freddy, start new draft" → draft text → "Freddy, break break break"
+- Draft object serialization working with nested dataclasses
+- All 5 tasks completed successfully
 
 * Review & Retrospective
 
-[After implementation, this section captures the review process and outcomes]
-
 ** Review Process
-- Date: [YYYY-MM-DD]
-- Reviewer: [Name]
-- Testing performed: [what was tested, how]
+- Date: 2025-12-27
+- Reviewer: Dennis Parker
+- Testing performed: Manual end-to-end testing with live microphone input, speech commands, and websocket client monitoring
 
 ** Outcomes
-- [ ] Meets acceptance criteria
-- [ ] Code quality appropriate for stage
-- [ ] Tests passing (if applicable)
-- [ ] Documentation updated (if applicable)
+- [X] Meets acceptance criteria
+- [X] Code quality appropriate for stage (POC)
+- [X] Tests passing (manual testing successful)
+- [X] Documentation updated (story document, AGENTS.md, CLAUDE.md)
 
 ** Retrospective
-[Agent summarizes the human's feedback and overall results]
 
 *** What went well
-- [Item 1]
-- [Item 2]
+
+**** Technical implementation
+- Simple JSON subscription protocol (={"subscribe": ["all"]}=) proved intuitive and easy to implement
+- Recursive dataclass serialization solved nested object problem elegantly
+- FastAPI lifespan context manager cleanly integrated pipeline lifecycle
+- POC stage approach allowed rapid iteration through multiple bug fixes without concern for code quality debt
+- All event types (Audio, Text, Draft) successfully streaming over websocket
+
+**** Development process
+- Process met two primary goals:
+  1. *Easy to provide needed specificity* - Story format with Stage, Description, and Constraints gave clear guidance without over-specification
+  2. *Easy to maintain focus for review* - Agent output was manageable, allowing human to provide expert assistance without getting overwhelmed by inspection overhead
+- Stage decorator usage made code maturity expectations explicit
+- Iterative debugging (missing methods, TopErrorHandler, serialization) was straightforward with clear error messages
 
 *** What could be improved
-- [Item 1]
-- [Item 2]
+
+**** Technical debt (POC limitations)
+- Client-side event filtering inefficient - sends all AudioChunkEvents over network then discards them
+- No server-side subscription filtering by event type (should filter before sending)
+- No error recovery or reconnection logic in client
+- No authentication or client authorization
+- Single EventRouter instance limits scalability (could be bottleneck with many clients)
+- No metrics or monitoring (connection count, event throughput, etc.)
+
+**** Development process
+- Initial implementation missed several protocol methods (=on_draft_event=, =on_pipeline_ready/shutdown=) - could have studied =ScribeAPIListener= more carefully upfront
+- Event type enum vs class name confusion - documentation could be clearer about serialization behavior
 
 *** Lessons learned
-- [Item 1]
-- [Item 2]
+
+**** Technical insights
+- Event type serialization: Server sends =event.event_type.value= (enum value like ="AUDIO_CHUNK"=), not =type(event).__name__= (class name like ="AudioChunkEvent"=)
+- TopErrorHandler context must be set via =ERROR_HANDLER.set()= before pipeline operations - FastAPI lifespan requires manual context setup
+- Dataclass serialization requires recursive traversal - can't rely on default JSON encoder
+- WebSocket protocol benefits from simple message format for POC - complex protocols can wait for later stages
+
+**** Process insights
+- POC stage philosophy worked well: prove concept first, worry about quality later
+- Story-driven development with explicit Stage assignment prevented over-engineering
+- Guardrails "don't do" list (no retry loops, minimal error handling) kept implementation focused
+- Manual testing at POC stage more valuable than automated tests - saved time
 
 *** Final disposition
-[Keep/Discard decision and rationale]
+
+*Keep* - Successful POC that proves the concept of streaming audio pipeline events via websockets.
+
+The implementation successfully demonstrates:
+- FastAPI can host the audio pipeline with clean lifecycle management
+- Events serialize and stream correctly over websockets
+- Client subscription model works for event filtering
+- All event types (Audio, Text, Draft with nested objects) transmit successfully
+
+If this capability proves valuable for future work (e.g., building a web UI, multi-client monitoring, distributed architecture), this POC provides a solid foundation to evolve to MVP or Production stage with proper:
+- Server-side event filtering
+- Authentication and authorization
+- Error recovery and reconnection
+- Metrics and monitoring
+- Automated testing
+
+For now, the POC remains as reference implementation and proof that the approach is viable.
 
 * Related Work
 
