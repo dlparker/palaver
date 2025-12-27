@@ -211,14 +211,14 @@ For now, the POC remains as reference implementation and proof that the approach
 * Related Work
 
 ** Related Stories
-- Story-NNN: [relationship]
+- None (first story in project)
 
 ** Beads Tasks
-- beads-xxx: [task description and link to story]
-- beads-yyy: [task description and link to story]
+- No beads tasks created (POC completed in single session)
 
 ** Git Commits
-- [commit-hash]: [commit message]
+- =acbb75f=: Initial process setup (AGENTS.md, CLAUDE.md, stage_markers.py, story template)
+- =81461a8=: Story 001 Complete: Event Net POC - FastAPI websocket event streaming
 
 * References
 
