@@ -198,7 +198,104 @@ src/palaver/fastapi/
 
 * Review & Retrospective
 
-[After implementation, this section captures the review process and outcomes]
+** Review Process
+- Date: 2025-12-27
+- Reviewer: Dennis Parker
+- Testing performed: Manual testing with server/client, verified all Story 002 functionality preserved, tested new status endpoints
+
+** Outcomes
+- [X] Meets acceptance criteria (all 7 criteria met)
+- [X] Code quality appropriate for stage (Prototype - clean interfaces, good separation of concerns)
+- [X] Tests passing (manual testing successful, automated tests not required for Prototype stage)
+- [X] Documentation updated (story document with implementation notes, inline docstrings)
+
+** Retrospective
+
+*** What went well
+
+**** Technical implementation
+- Modular architecture achieved clear separation of concerns
+- EventRouter successfully extracted as pure routing logic (no FastAPI dependencies)
+- EventNetServer provides clean base class for lifecycle management
+- Factory function pattern (=create_event_router(server)=) simple and effective
+- Router composition pattern very clean: =server.add_router(create_event_router(server))=
+- 71% reduction in scripts/server.py demonstrates successful refactoring (348→101 lines)
+- Backward compatibility maintained - existing test_client.py works without modification
+- New /health and /status endpoints provide useful monitoring capabilities
+- All Story 002 functionality preserved (server-side filtering, VAD routing, speech-only chunks)
+
+**** Development process
+- **Process correction**: User identified missing beads workflow, I corrected approach mid-stream
+- **Beads workflow**: Creating issues with dependencies provided clear task ordering
+- **AGENTS.md update**: Made workflow explicit to prevent future mistakes
+- **Task granularity**: 7 well-scoped tasks easier to track than monolithic implementation
+- **Stage upgrade**: Moving from POC to Prototype stage forced better architecture decisions
+- **Dependency tracking**: =bd dep add= ensured correct implementation sequence
+- **Session close protocol**: Followed complete git/beads sync workflow successfully
+
+*** What could be improved
+
+**** Technical debt (Prototype limitations)
+- DefaultAPIWrapper still in scripts/ - should move to src/palaver for proper packaging
+- Transitional sys.path manipulation in server.py to import from scripts is hacky
+- No automated tests for new components (acceptable for Prototype, need for MVP)
+- EventRouter uses =Any= type for websocket parameter (FastAPI coupling avoided but type safety lost)
+- No router registration validation (can add incompatible routers without error)
+- Status endpoint exposes internal structure (pipeline state) - may want abstraction layer later
+
+**** Development process
+- **Initial workflow mistake**: Should have created beads issues immediately, not tasks in story document
+- **Documentation lag**: AGENTS.md wasn't explicit enough initially about beads requirement
+- **Testing approach**: Manual testing sufficient for Prototype but need test strategy for MVP
+- **Commit granularity**: Single large commit for all 7 tasks - could have committed incrementally
+
+*** Lessons learned
+
+**** Technical insights
+- **Factory functions vs classes**: Factory pattern simpler than class-based router plugins
+- **Shared context pattern**: Server providing =event_router= / =pipeline= access to routers works well
+- **FastAPI router composition**: =app.include_router()= extremely clean for modular servers
+- **Prototype stage quality**: Clean interfaces and good separation more important than comprehensive tests
+- **Refactoring metrics**: Line count reduction (71%) good indicator of successful abstraction
+- **Backward compatibility**: Zero changes to test client proves good architectural boundaries
+- **Type annotations for documentation**: Even with =Any= types, docstrings compensate for clarity
+
+**** Process insights
+- **Beads as single source of truth**: Tasks must be in beads, not just story documents
+- **Workflow documentation critical**: Without explicit AGENTS.md guidance, easy to forget beads
+- **POC→Prototype transition**: Stage upgrade requires architectural thinking, not just code cleanup
+- **Dependencies enforce quality**: =bd dep add= prevented implementing routers before EventNetServer
+- **Meta-improvements during stories**: Fixing AGENTS.md mid-story prevented future mistakes
+- **Session close checklist**: Following git→bd sync→commit→bd sync→push prevents lost work
+- **Beads stats validation**: =bd stats= at end confirms all work tracked and closed
+
+*** Final disposition
+
+*Keep* - Successful architectural refactoring establishing foundation for future server variants.
+
+The implementation successfully demonstrates:
+- Modular architecture with pluggable routers (event streaming, status monitoring)
+- Clean separation between EventRouter (pure routing) and EventNetServer (lifecycle)
+- Factory function pattern for simple router composition
+- Backward compatibility (existing client works without modification)
+- Prototype stage quality (clean interfaces, good separation, basic testing)
+- 71% reduction in scripts/server.py complexity
+
+**Architectural foundation ready**: This refactoring enables future server variants:
+- Draft editing UI server (would add draft management routers)
+- Status monitoring server (would add metrics/logging routers)
+- Development server (would add debug/introspection routers)
+
+**For MVP evolution, address**:
+- Move DefaultAPIWrapper from scripts/ to src/palaver
+- Add automated tests for EventRouter and EventNetServer
+- Remove sys.path manipulation with proper package structure
+- Add router registration validation
+- Consider abstraction layer for status endpoint
+
+**Process success**: User-identified workflow gap led to mid-story process improvement. Updated AGENTS.md now explicit about beads requirement, preventing future mistakes. This validates the LabsNFoundries approach: discover process issues during implementation, fix immediately, document for next time.
+
+**Stage appropriateness**: Prototype stage correct choice for this refactoring. Clean interfaces and good separation more important than comprehensive tests when establishing architecture. Tests become critical when promoting to MVP for production use.
 
 * Related Work
 
