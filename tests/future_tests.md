@@ -2,6 +2,136 @@
 
 This file documents test ideas that were deferred or planned but not yet implemented.
 
+---
+
+## EventRouter Pre-Buffer Integration Tests (Story 005, Tasks 5-6 - Deferred)
+
+**Original Task IDs**: palaver-xkb, palaver-daj
+**Status**: Deferred - comprehensive unit tests provide adequate coverage for Prototype stage
+**Stage**: Prototype
+
+### Task 5: Integration Test with Event Streaming (palaver-xkb)
+
+#### Overview
+
+Integration test combining EventRouter pre-buffering with websocket client and event streaming protocol.
+
+#### Test Scope
+
+1. **Setup**
+   - Create EventNetServer with pre_buffer_seconds=1.0
+   - Add event streaming router
+   - Connect websocket test client
+
+2. **Pre-Buffer Testing**
+   - Send AudioChunkEvents with in_speech=False (silence)
+   - Verify silence chunks NOT received by client (buffered)
+   - Send AudioSpeechStartEvent
+   - Verify client receives: buffered silence chunks → speech start event
+   - Verify correct chronological order
+
+3. **Multiple Speech Segments**
+   - Send silence → speech start → silence → speech start
+   - Verify buffer cleared between segments
+   - Verify no duplicate chunks
+
+4. **Disabled Pre-Buffer**
+   - Create EventRouter with pre_buffer_seconds=0
+   - Verify silence chunks filtered out (not buffered or sent)
+   - Verify speech start arrives without pre-buffer
+
+#### Why Deferred
+
+- Comprehensive unit tests already cover all pre-buffer logic (96% EventRouter coverage)
+- Unit tests verify:
+  - Buffer creation/disabled states
+  - Silence buffering behavior
+  - Emission order (buffered → speech start)
+  - Buffer clearing
+  - force_send mechanism
+- Integration adds HTTP/websocket layer complexity without testing new logic
+- TestClient websocket limitations (synchronous, timing issues)
+
+#### When to Implement
+
+Consider implementing when:
+- Promoting to MVP stage (need higher integration confidence)
+- Bugs found in websocket interaction with pre-buffering
+- Performance issues with buffer emission timing
+- Issues with concurrent clients receiving buffered events
+- Need to validate buffer behavior with actual VAD timing
+
+### Task 6: Manual Verification with Live Server (palaver-daj)
+
+#### Overview
+
+Manual testing with live server, real audio input, and websocket client to verify pre-buffering improves speech capture quality.
+
+#### Test Procedure
+
+1. **Setup Live Server**
+   ```bash
+   # Start server with pre-buffering enabled (default)
+   uv run scripts/server.py --model models/ggml-base.en.bin
+   ```
+
+2. **Connect WebSocket Client**
+   ```bash
+   # Use existing test client
+   uv run scripts/test_client.py --subscribe all,AudioChunkEvent
+   ```
+
+3. **Test Speech Capture**
+   - Speak into microphone with short phrases
+   - Observe AudioChunkEvents received before AudioSpeechStartEvent
+   - Note if initial syllables are captured (vs cut off)
+
+4. **Compare With/Without Pre-Buffer**
+
+   **With pre-buffering (pre_buffer_seconds=1.0):**
+   - Expected: Client receives ~1 second of silence before speech
+   - Expected: Initial syllables fully captured
+   - Expected: Improved transcription accuracy
+
+   **Without pre-buffering (pre_buffer_seconds=0):**
+   - Expected: Client receives AudioSpeechStartEvent immediately
+   - Expected: Initial syllables may be cut off
+   - Expected: Transcription may miss first words
+
+5. **Verify Transcription Quality**
+   - Compare Whisper transcription results with/without pre-buffering
+   - Document improvement in capturing speech starts
+   - Note any edge cases or timing issues
+
+#### Why Deferred
+
+- Core pre-buffer functionality proven with unit tests
+- WhisperWrapper already uses identical AudioRingBuffer pattern successfully
+- No server deployment yet to test against
+- Manual testing requires actual microphone and audio setup
+- Transcription quality comparison requires baseline data
+
+#### When to Implement
+
+Implement when:
+- Deploying server for actual use
+- Reports of speech start being cut off
+- Comparing transcription quality with baseline
+- Tuning pre_buffer_seconds duration (default 1.0s)
+- Testing with different VAD configurations
+- Need empirical data for pre-buffer effectiveness
+
+#### Expected Results
+
+Based on WhisperWrapper experience (which uses same AudioRingBuffer pattern):
+- Pre-buffering should capture 200-300ms of audio before VAD triggers
+- This compensates for VAD latency (detection ~200-300ms after speech starts)
+- Initial syllables and words should be fully captured
+- Transcription quality should improve, especially for short phrases
+- No noticeable latency increase for end users
+
+---
+
 ## Full Server Integration Test (Story 004, Task 4 - Deferred)
 
 **Original Task ID**: palaver-olk
