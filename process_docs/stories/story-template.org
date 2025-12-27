@@ -1,0 +1,116 @@
+#+TITLE: Story NNN: [Short Title]
+#+AUTHOR: [Your Name]
+#+DATE: [YYYY-MM-DD]
+#+PROPERTY: STORY_ID NNN
+#+PROPERTY: STAGE [Research|Study|POC|Prototype|MVP|Production]
+#+PROPERTY: STATUS [Draft|Planned|In Progress|Review|Complete|Discarded]
+
+* Story Overview
+
+** Title
+[Short, descriptive title]
+
+** Story ID
+NNN (unique serial integer)
+
+** Stage
+[One of: Research, Study, POC, Prototype, MVP, Production]
+
+** Status
+[Current status: Draft, Planned, In Progress, Review, Complete, Discarded]
+
+* Description
+
+[What should be accomplished in terms of results. Think acceptance criteria
+but not necessarily formal. Focus on the outcome, not the implementation.]
+
+Example:
+- The system should be able to...
+- When X happens, Y should result...
+- Users can verify success by...
+
+* Constraints
+
+[Optional clarification of what should NOT be done, or boundaries for the work]
+
+Example:
+- Implement X without changing Y
+- Don't add database persistence yet
+- Keep the existing API interface unchanged
+- No external dependencies beyond what's already in pyproject.toml
+
+* Tasks
+
+[This section will be populated by the agent during planning phase.
+Each task should be specific and actionable.]
+
+** PLANNED Task 1: [Description]
+- Estimated scope: [small/medium/large]
+- Dependencies: [other tasks or stories]
+
+** PLANNED Task 2: [Description]
+- Estimated scope: [small/medium/large]
+- Dependencies: [other tasks or stories]
+
+* Implementation Notes
+
+[The agent will track progress here during implementation. This section
+documents decisions made, challenges encountered, and how they were resolved.]
+
+** [Date] Implementation started
+- Approach: [brief description]
+
+** [Date] [Notable decision or challenge]
+- Issue: [what came up]
+- Resolution: [how it was handled]
+
+* Review & Retrospective
+
+[After implementation, this section captures the review process and outcomes]
+
+** Review Process
+- Date: [YYYY-MM-DD]
+- Reviewer: [Name]
+- Testing performed: [what was tested, how]
+
+** Outcomes
+- [ ] Meets acceptance criteria
+- [ ] Code quality appropriate for stage
+- [ ] Tests passing (if applicable)
+- [ ] Documentation updated (if applicable)
+
+** Retrospective
+[Agent summarizes the human's feedback and overall results]
+
+*** What went well
+- [Item 1]
+- [Item 2]
+
+*** What could be improved
+- [Item 1]
+- [Item 2]
+
+*** Lessons learned
+- [Item 1]
+- [Item 2]
+
+*** Final disposition
+[Keep/Discard decision and rationale]
+
+* Related Work
+
+** Related Stories
+- Story-NNN: [relationship]
+
+** Beads Tasks
+- beads-xxx: [task description and link to story]
+- beads-yyy: [task description and link to story]
+
+** Git Commits
+- [commit-hash]: [commit message]
+
+* References
+
+[Any relevant documentation, design docs, or external references]
+- [Reference 1]
+- [Reference 2]

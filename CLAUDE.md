@@ -248,12 +248,44 @@ Development:
 - **pytest-cov** - Coverage reporting
 - **ipdb** - Enhanced debugger
 
+## Development Process
+
+This project follows the **LabsNFoundries** process (see `process_docs/labs_n_foundries_0.2.org`), which means:
+
+### Code Maturity Levels
+
+Code in this repository exists at different stages of development maturity. Components are marked with the `@stage` decorator from `src/palaver/stage_markers.py`:
+
+- **Research/Study** - Throwaway exploration code (minimal quality investment)
+- **POC** - Proof of concept code (component contracts only)
+- **Prototype** - First realistic use (moderate quality, basic tests)
+- **MVP** - Production-ready with good test coverage (current target for core pipeline)
+- **Production** - Long-term sustainable (comprehensive tests, full docs)
+
+**Example from codebase:**
+```python
+from palaver.stage_markers import Stage, stage
+
+@stage(Stage.MVP, track_coverage=True)
+class WhisperThread:
+    """Core transcription component - production quality."""
+    pass
+```
+
+When reading or modifying code, check its `.__stage__` attribute or decorator to understand expected quality level. Don't assume all code should be at production quality - this is intentional.
+
+### Work Organization
+
+- **Stories** define what to build and at what quality level (org-mode files in `process_docs/stories/`)
+- **Tasks** define implementation steps (tracked in beads via `bd` commands)
+- See `AGENTS.md` for complete process documentation
+
 ## Project Philosophy
 
-This is an experimental project for personal use. Expect:
+This is an experimental project for personal use focused on voice-controlled LLM interaction. Expect:
 - Rapid iteration and breaking changes
-- No formal requirements or architecture docs
-- Code that may be replaced entirely
-- Focus on "trying things out" over stability
+- Components at different maturity stages
+- Code that may be replaced entirely as experiments evolve
+- Mixed quality levels reflecting the learning → building spectrum
 
-When working on this code, prioritize quick experimentation over production patterns.
+The current core pipeline (MicListener → VAD → Whisper → Commands) is at **MVP** stage with solid architecture and test coverage. New experimental features may start at Research/POC stages.

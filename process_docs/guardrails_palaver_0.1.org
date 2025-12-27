@@ -1,0 +1,51 @@
+
+
+* Absolute beginning, December 27 2025 Guardrails specifics for Palaver project
+
+This process is being developed by using it on the "palaver" subsystem of
+the voice controlled personal assistant that is under development. It has
+not been used at all on the project at this point, so some support will
+need to be worked out.
+
+** Beads
+
+I have installed the beads tracking component into the Claude code environment
+for this project. I have only briefly reviewed what it is and how it works
+and have decided I want to use it to see if I like what it does for my
+work with Claude Code. Therefore I may need Claude to help me figure out
+how it fits with how I want to work.
+
+My initial though is that it could be used for tracking Tasks, but it might
+not be suitable for tracking Stories. I could be wrong about that, however,
+as I know it support some sort of hierarchy of work descriptions as someone
+mentioned it supports epochs.
+
+If it does not have a hierarchical structure that can support my notion of
+Stories and Tasks, then I guess Stories will need to be markdown documents.
+Let's work this out and then update this document
+
+   
+
+** Knowing current code stages
+
+I would like to have some kind of source marking mechanism for identifying
+the Stage that I assign to a bit of code. I think the right granularity
+is the class or function level, as some source files will have a mixture
+of stages.
+
+I would like Claude's advice on this. One option that seems attractive
+is some sort of custom decorator, maybe using the Decorum library? I
+have no experience with this so I need advice. One thing that would
+be extra nice, but not necessary is if the decorator could be used
+to mark classes, methods or functions for coverage. That way I
+could get a quick estimate of how well I am testing code that I want
+to test and ignore the rest, avoiding a manual step. Nice to have but
+not required. Other suggestions are welcome.
+
+Whatever code marking method we end up using, I'll need to do it manually
+for the existing code, but as we build new code you can help me keep it
+in sync.
+
+
+
+

@@ -1,0 +1,109 @@
+#+TITLE: Story 001: Enable Event Net
+#+AUTHOR: Dennis Parker
+#+DATE: 2025-12-27
+#+PROPERTY: STORY_ID 001
+#+PROPERTY: STAGE [POC]
+#+PROPERTY: STATUS [Draft]
+
+* Story Overview
+
+** Title
+Add fastapi support for registring for and receiving event streams.
+
+** Story ID
+001
+
+** Stage
+POC
+
+** Status
+Draft
+
+* Description
+
+It should be possible to build a server process that listens to the
+hosts microphone in the standard pipeline and offes to stream
+events via websocket to callers that register for specific event types.
+Include a simple test client that connects to the server, subscribes for
+all event types and prints out all events except for AudioChunkEvents.
+
+
+* Constraints
+
+None
+
+* Tasks
+
+[This section will be populated by the agent during planning phase.
+Each task should be specific and actionable.]
+
+** PLANNED Task 1: [Description]
+- Estimated scope: [small/medium/large]
+- Dependencies: [other tasks or stories]
+
+** PLANNED Task 2: [Description]
+- Estimated scope: [small/medium/large]
+- Dependencies: [other tasks or stories]
+
+* Implementation Notes
+
+[The agent will track progress here during implementation. This section
+documents decisions made, challenges encountered, and how they were resolved.]
+
+** [Date] Implementation started
+- Approach: [brief description]
+
+** [Date] [Notable decision or challenge]
+- Issue: [what came up]
+- Resolution: [how it was handled]
+
+* Review & Retrospective
+
+[After implementation, this section captures the review process and outcomes]
+
+** Review Process
+- Date: [YYYY-MM-DD]
+- Reviewer: [Name]
+- Testing performed: [what was tested, how]
+
+** Outcomes
+- [ ] Meets acceptance criteria
+- [ ] Code quality appropriate for stage
+- [ ] Tests passing (if applicable)
+- [ ] Documentation updated (if applicable)
+
+** Retrospective
+[Agent summarizes the human's feedback and overall results]
+
+*** What went well
+- [Item 1]
+- [Item 2]
+
+*** What could be improved
+- [Item 1]
+- [Item 2]
+
+*** Lessons learned
+- [Item 1]
+- [Item 2]
+
+*** Final disposition
+[Keep/Discard decision and rationale]
+
+* Related Work
+
+** Related Stories
+- Story-NNN: [relationship]
+
+** Beads Tasks
+- beads-xxx: [task description and link to story]
+- beads-yyy: [task description and link to story]
+
+** Git Commits
+- [commit-hash]: [commit message]
+
+* References
+
+[Any relevant documentation, design docs, or external references]
+- [Reference 1]
+- [Reference 2]

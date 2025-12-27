@@ -1,0 +1,133 @@
+
+* Guardrails Development Process
+
+Agent guide to using LabsNFounries process
+
+The associated LabsNFoundries document (currently labs_n_foundries_0.2.org)
+describes the philosophical model of development that works for the user.
+
+This document builds on that process concept to produces a practical
+concrete process.
+
+** Refinements
+
+The LabsNFoundries document is vague about code investments. That
+is somewhat inevitable because it represents a basic tension between
+the way LLMs view the coding process and the way I want it done. My
+experience with LLMs show that they are biased towards completeness
+and certain features that their training makes them prefer. One
+example of this feature bias is that they keep inserting retry
+loops for error conditions and they are rarely desirable. Many
+error conditions in a real program involve problems that can't
+be resolve that way. Retrying a failed RPC for example can
+only be resolved if the function is idempotent, which is rarely
+true in practice.
+
+Error handing in any sense is generally not wanted in my projects.
+I write python code that expects to either capture and report
+errors at the "top level" of the code stack or just let them
+crash the program. Try/except clauses that hide the stack
+and just report the error string are actually an impediment
+to bug hunting, especially in the early stages of development.
+
+So "minimal investment" in code should be interpreted as:
+
+1. Don't add parameters unless there is a clear current need
+   for them.
+2. Don't add error handling except for normal shutdown logic such
+   as sockets closing and task cancellation.
+3. Don't refactor code to extract common features into shared code
+   without human direction to do so.
+4. Don't add unrequested features in the name of completeness.
+
+
+On the other hand:
+
+1. Do use type annotations
+2. Do use Enums and Dataclasses to clarify code
+3. Do provide comments that increase human code comprehension.
+
+
+Hopefully you can see the theme here. The "don't do" items prevent
+you from adding code that the human has to study and comprehend when
+there is is no immediate need for it, and the "do" items help make
+the study for comprehension easier.
+
+   
+** Primary process elements
+
+*** Stages and Stories
+
+These are the two foundational elements of the process. The human
+developer creates Stories and assigns them to a Stage. This assignment
+serves as a guide to the agent for how to address trade-offs
+about code completeness, design robustness, etc. It is expected
+that the agent may need to ask clarifying questions as the
+guidance is not always going to be comprehensive enough to address
+all issues of judgment.
+
+At this point in time, this process is itself undergoing development.
+Over time, with experience, it may become evident that Stories
+need further classification, but for now I want to see how well
+it works to just classify them by stage and add needed detail
+in the description of the Story.
+
+So the format for a story will be:
+
+1. Story Title - short text
+2. Story ID - an integer, serial, unique
+3. Stage - one of the defined stages
+4. Description - what should be accomplished in terms of result, basically
+   but not strictly in terms of acceptance criteria.
+5. Constraints - Optional clarification of what should not be done, e.g. "do x without changing y"
+
+As describe in LabsNFoundries, there are three learning stages
+
+1. Research
+2. Study
+3. POC
+
+and three building stages
+
+1. Prototype
+2. MVP
+3. Production
+
+*** Tasks and Retrospectives
+
+The agent will create individual Tasks as needed to plan the
+work before actually performing it. This will give the human
+a chance to evaluate how well the Story leads to the intent
+and to possibly rework the Story in some way.
+
+Once the human has examined and approved the Tasks produced
+for a Story and the agent will perform the work, keeping
+track of the progress and the way changes in the source
+base (code or other artifacts such as documents) relate
+the the Tasks. 
+
+The tracking function may be provided by tools available
+to the agent, or the agent may need to create a tracking
+format for the information. The goal is to be able
+to treat the set of changes related to a Story as a group
+for source control operations such as merging, rollback, etc.
+
+Once the Tasks have been implemented, the agent will ask
+the human for feedback. The actions the human takes to
+review the results will vary, and may involve asking the
+agent to make minor changes to help with the review, such
+as adding some sort of formal or informal test to let
+the human see how something works. The agent will keep
+track of this and summarize it along with the human's
+comments and a determination to keep, or discard
+the results.
+
+The agent with then summarize the review results into
+a retrospective that will be added to the Story and
+the Story marked complete.
+
+
+
+
+   
+
