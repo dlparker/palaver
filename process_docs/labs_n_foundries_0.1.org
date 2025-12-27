@@ -1,0 +1,234 @@
+
+* LabsNFoundaries: An software development process
+
+** Main goals a spectrum
+
+In the beginning, the main goal is mostly or even exclusively creating
+clear understanding of the problem space and the application of specific
+techniques to solve those problems.
+
+At the end, the goal is almost exclusively creating reliable, maintainable
+code that solves the problem.
+
+
+
+* Stages
+
+It is important to note that an project overall project spends most of
+its active development lifespan in a state where different component
+sets are in different stages. Only in the very beginning and ending
+stages of the project are nearly all the components in the stage of
+development.
+
+A typical scenario is that some subset of components has advanced
+to the prototype or MVP stage but some other component is just
+entering the POC stage, using the rest as support for this effort.
+Other combinations should be expected.
+
+
+** Learning Stages
+
+*** Research Lab
+
+Stage where the human asks and answers basic questions about some
+aspect of achieving the goal. Spectrum location is 100% at
+the human understanding end.
+
+Code developed exclusively for the purpose of giving the human
+developer experience with the nature of the problem. No code produced
+is expected to be retained for later stages, so investment in code
+quality and standards is absolutely minimal.
+
+*** Study Lab
+
+Stage where human explores that application of possible solution
+components in order to develop a clear mental model of how they
+can be used in the current project.  Spectrum location is 100% at
+the human understanding end.
+
+Code developed exclusively for the purpose of giving the human
+developer experience with proposed solution components. May
+include multiple inconsistent approaches desired but the human
+to clarify the options.
+
+No code produced is expected to be retained for later stages, so
+investment in code quality and standards is absolutely minimal.
+
+
+*** Proof Of Concept Lab
+
+Stage where one or more parts of the proposed solution are assembled
+to prove that some subset of the end solution can be accomplished.
+Spectrum location is 90% at the human understanding end.
+
+Code is developed to bring together enough elements to test the
+claim that some proposed slice of the solution achieve enough
+of the goal that it can be used to support development of
+other slices.
+
+Most code is likely to live only for a short part of the
+development cycle. Some key parts are likely to be retained
+and incorporated in later stages, but likely in more of
+a cut and paste fashion than retaining whole functions
+or classes. Investment in code quality and standards should
+be limited to the explicit contracts that each component
+needs to provide to the other components of the POC.
+
+** Building Stages
+
+*** Prototype Foundry
+
+Best defined as a contrast to Proof of Concept type implementation.
+POCs demonstrate a yes answer to "Does it work at all?", Prototypes
+demonstrate a yes answer to "Can it be used in a realistic way".
+Spectrum location roughly 50/50 human understanding versus
+sustainable code.
+
+This stage is typified by the first attempt by the human to construct
+and internal architecture of well formed components, though probably
+only to a limited degree.
+
+Investment in code quality and standards is mostly limited to
+separation of concerns and clean interfaces for components
+that are approaching full clarity, with isolation of less
+clear functionality into scaffolding components with low
+likely retention and therefore little investment in finished
+quality features.
+
+Automated testing receives significant effort, though the
+focus is on verifying main feature stability rather than
+comprehensiveness. The human can use the tests to ensure
+that major rework of a component does not break the
+overall functionally
+
+
+*** MVP Foundry
+
+Produces a solution that is complete enough to be used as
+a basis for a cycle of real use followed by analysis followed
+by refinement. Spectrum location is roughly 80% sustainable
+code 20% human understanding.
+
+The final architecture is put into place for most of the
+components. It should be possible to integrate on refinement
+of individual components with little or no impact on other
+components.
+
+Investment in code quality and standards is moderately high
+for most components. Cross cutting concerns such as error
+handling, logging, configuration are provided by fairly
+complete components, and individual components provide
+well encapsulated features for life cycle management,
+start up and runtime configuration, etc.
+
+Automated testing becomes more extensive. Code coverage
+becomes a goal, though the human in the loop will decide
+whether the coverage is sufficient by examining the uncovered
+code for unimportant branches such as defensive code such
+as parameter validation, optional parameters, etc. The
+test will cover a meaningful range of conditions likely
+to be encountered in actual use.
+
+
+*** Production Foundry
+
+Produces a solution that is expected to be used long term
+without immediate need for revision. Spectrum location is
+nearly 100% sustainable code, with the caveat that code
+should be structured with a strong bias for retaining
+architectural features that the human developer has explicitly
+marked as important to comprehension.
+
+Very little code, if any is still in the prototype stage.
+This little is retained because the system requires some
+kind of solution in this area, but details won't be known
+until work begins to integrate this system with other,
+possibly not yet existing systems.
+
+Investment in code quality and standards is very high
+for all or nearly all components.
+
+Automated testing becomes more exhaustive, with 100%
+statement coverage and approval by human developer
+of each test's logic to ensure that it tests the
+code from a functionally point of view, such that
+each test makes a statement about what sort of
+result the code under test should produce given
+a set of initial conditions.
+
+
+* Example case history
+
+Partial history of "palaver" project.
+
+Goal is a voice to text component of an LLM
+integrated personal assistant tool chain.
+
+** Research Lab
+
+*** Voice Transcription
+
+Human wrote some simple code to figure out
+how to use WhisperCPP based models in python.
+Finding out that it is possible to run the tool
+in a streaming fashion on short audio segments
+so as to get responsive interactivity was
+the successfully achieved goal. 
+
+*** Voice Detection
+
+Human wrote some code to see how to run
+silero VAD code from python and see if
+it would support goal of responsive interactivity
+
+
+** Study lab
+
+Human directed agentic coding assistant (Claude Code)
+to produce a simple demo that could accept audio
+data from a microphone, feed it to VAD, then use
+VAD as a start/stop tool for WhisperCPP streaming.
+Human then fiddled extensively with the code to
+figure out how these tools worked and worked together,
+developing comprehension and confidence in the
+direction.
+
+
+** POC lab
+
+Human directed agentic coding assistant (Claude Code)
+to produce a POC that could accept audio data from
+either a microphone or a file and produce separate
+blocks of text as results. This included a command
+detector step that evaluated text to see if the user
+was issuing a command that would start or stop a
+section of text that should be associated with
+a command. Various refinements were added in small
+stages to explore solutions.
+
+
+** Prototype Foundry
+
+Human began a clean sheet version of the same
+functionality that was demoed in the POC.
+The primary architectural feature (an event pipeline)
+was created and individual components were demarcated
+and integrated into the architecture. Lots of
+code from the POC was cut and pasted and usually
+reworked to some degree. Simplified and clarified
+command processing was developed from scratch
+based on lessons, but not code, from the POC.
+
+
+*** MVP Foundry
+
+Much trial usage and testing of the prototype
+lead to much refinement and some major reworking
+of components, especially the command detection
+components, and the pipeline life cycle management.
+
+This is the current end point of the example effort
+
+
+
+
