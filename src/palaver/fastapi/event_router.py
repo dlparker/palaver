@@ -98,7 +98,8 @@ class EventRouter(AudioEventListener, TextEventListener, DraftEventListener):
             if self._pre_buffer and self._pre_buffer.has_data():
                 logger.info(f"Emitting {len(self._pre_buffer.buffer)} pre-buffered chunks before speech start")
                 for buffered_event in self._pre_buffer.get_all(clear=True):
-                    await self._route_event(buffered_event)
+                    # Bypass in_speech filter for pre-buffered chunks
+                    await self._route_event(buffered_event, force_send=True)
 
         await self._route_event(event)
 
@@ -118,18 +119,23 @@ class EventRouter(AudioEventListener, TextEventListener, DraftEventListener):
         """Called when pipeline is shutting down."""
         pass
 
-    async def _route_event(self, event: Any):
+    async def _route_event(self, event: Any, force_send: bool = False):
         """Route event to subscribed clients.
 
         Server-side filtering:
         - "all" means all event types EXCEPT AudioChunkEvent
         - Client must explicitly subscribe to "AudioChunkEvent" to receive chunks
         - AudioChunkEvent only sent when in_speech=True (VAD detected speech)
+
+        Args:
+            event: Event to route to clients
+            force_send: If True, bypass in_speech filter (for pre-buffered chunks)
         """
         event_type = type(event).__name__
 
         # Skip AudioChunkEvent if not in speech (silence/irrelevant sound)
-        if event_type == "AudioChunkEvent" and not getattr(event, 'in_speech', False):
+        # UNLESS force_send=True (pre-buffered chunks from before speech detection)
+        if event_type == "AudioChunkEvent" and not force_send and not getattr(event, 'in_speech', False):
             return
 
         # Convert event to JSON-serializable dict

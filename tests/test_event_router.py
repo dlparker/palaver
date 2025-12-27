@@ -363,3 +363,232 @@ async def test_event_router_dead_client_cleanup():
 
     # ws_good should have received the message
     assert len(ws_good.sent_messages) == 1
+
+
+@stage(Stage.PROTOTYPE, track_coverage=True)
+def test_event_router_prebuffer_disabled():
+    """Test EventRouter with pre_buffer_seconds=0 disables buffering."""
+    router = EventRouter(pre_buffer_seconds=0)
+    assert router._pre_buffer is None
+
+
+@stage(Stage.PROTOTYPE, track_coverage=True)
+def test_event_router_prebuffer_enabled():
+    """Test EventRouter with pre_buffer_seconds>0 creates buffer."""
+    router = EventRouter(pre_buffer_seconds=1.5)
+    assert router._pre_buffer is not None
+    assert router._pre_buffer.max_seconds == 1.5
+
+
+@stage(Stage.PROTOTYPE, track_coverage=True)
+@pytest.mark.asyncio
+async def test_event_router_prebuffer_buffers_silence():
+    """Test that silence chunks (in_speech=False) are buffered, not routed."""
+    import time
+    router = EventRouter(pre_buffer_seconds=1.0)
+    ws = MockWebSocket()
+
+    await router.register_client(ws, {"all", "AudioChunkEvent"})
+
+    # Use realistic timestamp to avoid pruning in tests
+    now = time.time()
+
+    # Send silence chunk (in_speech=False)
+    silence_chunk = AudioChunkEvent(
+        source_id="test_source",
+        stream_start_time=now,
+        timestamp=now,
+        data=np.array([0.01, 0.01, 0.01]),
+        duration=0.01,
+        sample_rate=16000,
+        channels=1,
+        blocksize=160,
+        datatype="float32",
+        in_speech=False
+    )
+
+    await router.on_audio_event(silence_chunk)
+
+    # Should be buffered, not sent to client
+    assert len(ws.sent_messages) == 0
+    assert router._pre_buffer.has_data()
+    assert len(router._pre_buffer.buffer) == 1
+
+
+@stage(Stage.PROTOTYPE, track_coverage=True)
+@pytest.mark.asyncio
+async def test_event_router_prebuffer_emits_before_speech_start():
+    """Test buffered chunks emitted before AudioSpeechStartEvent."""
+    import time
+    router = EventRouter(pre_buffer_seconds=1.0)
+    ws = MockWebSocket()
+
+    await router.register_client(ws, {"all", "AudioChunkEvent"})
+
+    now = time.time()
+
+    # Send 3 silence chunks
+    for i in range(3):
+        silence_chunk = AudioChunkEvent(
+            source_id="test_source",
+            stream_start_time=now,
+            timestamp=now + i * 0.01,
+            data=np.array([0.01, 0.01, 0.01]),
+            duration=0.01,
+            sample_rate=16000,
+            channels=1,
+            blocksize=160,
+            datatype="float32",
+            in_speech=False
+        )
+        await router.on_audio_event(silence_chunk)
+
+    # Verify buffered, not sent
+    assert len(ws.sent_messages) == 0
+    assert len(router._pre_buffer.buffer) == 3
+
+    # Send speech start event
+    speech_start = AudioSpeechStartEvent(
+        source_id="test_source",
+        stream_start_time=now,
+        timestamp=now + 0.3,
+        silence_period_ms=800,
+        vad_threshold=0.5,
+        sampling_rate=16000,
+        speech_pad_ms=1500
+    )
+
+    await router.on_audio_event(speech_start)
+
+    # Should have received: 3 buffered chunks + speech start = 4 messages
+    assert len(ws.sent_messages) == 4
+    # First 3 are the buffered chunks
+    assert ws.sent_messages[0]["event_type"] == "AUDIO_CHUNK"
+    assert ws.sent_messages[1]["event_type"] == "AUDIO_CHUNK"
+    assert ws.sent_messages[2]["event_type"] == "AUDIO_CHUNK"
+    # Last is the speech start event
+    assert ws.sent_messages[3]["event_type"] == "AUDIO_SPEECH_START"
+
+    # Buffer should be cleared
+    assert not router._pre_buffer.has_data()
+
+
+@stage(Stage.PROTOTYPE, track_coverage=True)
+@pytest.mark.asyncio
+async def test_event_router_prebuffer_cleared_after_emission():
+    """Test buffer is cleared after emission to prevent duplicates."""
+    import time
+    router = EventRouter(pre_buffer_seconds=1.0)
+    ws = MockWebSocket()
+
+    await router.register_client(ws, {"all", "AudioChunkEvent"})
+
+    now = time.time()
+
+    # Send silence chunk
+    silence_chunk = AudioChunkEvent(
+        source_id="test_source",
+        stream_start_time=now,
+        timestamp=now,
+        data=np.array([0.01, 0.01, 0.01]),
+        duration=0.01,
+        sample_rate=16000,
+        channels=1,
+        blocksize=160,
+        datatype="float32",
+        in_speech=False
+    )
+    await router.on_audio_event(silence_chunk)
+
+    # Send first speech start
+    speech_start1 = AudioSpeechStartEvent(
+        source_id="test_source",
+        stream_start_time=now,
+        timestamp=now + 0.1,
+        silence_period_ms=800,
+        vad_threshold=0.5,
+        sampling_rate=16000,
+        speech_pad_ms=1500
+    )
+    await router.on_audio_event(speech_start1)
+
+    # Should have 2 messages (1 buffered chunk + speech start)
+    assert len(ws.sent_messages) == 2
+    assert not router._pre_buffer.has_data()
+
+    # Send another silence chunk
+    silence_chunk2 = AudioChunkEvent(
+        source_id="test_source",
+        stream_start_time=now,
+        timestamp=now + 0.2,
+        data=np.array([0.01, 0.01, 0.01]),
+        duration=0.01,
+        sample_rate=16000,
+        channels=1,
+        blocksize=160,
+        datatype="float32",
+        in_speech=False
+    )
+    await router.on_audio_event(silence_chunk2)
+
+    # Send second speech start
+    speech_start2 = AudioSpeechStartEvent(
+        source_id="test_source",
+        stream_start_time=now,
+        timestamp=now + 0.3,
+        silence_period_ms=800,
+        vad_threshold=0.5,
+        sampling_rate=16000,
+        speech_pad_ms=1500
+    )
+    await router.on_audio_event(speech_start2)
+
+    # Should have 4 messages total (2 from first segment, 2 from second)
+    # NOT 5 (which would mean first chunk sent twice)
+    assert len(ws.sent_messages) == 4
+    assert ws.sent_messages[2]["event_type"] == "AUDIO_CHUNK"  # Second buffered chunk
+    assert ws.sent_messages[3]["event_type"] == "AUDIO_SPEECH_START"  # Second speech start
+
+
+@stage(Stage.PROTOTYPE, track_coverage=True)
+@pytest.mark.asyncio
+async def test_event_router_prebuffer_no_buffer_when_disabled():
+    """Test no buffering occurs when pre_buffer_seconds=0."""
+    router = EventRouter(pre_buffer_seconds=0)
+    ws = MockWebSocket()
+
+    await router.register_client(ws, {"all", "AudioChunkEvent"})
+
+    # Send silence chunk (should be ignored, not buffered or sent)
+    silence_chunk = AudioChunkEvent(
+        source_id="test_source",
+        stream_start_time=0.0,
+        timestamp=0.1,
+        data=np.array([0.01, 0.01, 0.01]),
+        duration=0.01,
+        sample_rate=16000,
+        channels=1,
+        blocksize=160,
+        datatype="float32",
+        in_speech=False
+    )
+    await router.on_audio_event(silence_chunk)
+
+    # Should not be buffered (no buffer) or sent (silence filtered)
+    assert len(ws.sent_messages) == 0
+
+    # Send speech start
+    speech_start = AudioSpeechStartEvent(
+        source_id="test_source",
+        stream_start_time=0.0,
+        timestamp=0.2,
+        silence_period_ms=800,
+        vad_threshold=0.5,
+        sampling_rate=16000,
+        speech_pad_ms=1500
+    )
+    await router.on_audio_event(speech_start)
+
+    # Should only get speech start, no buffered chunks
+    assert len(ws.sent_messages) == 1
+    assert ws.sent_messages[0]["event_type"] == "AUDIO_SPEECH_START"
