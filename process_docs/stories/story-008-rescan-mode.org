@@ -131,6 +131,19 @@ class RescanListener:
         self.audio_buffer = AudioRingBuffer(buffer_seconds)
         self.state = RescanState.IDLE
         self.current_draft_id = None
+
+    async def process_rescan(
+        self,
+        draft_event: DraftEndEvent,
+        audio_buffer: AudioRingBuffer
+    ) -> DraftEndEvent:
+        """Encapsulated rescan processing for future queueing.
+
+        Extracts audio segment, submits to WhisperWrapper, returns rescan result.
+        Raises exception on failure (caller handles error).
+        """
+        # Implementation in Task 6
+        pass
 #+end_src
 
 *** RescanCoordinator (state machine)
@@ -205,9 +218,10 @@ async def on_draft_event(self, event: DraftEvent):
 - Use AudioRingBuffer pattern from Story 005 (proven implementation)
 - Don't implement retry logic for failed revisions (log and continue)
 - Don't implement progress events (RescanStartEvent, RescanProgressEvent) - MVP stage
-- Don't support multiple concurrent drafts (simplify: one at a time) - MVP stage
+- Don't support multiple concurrent drafts (pipeline assumes serial event flow) - MVP stage
 - Don't implement WebSocket reconnection logic - MVP stage
 - Revision API must exist (Story 009) for POST to work
+- Encapsulate rescan processing in method accepting (DraftEndEvent, AudioRingBuffer) for future queueing
 
 * Tasks
 
@@ -257,9 +271,13 @@ async def on_draft_event(self, event: DraftEvent):
 
 ** PLANNED Task 6: Implement DraftEndEvent handling for rescan trigger
 - Detect remote DraftEndEvent (check =author_uri=)
-- Extract buffered audio segment [audio_start_time, audio_end_time]
-- Create AudioStartEvent and AudioChunkEvents from buffered data
-- Submit to local WhisperWrapper
+- Create =process_rescan(draft_event: DraftEndEvent, audio_buffer: AudioRingBuffer)= method
+  - Encapsulates rescan processing logic for future queueing
+  - Extracts buffered audio segment [audio_start_time, audio_end_time]
+  - Creates AudioStartEvent and AudioChunkEvents from buffered data
+  - Submits to local WhisperWrapper
+  - Returns rescan result (or raises exception)
+- Call =process_rescan()= from DraftEndEvent handler
 - Transition state: COLLECTING → RESCANNING
 - Log draft end and submission for debugging
 - File: rescan_listener.py
@@ -371,16 +389,32 @@ Configurable via =--rescan-buffer-seconds= for longer drafts.
 
 *** Why one draft at a time instead of concurrent?
 
-**Prototype simplification:**
-- Single state machine is easier to reason about
-- No need to track multiple draft buffers
-- Rescan typically slower than draft creation (large model)
-- Queueing happens naturally (wait for rescan to complete)
+**Pipeline architectural constraint:**
+- Audio events flow serially in time order from single source
+- WhisperWrapper expects sequential AudioChunkEvents (stream_offset, speech_offset)
+- VADFilter state machine assumes single audio stream
+- DraftMaker assumes single draft context in progress
+- Interleaved audio from multiple sources would break timing assumptions
 
-**MVP stage could support concurrent:**
-- Multiple state machines (dict of draft_id → state)
-- Separate audio buffers per draft
-- More complex but handles rapid-fire drafts
+**Cannot support truly concurrent drafts without pipeline redesign.**
+
+**Prototype solution:**
+- Single state machine (IDLE → COLLECTING → RESCANNING)
+- Process one draft at a time (natural serialization)
+- Future: Add queueing mechanism if needed (queue draft + audio buffer pairs)
+
+**Encapsulation for future queueing:**
+- Encapsulate rescan processing: =process_rescan(draft_event, audio_buffer)=
+- Method accepts DraftEndEvent and AudioRingBuffer as arguments
+- Returns rescan result (new DraftEndEvent)
+- Enables future queue-and-process pattern without redesigning pipeline
+- Queue can serialize multiple rescan requests while maintaining single-draft pipeline constraint
+
+**Why encapsulation matters:**
+- Clean separation: rescan logic isolated from event routing
+- Testable: can test rescan logic independently
+- Queueable: easy to wrap in queue consumer later
+- Reusable: same logic works for file-based and network-based rescan
 
 *** Why log-and-continue for errors instead of retry?
 
@@ -559,6 +593,40 @@ User experience: Fast draft appears immediately, improved version arrives 10-15 
 - Test error cases (disconnect, timeout)
 
 ** Future Enhancements (MVP Stage)
+
+*** Rescan Queue (if multiple drafts needed)
+
+If rapid draft creation exceeds rescan capacity:
+- Create =RescanQueue= class wrapping =process_rescan()=
+- Queue accepts =(draft_event, audio_buffer)= tuples
+- Worker processes queue serially (maintains pipeline constraint)
+- Max queue size prevents memory exhaustion
+- Metrics: queue depth, processing time, drops
+
+Implementation:
+#+begin_src python
+class RescanQueue:
+    async def enqueue(self, draft_event: DraftEndEvent, audio_buffer: AudioRingBuffer):
+        """Add draft to processing queue."""
+        if len(self.queue) >= self.max_size:
+            logger.warning(f"Queue full, dropping draft {draft_event.draft.draft_id}")
+            return
+        await self.queue.put((draft_event, audio_buffer.copy()))
+
+    async def worker(self):
+        """Process queue serially."""
+        while True:
+            draft_event, audio_buffer = await self.queue.get()
+            try:
+                result = await self.process_rescan(draft_event, audio_buffer)
+                await self.send_revision(result)
+            except Exception as e:
+                logger.error(f"Rescan failed: {e}")
+            finally:
+                self.queue.task_done()
+#+end_src
+
+**Key insight:** Encapsulation in =process_rescan()= makes queueing a simple wrapper, not a redesign.
 
 *** Multiple Rescan Servers
 
