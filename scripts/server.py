@@ -110,6 +110,17 @@ def main():
         if not args.revision_target:
             parser.error("--rescan-mode requires --revision-target")
 
+    # Run in rescan mode (Story 008)
+    if args.rescan_mode:
+        import asyncio
+        asyncio.run(run_rescan_mode(args))
+    else:
+        # Normal server mode
+        run_server_mode(args)
+
+
+def run_server_mode(args):
+    """Run normal server mode with mic listener and event broadcasting."""
     # Create server
     server = EventNetServer(
         model_path=args.model,
@@ -131,6 +142,83 @@ def main():
         port=args.port,
         log_level=args.log_level.lower()
     )
+
+
+async def run_rescan_mode(args):
+    """Run rescan mode - subscribe to remote audio source and rescan drafts.
+
+    Story 008: Rescan Mode for Distributed High-Quality Transcription
+
+    This mode creates a local WhisperWrapper with high-quality model,
+    subscribes to a remote audio source via WebSocket, buffers audio,
+    and rescans completed drafts, submitting improved transcriptions back
+    to the remote server.
+    """
+    import logging
+    from palaver.fastapi.rescan_listener import RescanListener
+    from palaver.scribe.scriven.whisper import WhisperWrapper
+    from palaver.scribe.scriven.drafts import DraftMaker
+    from palaver.utils.top_error import TopErrorHandler, TopLevelCallback, ERROR_HANDLER
+
+    logger = logging.getLogger("RescanMode")
+
+    # Setup error handler
+    class ErrorCallback(TopLevelCallback):
+        async def on_error(self, error_dict: dict):
+            logger.error(f"Rescan error: {error_dict}")
+
+    error_handler = TopErrorHandler(top_level_callback=ErrorCallback(), logger=logger)
+    token = ERROR_HANDLER.set(error_handler)
+
+    try:
+        logger.info("Starting rescan mode...")
+        logger.info(f"  Audio source: {args.audio_source_url}")
+        logger.info(f"  Revision target: {args.revision_target}")
+        logger.info(f"  Local model: {args.model}")
+        logger.info(f"  Buffer size: {args.rescan_buffer_seconds}s")
+
+        # Create local WhisperWrapper for high-quality rescanning
+        # Note: WhisperWrapper expects error_callback, not error_handler
+        whisper = WhisperWrapper(
+            model_path=str(args.model),
+            pre_buffer_seconds=1.0,  # Standard pre-buffer for speech capture
+        )
+
+        # Create local DraftMaker
+        draft_maker = DraftMaker()
+
+        # Wire up pipeline: WhisperWrapper → DraftMaker
+        whisper.add_event_listener(draft_maker)
+
+        # Create RescanListener
+        rescan_listener = RescanListener(
+            audio_source_url=args.audio_source_url,
+            revision_target=args.revision_target,
+            local_whisper=whisper,
+            local_draft_maker=draft_maker,
+            buffer_seconds=args.rescan_buffer_seconds,
+        )
+
+        # Wire up: DraftMaker → RescanListener (for local rescan results)
+        draft_maker.add_event_listener(rescan_listener)
+
+        # Connect to remote audio source
+        await rescan_listener.connect()
+        logger.info("Connected to remote audio source, listening for drafts...")
+
+        # Run until interrupted
+        try:
+            while True:
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            logger.info("Shutting down rescan mode...")
+        finally:
+            await rescan_listener.disconnect()
+            await whisper.graceful_shutdown(timeout=3.0)
+            logger.info("Rescan mode shutdown complete")
+
+    finally:
+        ERROR_HANDLER.reset(token)
 
 
 if __name__ == "__main__":

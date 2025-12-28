@@ -11,6 +11,7 @@ import logging
 from enum import Enum
 from typing import Optional
 import httpx
+import numpy as np
 import websockets
 
 from palaver.scribe.audio_events import (
@@ -125,6 +126,41 @@ class RescanListener:
         except Exception as e:
             logger.error(f"Failed to connect to {self.audio_source_url}: {e}")
             raise
+
+    def _serialize_draft(self, draft) -> dict:
+        """Serialize Draft object to dict for revision submission.
+
+        Recursively handles nested dataclasses (TextMark, Section, TextEvent).
+
+        Args:
+            draft: Draft object to serialize
+
+        Returns:
+            Dict suitable for JSON serialization
+        """
+        import dataclasses
+
+        def _serialize_value(obj):
+            """Recursively serialize dataclass objects and primitives."""
+            if obj is None:
+                return None
+            elif dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+                # Recursively serialize dataclass instance
+                return {
+                    field.name: _serialize_value(getattr(obj, field.name))
+                    for field in dataclasses.fields(obj)
+                }
+            elif isinstance(obj, list):
+                return [_serialize_value(item) for item in obj]
+            elif isinstance(obj, dict):
+                return {k: _serialize_value(v) for k, v in obj.items()}
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            else:
+                # Primitive types (str, int, float, bool, etc.)
+                return obj
+
+        return _serialize_value(draft)
 
     async def _ws_event_loop(self):
         """Background task to receive and route WebSocket events.
@@ -335,8 +371,62 @@ class RescanListener:
         Task 7: Submit revision to revision_target.
         """
         if isinstance(event, DraftEndEvent):
-            # TODO: Task 7 - POST revision to revision_target
             logger.info(f"Local rescan complete: {event.draft.draft_id}")
+
+            # Verify we're in RESCANNING state
+            if self.state != RescanState.RESCANNING:
+                logger.warning(
+                    f"Unexpected rescan result in state {self.state}, ignoring"
+                )
+                return
+
+            try:
+                # Serialize draft to dict (recursively handle nested dataclasses)
+                revised_draft_dict = self._serialize_draft(event.draft)
+
+                # Prepare revision submission payload
+                revision_payload = {
+                    "original_draft_id": self.current_draft_id,
+                    "revised_draft": revised_draft_dict,
+                    "metadata": {
+                        "model": self.whisper.model_path if hasattr(self.whisper, 'model_path') else "unknown",
+                        "source": "whisper_reprocess",
+                        "source_uri": event.author_uri or "local",
+                        "timestamp": event.timestamp,
+                    }
+                }
+
+                # POST revision to remote server
+                logger.info(f"Submitting revision for draft {self.current_draft_id} to {self.revision_target}")
+                response = await self.http_client.post(
+                    self.revision_target,
+                    json=revision_payload,
+                    timeout=10.0
+                )
+
+                response.raise_for_status()
+                result = response.json()
+
+                logger.info(
+                    f"Revision submitted successfully: revision_id={result.get('revision_id')}, "
+                    f"original_draft_id={self.current_draft_id}"
+                )
+
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    f"HTTP error submitting revision: {e.response.status_code} - {e.response.text}",
+                    exc_info=True
+                )
+            except httpx.RequestError as e:
+                logger.error(f"Network error submitting revision: {e}", exc_info=True)
+            except Exception as e:
+                logger.error(f"Failed to submit revision: {e}", exc_info=True)
+            finally:
+                # Transition state: RESCANNING → IDLE
+                self.state = RescanState.IDLE
+                self.current_draft_id = None
+                self.current_draft_start_time = None
+                logger.info("State transition: RESCANNING → IDLE")
 
     async def _handle_draft_end(self, event, draft):
         """Handle remote DraftEndEvent.
@@ -439,17 +529,41 @@ class RescanListener:
             f"({buffered_events[0].timestamp} to {buffered_events[-1].timestamp})"
         )
 
-        # For Prototype: Submit events directly to WhisperWrapper
-        # WhisperWrapper expects AudioChunkEvents via on_audio_event()
-        # Note: This is a simplified approach - proper implementation would
-        # reconstruct full AudioEvent objects from dicts
+        # Reconstruct AudioChunkEvent objects from dicts and submit to WhisperWrapper
+        # Task 6: Audio event reconstruction
+        for chunk_proxy in buffered_events:
+            # chunk_proxy is AudioChunkProxy wrapping event_dict
+            event_dict = chunk_proxy.event_dict
 
-        # Submit buffered chunks to local WhisperWrapper
-        for chunk_event in buffered_events:
-            # chunk_event is AudioChunkProxy with event_dict
-            # For now, we'll just log - actual submission requires proper event reconstruction
-            # TODO: Reconstruct AudioChunkEvent from dict and submit to whisper
-            pass
+            # Reconstruct numpy array from serialized list
+            # EventRouter._serialize_value() converts np.ndarray to list
+            data_list = event_dict.get('data', [])
+            if not data_list:
+                logger.warning(f"Skipping chunk with no audio data at {chunk_proxy.timestamp}")
+                continue
+
+            # Convert back to numpy array (float32, shape (samples, channels))
+            data = np.array(data_list, dtype=np.float32)
+
+            # Reconstruct AudioChunkEvent
+            # Note: Some fields use defaults (event_id, creation_location auto-generated)
+            chunk_event = AudioChunkEvent(
+                source_id=event_dict.get('source_id', 'unknown'),
+                stream_start_time=event_dict.get('stream_start_time', 0.0),
+                speech_start_time=event_dict.get('speech_start_time'),
+                timestamp=event_dict.get('timestamp', chunk_proxy.timestamp),
+                data=data,
+                duration=event_dict.get('duration', chunk_proxy.duration),
+                sample_rate=event_dict.get('sample_rate', 16000),
+                channels=event_dict.get('channels', 1),
+                blocksize=event_dict.get('blocksize', 0),
+                datatype=event_dict.get('datatype', 'float32'),
+                in_speech=event_dict.get('in_speech', True),  # Default True for rescan
+                author_uri=event_dict.get('author_uri'),
+            )
+
+            # Submit to local WhisperWrapper
+            await self.whisper.on_audio_event(chunk_event)
 
         logger.info(f"Submitted {len(buffered_events)} chunks to local WhisperWrapper for rescan")
 
