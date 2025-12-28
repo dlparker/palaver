@@ -3,7 +3,7 @@
 #+DATE: 2025-12-27
 #+PROPERTY: STORY_ID 007
 #+PROPERTY: STAGE Prototype
-#+PROPERTY: STATUS Planning
+#+PROPERTY: STATUS Complete
 #+PROPERTY: EPIC rescan-distributed
 
 * Story Overview
@@ -18,7 +18,7 @@ Add Author URI to Events for Distributed Source Identification
 Prototype
 
 ** Status
-Planning
+Complete
 
 ** Epic
 rescan-distributed (Story 7 of Epic: Distributed Rescan Server)
@@ -263,7 +263,9 @@ async def on_websocket_message(self, message: dict):
 
 ** 2025-12-27 Story Created
 
-User identified architectural need while reviewing Story 008 (Rescan Mode) sketch. With distributed systems, multiple event sources need clear identification.
+User identified architectural need while reviewing Story 008 (Rescan
+Mode) sketch. With distributed systems, multiple event sources need
+clear identification.
 
 Key insight: "Edge signing" pattern
 - Events created locally have =author_uri=None=
@@ -271,7 +273,11 @@ Key insight: "Edge signing" pattern
 - Works with any transport (WebSocket, HTTP, future options)
 - Enables service discovery without code changes
 
-User approved approach with clarification that setting URI in WebSocket serialization is the correct long-term option. Additional event streaming options can use the same pattern. Events received inside a server were either local (None URI) or the URI can be used to find the interface to connect and register.
+User approved approach with clarification that setting URI in
+WebSocket serialization is the correct long-term option. Additional
+event streaming options can use the same pattern. Events received
+inside a server were either local (None URI) or the URI can be used to
+find the interface to connect and register.
 
 Future: Use name service like Etcd to gain independence from port numbers. Edge signing pattern works there too.
 
@@ -486,7 +492,9 @@ Story 7 is complete when:
 
 * Notes
 
-This story emerged from reviewing Story 8 (Rescan Mode) architecture. The distributed nature of the rescan system exposed the need for clear event source identification.
+This story emerged from reviewing Story 8 (Rescan Mode)
+architecture. The distributed nature of the rescan system exposed the
+need for clear event source identification.
 
 The "edge signing" pattern is elegant:
 - Simple to implement
@@ -494,6 +502,151 @@ The "edge signing" pattern is elegant:
 - Future-proof for service discovery
 - Keeps local code clean
 
-This is a small story but architecturally important. It sets up the foundation for distributed event-driven systems while maintaining simplicity for local-only scenarios.
+This is a small story but architecturally important. It sets up the
+foundation for distributed event-driven systems while maintaining
+simplicity for local-only scenarios.
 
-Key insight: Don't require event creators to know about URIs. Stamp at the boundary where events cross the network. This separation of concerns makes the system more maintainable and flexible.
+Key insight: Don't require event creators to know about URIs. Stamp at
+the boundary where events cross the network. This separation of
+concerns makes the system more maintainable and flexible.
+
+* Implementation Notes
+
+** 2025-12-28 Implementation Completed (All Tasks)
+
+*** Approach
+
+Implemented edge signing pattern as specified:
+- Events created locally have =author_uri=None=
+- Events stamped at network boundary (WebSocket send/receive)
+- Service-based URIs: ={server_uri}/{service}/v1=
+- Services: =audio=, =transcription=, =drafts= (based on event type)
+- Backward compatible: =author_uri= is optional field
+
+*** Task 1-3: Add author_uri to Event Dataclasses
+
+Added =author_uri: Optional[str] = None= to all event base classes:
+- =AudioEvent= (audio_events.py:38) - Inherits to all audio events
+- =TextEvent= (text_events.py:16) - Transcription events
+- =DraftEvent= (draft_events.py:83) - Draft lifecycle events
+
+Comments reference Story 007 for context.
+
+*** Task 4-6: EventRouter Edge Signing
+
+Modified =EventRouter.__init__= (event_router.py:44):
+- Added =server_uri: str | None = None= parameter
+- Stored as =self.server_uri= for use in edge signing
+- Documented usage and Story 007 reference in docstring
+
+Implemented =_get_service_for_event()= helper (event_router.py:176):
+- Maps event type to service name using =isinstance()=
+- Returns "audio", "transcription", "drafts", or "unknown"
+- Used by edge signing to construct service-based URIs
+
+Implemented =_stamp_author_uri()= helper (event_router.py:194):
+- Checks if =server_uri= configured and event has =author_uri= attribute
+- Constructs URI: =f"{self.server_uri}/{service}/v1"=
+- Modifies event in-place (edge signing at boundary)
+- Only stamps when crossing network boundary
+
+Modified =_route_event()= (event_router.py:126):
+- Added edge signing call before serialization: =self._stamp_author_uri(event)=
+- Ensures all events sent to WebSocket clients are stamped
+- Preserves local =author_uri=None= semantics
+
+*** Task 7: Comprehensive Test Suite
+
+Added 5 new tests to =tests/test_event_router.py=:
+
+1. =test_event_router_author_uri_disabled()= - Verifies =author_uri=None= when no =server_uri=
+2. =test_event_router_author_uri_enabled()= - Verifies correct URIs for all event types:
+   - AudioChunkEvent → =http://192.168.100.213:8000/audio/v1=
+   - TextEvent → =http://192.168.100.213:8000/transcription/v1=
+   - DraftStartEvent → =http://192.168.100.213:8000/drafts/v1=
+3. =test_event_router_get_service_for_event()= - Tests service classification helper
+4. =test_event_router_stamp_author_uri()= - Tests stamping helper directly
+5. =test_event_router_author_uri_backward_compatible()= - Verifies =server_uri=None= works as before
+
+*** Task 8: Verification
+
+Test results:
+- All 61 tests pass (56 existing + 5 new)
+- Coverage: event_router.py improved from 79% to 95%
+- No regressions in existing functionality
+- All Story 7 tests pass
+
+*** Task 9-10: Documentation and Commit
+
+CLAUDE.md review: No changes needed
+- =author_uri= is infrastructure for future stories (008-009)
+- Properly documented in story file
+- Will update CLAUDE.md when distributed architecture is implemented
+
+Committed as:
+#+begin_src
+Commit: 81c1222
+Branch: fastapi
+Message: [Story-007] Add author_uri to events for distributed source identification
+Files:
+  - src/palaver/scribe/audio_events.py (added author_uri field)
+  - src/palaver/scribe/text_events.py (added author_uri field)
+  - src/palaver/scribe/draft_events.py (added author_uri field)
+  - src/palaver/fastapi/event_router.py (edge signing implementation)
+  - tests/test_event_router.py (5 new tests)
+Changes: +201 lines, -2 lines
+#+end_src
+
+** Design Decisions
+
+*** Why edge signing instead of creation-time URIs?
+
+Edge signing (stamping at network boundary) provides:
+- Separation of concerns: event creators don't need network knowledge
+- Transport independence: works with WebSocket, HTTP, future options
+- Simple local semantics: =author_uri=None= means local
+- Clean architecture: network concerns stay at network layer
+
+*** Why service-based URIs instead of component-based?
+
+Service-based URIs (=/{service}/v1=) provide:
+- Stable API: services are logical boundaries, components are implementation
+- Version control: =/v1= allows future API evolution
+- Clear routing: service name indicates which API to connect to
+- Flexibility: multiple components can provide same service
+
+*** Why modify events in-place instead of copying?
+
+In-place modification in =_stamp_author_uri()= is:
+- Efficient: no object allocation/copying
+- Simple: single source of truth
+- Safe: happens just before serialization
+- Appropriate: stamping is a boundary operation, not a transformation
+
+*** Why Optional[str] instead of required field?
+
+Optional =author_uri= field provides:
+- Backward compatibility: existing code continues working
+- Clear semantics: =None= means "local event"
+- Simple migration: no changes to event creation code
+- Future-proof: can make required in future if needed
+
+** Edge Cases Handled
+
+*** Events without author_uri attribute
+=_stamp_author_uri()= checks =hasattr(event, 'author_uri')= before stamping. Events from old code or third-party libraries won't cause errors.
+
+*** Server without server_uri configured
+When =server_uri=None=, =_stamp_author_uri()= does nothing. All events remain =author_uri=None=, maintaining local-only semantics.
+
+*** Unknown event types
+=_get_service_for_event()= returns "unknown" for unrecognized event types. URI becomes ={server_uri}/unknown/v1=. System continues working, making debugging easier.
+
+** Architectural Impact
+
+Story 007 is foundational for distributed event sourcing:
+- **Story 008 (Rescan Mode)**: RescanListener uses =author_uri= to distinguish remote audio source events from local rescan results
+- **Story 009 (Revision API)**: Revision metadata may include =author_uri= for provenance tracking
+- **Future features**: Service discovery, event federation, multi-server orchestration
+
+The edge signing pattern scales to complex distributed systems while keeping local single-server deployments simple.
