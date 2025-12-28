@@ -199,6 +199,7 @@ class DraftBuilder:
         self.section_end_patterns = []
         self.current_section = None
         self.roll_size = 100
+        self.text_event_map = []  # [(TextEvent, start_pos_in_buffer, end_pos_in_buffer), ...]
         if load_defaults:
             for sp in default_draft_start_patterns:
                 self.add_draft_start_pattern(sp)
@@ -211,7 +212,37 @@ class DraftBuilder:
     def add_draft_end_pattern(self, pattern: MatchPattern):
         self.draft_end_patterns.append(pattern)
 
-    async def new_text(self, text):
+    def find_events_for_match(self, match_start, match_end=None):
+        """Find TextEvent(s) that overlap with the matched position range.
+
+        If match_end is None, finds event containing match_start (the first character).
+        Returns list of TextEvents ordered by position in buffer.
+        """
+        if match_end is None:
+            match_end = match_start + 1
+
+        events = []
+        for event, start, end in self.text_event_map:
+            if start < match_end and end > match_start:
+                events.append((event, start, end))
+
+        return [e[0] for e in sorted(events, key=lambda x: x[1])]
+
+    def _trim_event_map_from_start(self, trim_to):
+        """Adjust text_event_map when trimming characters from start of buffer.
+
+        Args:
+            trim_to: Position in buffer up to which we're trimming (exclusive)
+        """
+        new_map = []
+        for event, start, end in self.text_event_map:
+            if end > trim_to:  # Event extends beyond trim point
+                new_start = max(0, start - trim_to)
+                new_end = end - trim_to
+                new_map.append((event, new_start, new_end))
+        self.text_event_map = new_map
+
+    async def new_text(self, text, text_event=None):
         """
         NOTE! Removes any sequences of multiple spaces collapsing them
         to one space each. This is probable not something that will happen
@@ -222,7 +253,16 @@ class DraftBuilder:
         """
         if len(self.working_text) > 0 and not self.working_text[-1].isspace():
             self.working_text += " "
+
+        # Track position before appending
+        start_pos = len(self.working_text)
         self.working_text += " ".join(text.split())
+        end_pos = len(self.working_text)
+
+        # Record TextEvent position if provided
+        if text_event:
+            self.text_event_map.append((text_event, start_pos, end_pos))
+
         logger.debug("Adding %d bytes to working text, now '%s'",
                      len(text), self.working_text) 
         patterns = self.draft_start_patterns + self.draft_end_patterns 
@@ -233,19 +273,34 @@ class DraftBuilder:
         if not matched:
             logger.debug("No match in '%s'", self.working_text)
             if len(self.working_text) > self.roll_size:
+                keep_from = len(self.working_text) - self.roll_size
                 logger.debug("Rolled working text back to %d bytes", len(self.working_text))
                 if self.current_draft:
                     self.draft_text += self.working_text[:-self.roll_size]
                 self.working_text = self.working_text[-self.roll_size:]
-            return self.current_draft, last_draft if last_draft != self.current_draft else None
+
+                # Prune and adjust text_event_map to match rolled buffer
+                new_map = []
+                for event, start, end in self.text_event_map:
+                    if end > keep_from:  # Event extends into kept region
+                        new_start = max(0, start - keep_from)
+                        new_end = end - keep_from
+                        new_map.append((event, new_start, new_end))
+                self.text_event_map = new_map
+
+            return self.current_draft, last_draft if last_draft != self.current_draft else None, []
+        # Get events for the matched region
+        matched_events = self.find_events_for_match(matched.match_start, matched.match_end)
+
         if self.current_draft:
             self.draft_text += self.working_text[:matched.match_start]
         if matched.match_pattern in self.draft_start_patterns:
             if not self.current_draft:
                 text_mark = TextMark(0, matched.match_end-matched.match_start,  matched.matched_text)
                 text_mark = TextMark(matched.match_start, matched.match_end, matched.matched_text)
-                self.current_draft = Draft(start_text=text_mark)
+                self.current_draft = Draft(start_text=text_mark, start_matched_events=matched_events)
                 self.working_text = self.working_text[matched.match_end:]
+                self._trim_event_map_from_start(matched.match_end)
                 logger.debug("New draft starting (none current) on pattern '%s'",
                              matched.match_pattern.pattern)
                 logger.debug("working_text now '%s'", self.working_text)
@@ -253,28 +308,33 @@ class DraftBuilder:
                 logger.debug("New draft starting (one already current) on pattern %s", matched.match_pattern)
                 end_mark = TextMark(matched.match_start, matched.match_start, "")
                 self.current_draft.end_text = end_mark
+                self.current_draft.end_matched_events = []  # No end phrase, new draft started
                 self.current_draft.full_text = self.draft_text
                 self.draft_text = ''
                 end_of_new = matched.match_end-matched.match_start
                 text_mark = TextMark(0, end_of_new,  matched.matched_text)
-                self.current_draft = Draft(start_text=text_mark)
+                self.current_draft = Draft(start_text=text_mark, start_matched_events=matched_events)
                 self.working_text = self.working_text[matched.match_end:]
+                self._trim_event_map_from_start(matched.match_end)
                 logger.debug("closed doc, working_text now '%s'", self.working_text)
         elif matched.match_pattern in self.draft_end_patterns:
             if not self.current_draft:
                 self.working_text = self.working_text[matched.match_end:]
+                self._trim_event_map_from_start(matched.match_end)
                 logger.warning("Got end of draft signal when no current draft! truncating working to %d",
                                len(self.working_text))
             else:
                 logger.debug("Ending current draft on pattern %s score %f", matched.match_pattern, matched.score)
                 end_mark = TextMark(matched.match_start, matched.match_end, matched.matched_text)
                 self.current_draft.end_text = end_mark
+                self.current_draft.end_matched_events = matched_events
                 self.current_draft.full_text = self.draft_text
                 self.draft_text = ''
                 self.working_text = self.working_text[matched.match_end:]
+                self._trim_event_map_from_start(matched.match_end)
                 logger.debug("closed doc, working_text now '%s'", self.working_text)
                 self.current_draft = None
-        return self.current_draft, last_draft if last_draft != self.current_draft else None
+        return self.current_draft, last_draft if last_draft != self.current_draft else None, matched_events
 
     async def end_of_text(self):
         if self.current_draft:
@@ -282,6 +342,7 @@ class DraftBuilder:
             end = len(self.working_text)
             end_mark = TextMark(end, end, "")
             self.current_draft.end_text = end_mark
+            self.current_draft.end_matched_events = []  # No end phrase match, forced end
             self.current_draft.full_text = self.draft_text
             if self.current_draft.full_text.strip()  == '':
                 self.current_draft.full_text = self.working_text
@@ -308,10 +369,14 @@ class DraftMaker(TextEventListener, AudioEventListener):
     async def handle_text_event(self, event:TextEvent, new_text=None):
         if new_text is None:
             check_text = event.text
+            # Pass the event on first call, not on recursive calls
+            current_draft, last_draft, matched_events = await self.builder.new_text(check_text, event)
         else:
             check_text = new_text
+            # Recursive call with empty text, no event to track
+            current_draft, last_draft, matched_events = await self.builder.new_text(check_text)
+
         found_signal = False
-        current_draft,last_draft = await self.builder.new_text(check_text)
         if last_draft:
             # closed a draft
             new_event = DraftEndEvent(draft=last_draft, timestamp=event.audio_end_time)
