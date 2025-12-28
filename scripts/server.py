@@ -237,16 +237,12 @@ async def run_rescan_mode(args):
         await rescan_listener.connect()
         logger.info("Connected to remote audio source, listening for drafts...")
 
-        # Run until interrupted
+        # Run until interrupted (same pattern as mic_vtt.py)
         try:
             while True:
                 await asyncio.sleep(1)
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, asyncio.CancelledError):
             logger.info("Shutting down rescan mode...")
-        finally:
-            await rescan_listener.disconnect()
-            await whisper.graceful_shutdown(timeout=3.0)
-            logger.info("Rescan mode shutdown complete")
 
     finally:
         ERROR_HANDLER.reset(token)
