@@ -5,6 +5,7 @@ Refactored to use modular architecture with pluggable routers.
 This script provides simple composition of server components.
 """
 from pathlib import Path
+import asyncio
 
 import uvicorn
 

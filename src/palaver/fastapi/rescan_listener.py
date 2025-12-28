@@ -108,24 +108,19 @@ class RescanListener:
         """
         logger.info(f"Connecting to {self.audio_source_url}...")
 
-        try:
-            self.ws_client = await websockets.connect(self.audio_source_url)
-            logger.info("WebSocket connected")
+        self.ws_client = await websockets.connect(self.audio_source_url)
+        logger.info("WebSocket connected")
 
-            # Send subscription message
-            subscription = {
-                "subscribe": ["AudioChunkEvent", "DraftStartEvent", "DraftEndEvent"]
-            }
-            await self.ws_client.send(json.dumps(subscription))
-            logger.info(f"Subscribed to: {subscription['subscribe']}")
+        # Send subscription message
+        subscription = {
+            "subscribe": ["AudioChunkEvent", "DraftStartEvent", "DraftEndEvent"]
+        }
+        await self.ws_client.send(json.dumps(subscription))
+        logger.info(f"Subscribed to: {subscription['subscribe']}")
 
-            # Start background task to receive events
-            self.ws_task = asyncio.create_task(self._ws_event_loop())
-            logger.info("WebSocket event loop started")
-
-        except Exception as e:
-            logger.error(f"Failed to connect to {self.audio_source_url}: {e}")
-            raise
+        # Start background task to receive events
+        self.ws_task = asyncio.create_task(self._ws_event_loop())
+        logger.info("WebSocket event loop started")
 
     def _serialize_draft(self, draft) -> dict:
         """Serialize Draft object to dict for revision submission.
@@ -172,25 +167,17 @@ class RescanListener:
         """
         try:
             async for message in self.ws_client:
-                try:
-                    event_dict = json.loads(message)
-                    event = self._deserialize_event(event_dict)
+                event_dict = json.loads(message)
+                event = self._deserialize_event(event_dict)
 
-                    if event:
-                        await self._route_event(event)
-
-                except json.JSONDecodeError as e:
-                    logger.warning(f"Failed to decode event: {e}")
-                except Exception as e:
-                    logger.error(f"Error processing event: {e}", exc_info=True)
+                if event:
+                    await self._route_event(event)
 
         except websockets.exceptions.ConnectionClosed:
-            logger.warning("WebSocket connection closed")
+            logger.info("WebSocket connection closed")
         except asyncio.CancelledError:
             logger.info("WebSocket event loop cancelled")
             raise
-        except Exception as e:
-            logger.error(f"WebSocket event loop error: {e}", exc_info=True)
 
     def _deserialize_event(self, event_dict: dict):
         """Deserialize JSON event dict to event object.
@@ -380,53 +367,42 @@ class RescanListener:
                 )
                 return
 
-            try:
-                # Serialize draft to dict (recursively handle nested dataclasses)
-                revised_draft_dict = self._serialize_draft(event.draft)
+            # Serialize draft to dict (recursively handle nested dataclasses)
+            revised_draft_dict = self._serialize_draft(event.draft)
 
-                # Prepare revision submission payload
-                revision_payload = {
-                    "original_draft_id": self.current_draft_id,
-                    "revised_draft": revised_draft_dict,
-                    "metadata": {
-                        "model": self.whisper.model_path if hasattr(self.whisper, 'model_path') else "unknown",
-                        "source": "whisper_reprocess",
-                        "source_uri": event.author_uri or "local",
-                        "timestamp": event.timestamp,
-                    }
+            # Prepare revision submission payload
+            revision_payload = {
+                "original_draft_id": self.current_draft_id,
+                "revised_draft": revised_draft_dict,
+                "metadata": {
+                    "model": self.whisper.model_path if hasattr(self.whisper, 'model_path') else "unknown",
+                    "source": "whisper_reprocess",
+                    "source_uri": event.author_uri or "local",
+                    "timestamp": event.timestamp,
                 }
+            }
 
-                # POST revision to remote server
-                logger.info(f"Submitting revision for draft {self.current_draft_id} to {self.revision_target}")
-                response = await self.http_client.post(
-                    self.revision_target,
-                    json=revision_payload,
-                    timeout=10.0
-                )
+            # POST revision to remote server
+            logger.info(f"Submitting revision for draft {self.current_draft_id} to {self.revision_target}")
+            response = await self.http_client.post(
+                self.revision_target,
+                json=revision_payload,
+                timeout=10.0
+            )
 
-                response.raise_for_status()
-                result = response.json()
+            response.raise_for_status()
+            result = response.json()
 
-                logger.info(
-                    f"Revision submitted successfully: revision_id={result.get('revision_id')}, "
-                    f"original_draft_id={self.current_draft_id}"
-                )
+            logger.info(
+                f"Revision submitted successfully: revision_id={result.get('revision_id')}, "
+                f"original_draft_id={self.current_draft_id}"
+            )
 
-            except httpx.HTTPStatusError as e:
-                logger.error(
-                    f"HTTP error submitting revision: {e.response.status_code} - {e.response.text}",
-                    exc_info=True
-                )
-            except httpx.RequestError as e:
-                logger.error(f"Network error submitting revision: {e}", exc_info=True)
-            except Exception as e:
-                logger.error(f"Failed to submit revision: {e}", exc_info=True)
-            finally:
-                # Transition state: RESCANNING → IDLE
-                self.state = RescanState.IDLE
-                self.current_draft_id = None
-                self.current_draft_start_time = None
-                logger.info("State transition: RESCANNING → IDLE")
+            # Transition state: RESCANNING → IDLE (only if submission succeeded)
+            self.state = RescanState.IDLE
+            self.current_draft_id = None
+            self.current_draft_start_time = None
+            logger.info("State transition: RESCANNING → IDLE")
 
     async def _handle_draft_end(self, event, draft):
         """Handle remote DraftEndEvent.
@@ -459,20 +435,12 @@ class RescanListener:
         self.state = RescanState.RESCANNING
         logger.info(f"State transition: COLLECTING → RESCANNING (draft {draft_id})")
 
-        try:
-            # Call encapsulated process_rescan method
-            rescan_result = await self.process_rescan(event, self.audio_buffer)
-            logger.info(f"Rescan complete: {draft_id}")
+        # Call encapsulated process_rescan method
+        rescan_result = await self.process_rescan(event, self.audio_buffer)
+        logger.info(f"Rescan complete: {draft_id}")
 
-            # rescan_result will be handled by handle_rescan_result() when
-            # local DraftEndEvent arrives from WhisperWrapper
-
-        except Exception as e:
-            logger.error(f"Rescan failed for draft {draft_id}: {e}", exc_info=True)
-            # Transition back to IDLE on failure
-            self.state = RescanState.IDLE
-            self.current_draft_id = None
-            self.current_draft_start_time = None
+        # rescan_result will be handled by handle_rescan_result() when
+        # local DraftEndEvent arrives from WhisperWrapper
 
     async def process_rescan(
         self,

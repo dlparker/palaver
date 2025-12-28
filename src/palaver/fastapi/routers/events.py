@@ -69,8 +69,6 @@ def create_event_router(server: "EventNetServer") -> APIRouter:
 
         except WebSocketDisconnect:
             logger.info("Client disconnected")
-        except Exception as e:
-            logger.error(f"Error in websocket handler: {e}", exc_info=True)
         finally:
             await server.event_router.unregister_client(websocket)
 

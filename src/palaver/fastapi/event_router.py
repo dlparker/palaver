@@ -150,7 +150,6 @@ class EventRouter(AudioEventListener, TextEventListener, DraftEventListener):
 
         # Send to subscribed clients
         async with self._lock:
-            dead_clients = []
             for websocket, subscribed_types in self.clients.items():
                 # Check if client should receive this event
                 should_send = False
@@ -163,15 +162,7 @@ class EventRouter(AudioEventListener, TextEventListener, DraftEventListener):
                     should_send = True
 
                 if should_send:
-                    try:
-                        await websocket.send_json(event_dict)
-                    except Exception as e:
-                        logger.warning(f"Failed to send to client: {e}")
-                        dead_clients.append(websocket)
-
-            # Clean up dead connections
-            for websocket in dead_clients:
-                del self.clients[websocket]
+                    await websocket.send_json(event_dict)
 
     def _get_service_for_event(self, event: Any) -> str:
         """Determine service name from event type for edge signing.

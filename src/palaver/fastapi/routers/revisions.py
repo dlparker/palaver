@@ -106,28 +106,6 @@ def create_revision_router(server: "EventNetServer") -> APIRouter:
                 created_at=datetime.now().isoformat()
             )
 
-        except ValueError as e:
-            # Original draft not found
-            logger.warning(f"Draft not found: {submission.original_draft_id}")
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "error": "original_draft_not_found",
-                    "original_draft_id": submission.original_draft_id,
-                    "message": str(e)
-                }
-            )
-        except Exception as e:
-            # Database or other error
-            logger.error(f"Failed to store revision: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail={
-                    "error": "database_error",
-                    "message": "Failed to store revision in database"
-                }
-            )
-
     @router.get("/{draft_id}", response_model=RevisionsQueryResponse)
     async def get_revisions(draft_id: str):
         """Get all revisions for a draft.
@@ -147,65 +125,52 @@ def create_revision_router(server: "EventNetServer") -> APIRouter:
                 detail="Draft recording not enabled on this server"
             )
 
-        try:
-            # Get original draft
-            original_draft = server.draft_recorder.get_draft_by_uuid(draft_id)
-            if not original_draft:
-                raise HTTPException(
-                    status_code=404,
-                    detail={
-                        "error": "draft_not_found",
-                        "draft_id": draft_id,
-                        "message": "Draft not found in database"
-                    }
-                )
-
-            # Get revisions
-            revision_records = await server.draft_recorder.get_revisions(draft_id)
-
-            # Convert to response format
-            revisions = []
-            for record in revision_records:
-                # Parse the revised draft JSON to extract text
-                revised_draft = json.loads(record.revised_draft_json)
-                full_text = revised_draft.get("full_text", "")
-                text_preview = full_text[:100] + "..." if len(full_text) > 100 else full_text
-
-                revisions.append(RevisionInfo(
-                    revision_id=record.revision_id,
-                    created_at=record.created_at.isoformat(),
-                    model=record.model,
-                    source=record.source,
-                    source_uri=record.source_uri,
-                    text_preview=text_preview,
-                    full_text=full_text
-                ))
-
-            # Parse original draft properties
-            original_draft_dict = json.loads(original_draft.properties_json)
-            original_draft_info = {
-                "draft_id": original_draft.draft_id,
-                "full_text": original_draft.full_text,
-                "created_at": original_draft.created_at.isoformat(),
-                "model": original_draft_dict.get("model", "unknown")
-            }
-
-            return RevisionsQueryResponse(
-                draft_id=draft_id,
-                original_draft=original_draft_info,
-                revisions=revisions
-            )
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Failed to query revisions: {e}", exc_info=True)
+        # Get original draft
+        original_draft = server.draft_recorder.get_draft_by_uuid(draft_id)
+        if not original_draft:
             raise HTTPException(
-                status_code=500,
+                status_code=404,
                 detail={
-                    "error": "database_error",
-                    "message": "Failed to query revisions from database"
+                    "error": "draft_not_found",
+                    "draft_id": draft_id,
+                    "message": "Draft not found in database"
                 }
             )
+
+        # Get revisions
+        revision_records = await server.draft_recorder.get_revisions(draft_id)
+
+        # Convert to response format
+        revisions = []
+        for record in revision_records:
+            # Parse the revised draft JSON to extract text
+            revised_draft = json.loads(record.revised_draft_json)
+            full_text = revised_draft.get("full_text", "")
+            text_preview = full_text[:100] + "..." if len(full_text) > 100 else full_text
+
+            revisions.append(RevisionInfo(
+                revision_id=record.revision_id,
+                created_at=record.created_at.isoformat(),
+                model=record.model,
+                source=record.source,
+                source_uri=record.source_uri,
+                text_preview=text_preview,
+                full_text=full_text
+            ))
+
+        # Parse original draft properties
+        original_draft_dict = json.loads(original_draft.properties_json)
+        original_draft_info = {
+            "draft_id": original_draft.draft_id,
+            "full_text": original_draft.full_text,
+            "created_at": original_draft.created_at.isoformat(),
+            "model": original_draft_dict.get("model", "unknown")
+        }
+
+        return RevisionsQueryResponse(
+            draft_id=draft_id,
+            original_draft=original_draft_info,
+            revisions=revisions
+        )
 
     return router
