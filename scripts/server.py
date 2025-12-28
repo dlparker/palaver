@@ -178,10 +178,11 @@ async def run_rescan_mode(args):
         logger.info(f"  Buffer size: {args.rescan_buffer_seconds}s")
 
         # Create local WhisperWrapper for high-quality rescanning
-        # Note: WhisperWrapper expects error_callback, not error_handler
+        # WhisperWrapper config includes pre_buffer_seconds=1.0 by default
+        # Use multiprocessing for better performance on Machine 2 (better GPU)
         whisper = WhisperWrapper(
             model_path=str(args.model),
-            pre_buffer_seconds=1.0,  # Standard pre-buffer for speech capture
+            use_mp=True,
         )
 
         # Create local DraftMaker
