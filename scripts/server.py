@@ -51,6 +51,34 @@ def create_parser():
         help='Port to bind server (default: 8000)'
     )
 
+    # Rescan mode arguments (Story 008)
+    parser.add_argument(
+        '--rescan-mode',
+        action='store_true',
+        help='Enable rescan mode (connect to remote audio source and rescan drafts)'
+    )
+
+    parser.add_argument(
+        '--audio-source-url',
+        type=str,
+        default=None,
+        help='WebSocket URL to subscribe to for audio events (e.g., ws://machine1:8765/events)'
+    )
+
+    parser.add_argument(
+        '--revision-target',
+        type=str,
+        default=None,
+        help='HTTP URL to send completed revisions (e.g., http://machine1:8765/api/revisions)'
+    )
+
+    parser.add_argument(
+        '--rescan-buffer-seconds',
+        type=float,
+        default=60.0,
+        help='Size of audio buffer in seconds for rescan mode (default: 60.0)'
+    )
+
     return parser
 
 
@@ -67,12 +95,19 @@ def main():
     # Set logging level
     setup_logging(
         default_level=args.log_level,
-        info_loggers=["EventNetServer", "EventRouter", "EventsRouter", "StatusRouter"],
+        info_loggers=["EventNetServer", "EventRouter", "EventsRouter", "StatusRouter", "RescanListener"],
         debug_loggers=[],
     )
 
     # Validate model path
     validate_model_path(args, parser)
+
+    # Validate rescan mode arguments (Story 008)
+    if args.rescan_mode:
+        if not args.audio_source_url:
+            parser.error("--rescan-mode requires --audio-source-url")
+        if not args.revision_target:
+            parser.error("--rescan-mode requires --revision-target")
 
     # Create server
     server = EventNetServer(
