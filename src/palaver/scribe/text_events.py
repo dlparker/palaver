@@ -13,6 +13,7 @@ class TextEvent:
     audio_source_id: str = None
     audio_start_time: float = None
     audio_end_time: float = None
+    author_uri: Optional[str] = None  # Source server/service URI (Story 007)
     
 class TextEventListener(Protocol):
 

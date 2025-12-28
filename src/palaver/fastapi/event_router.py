@@ -41,15 +41,19 @@ class EventRouter(AudioEventListener, TextEventListener, DraftEventListener):
     reusable across different server implementations.
     """
 
-    def __init__(self, pre_buffer_seconds: float = 1.0):
-        """Initialize EventRouter with optional pre-buffering.
+    def __init__(self, pre_buffer_seconds: float = 1.0, server_uri: str | None = None):
+        """Initialize EventRouter with optional pre-buffering and edge signing.
 
         Args:
             pre_buffer_seconds: Seconds of audio to buffer before speech detection.
                                Default 1.0 matches WhisperWrapper. Set to 0 to disable.
+            server_uri: Server URI for edge signing events (e.g., "http://192.168.100.213:8000").
+                       If provided, events sent to clients are stamped with author_uri.
+                       Story 007: Event Author URI
         """
         self.clients: Dict[Any, Set[str]] = {}
         self._lock = asyncio.Lock()
+        self.server_uri = server_uri
 
         # Pre-buffer for capturing audio before VAD detects speech
         if pre_buffer_seconds > 0:
@@ -138,6 +142,9 @@ class EventRouter(AudioEventListener, TextEventListener, DraftEventListener):
         if event_type == "AudioChunkEvent" and not force_send and not getattr(event, 'in_speech', False):
             return
 
+        # Edge signing: Stamp event with author_uri before sending (Story 007)
+        self._stamp_author_uri(event)
+
         # Convert event to JSON-serializable dict
         event_dict = self._serialize_event(event, event_type)
 
@@ -165,6 +172,38 @@ class EventRouter(AudioEventListener, TextEventListener, DraftEventListener):
             # Clean up dead connections
             for websocket in dead_clients:
                 del self.clients[websocket]
+
+    def _get_service_for_event(self, event: Any) -> str:
+        """Determine service name from event type for edge signing.
+
+        Args:
+            event: Event object to classify
+
+        Returns:
+            Service name (audio, transcription, drafts, or unknown)
+        """
+        if isinstance(event, AudioEvent):
+            return "audio"
+        elif isinstance(event, TextEvent):
+            return "transcription"
+        elif isinstance(event, DraftEvent):
+            return "drafts"
+        else:
+            return "unknown"
+
+    def _stamp_author_uri(self, event: Any) -> None:
+        """Stamp event with author_uri if server_uri is configured (edge signing).
+
+        Modifies event in-place. Only stamps if:
+        - server_uri is configured
+        - event has author_uri attribute
+
+        Args:
+            event: Event object to stamp
+        """
+        if self.server_uri and hasattr(event, 'author_uri'):
+            service = self._get_service_for_event(event)
+            event.author_uri = f"{self.server_uri}/{service}/v1"
 
     def _serialize_event(self, event: Any, event_type: str) -> Dict[str, Any]:
         """Convert event to JSON-serializable dictionary.

@@ -80,6 +80,7 @@ class DraftEvent:
     draft: Draft
     timestamp: float = field(default_factory=time.time)
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    author_uri: Optional[str] = None  # Source server/service URI (Story 007)
 
 @dataclass(kw_only=True)
 class DraftStartEvent(DraftEvent):

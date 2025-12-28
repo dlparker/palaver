@@ -592,3 +592,160 @@ async def test_event_router_prebuffer_no_buffer_when_disabled():
     # Should only get speech start, no buffered chunks
     assert len(ws.sent_messages) == 1
     assert ws.sent_messages[0]["event_type"] == "AUDIO_SPEECH_START"
+
+
+@stage(Stage.PROTOTYPE, track_coverage=True)
+@pytest.mark.asyncio
+async def test_event_router_author_uri_disabled():
+    """Test that author_uri is None when server_uri not configured (Story 007)."""
+    router = EventRouter()  # No server_uri
+    ws = MockWebSocket()
+    await router.register_client(ws, {"all"})
+
+    # Send various events
+    audio_event = AudioSpeechStartEvent(
+        source_id="test_source",
+        stream_start_time=0.0,
+        timestamp=0.0,
+        silence_period_ms=300,
+        vad_threshold=0.5,
+        sampling_rate=16000,
+        speech_pad_ms=300
+    )
+    await router.on_audio_event(audio_event)
+
+    text_event = TextEvent(text="test")
+    await router.on_text_event(text_event)
+
+    draft = Draft(start_text=TextMark(0, 10, "test start"))
+    draft_event = DraftStartEvent(draft=draft)
+    await router.on_draft_event(draft_event)
+
+    # All events should have author_uri = None in serialized output
+    assert len(ws.sent_messages) == 3
+    for msg in ws.sent_messages:
+        assert msg.get("author_uri") is None
+
+
+@stage(Stage.PROTOTYPE, track_coverage=True)
+@pytest.mark.asyncio
+async def test_event_router_author_uri_enabled():
+    """Test that author_uri is stamped when server_uri configured (Story 007)."""
+    server_uri = "http://192.168.100.213:8000"
+    router = EventRouter(server_uri=server_uri)
+    ws = MockWebSocket()
+    await router.register_client(ws, {"all"})
+
+    # Send AudioEvent (should get audio/v1)
+    audio_event = AudioSpeechStartEvent(
+        source_id="test_source",
+        stream_start_time=0.0,
+        timestamp=0.0,
+        silence_period_ms=300,
+        vad_threshold=0.5,
+        sampling_rate=16000,
+        speech_pad_ms=300
+    )
+    await router.on_audio_event(audio_event)
+
+    # Send TextEvent (should get transcription/v1)
+    text_event = TextEvent(text="test transcription")
+    await router.on_text_event(text_event)
+
+    # Send DraftEvent (should get drafts/v1)
+    draft = Draft(start_text=TextMark(0, 10, "test start"))
+    draft_event = DraftStartEvent(draft=draft)
+    await router.on_draft_event(draft_event)
+
+    # Verify author_uri was stamped correctly
+    assert len(ws.sent_messages) == 3
+
+    audio_msg = ws.sent_messages[0]
+    assert audio_msg["event_type"] == "AUDIO_SPEECH_START"
+    assert audio_msg["author_uri"] == f"{server_uri}/audio/v1"
+
+    text_msg = ws.sent_messages[1]
+    assert text_msg["event_type"] == "TextEvent"
+    assert text_msg["author_uri"] == f"{server_uri}/transcription/v1"
+
+    draft_msg = ws.sent_messages[2]
+    assert draft_msg["event_type"] == "DraftStartEvent"
+    assert draft_msg["author_uri"] == f"{server_uri}/drafts/v1"
+
+
+@stage(Stage.PROTOTYPE, track_coverage=True)
+@pytest.mark.asyncio
+async def test_event_router_get_service_for_event():
+    """Test _get_service_for_event helper method (Story 007)."""
+    router = EventRouter()
+
+    # Test AudioEvent → audio
+    audio_event = AudioSpeechStartEvent(
+        source_id="test",
+        stream_start_time=0.0,
+        silence_period_ms=300,
+        vad_threshold=0.5,
+        sampling_rate=16000,
+        speech_pad_ms=300
+    )
+    assert router._get_service_for_event(audio_event) == "audio"
+
+    # Test TextEvent → transcription
+    text_event = TextEvent(text="test")
+    assert router._get_service_for_event(text_event) == "transcription"
+
+    # Test DraftEvent → drafts
+    draft = Draft(start_text=TextMark(0, 10, "test"))
+    draft_event = DraftStartEvent(draft=draft)
+    assert router._get_service_for_event(draft_event) == "drafts"
+
+
+@stage(Stage.PROTOTYPE, track_coverage=True)
+@pytest.mark.asyncio
+async def test_event_router_stamp_author_uri():
+    """Test _stamp_author_uri helper method (Story 007)."""
+    server_uri = "http://192.168.100.213:8000"
+    router = EventRouter(server_uri=server_uri)
+
+    # Test stamping AudioEvent
+    audio_event = AudioSpeechStartEvent(
+        source_id="test",
+        stream_start_time=0.0,
+        silence_period_ms=300,
+        vad_threshold=0.5,
+        sampling_rate=16000,
+        speech_pad_ms=300
+    )
+    assert audio_event.author_uri is None
+    router._stamp_author_uri(audio_event)
+    assert audio_event.author_uri == f"{server_uri}/audio/v1"
+
+    # Test stamping TextEvent
+    text_event = TextEvent(text="test")
+    assert text_event.author_uri is None
+    router._stamp_author_uri(text_event)
+    assert text_event.author_uri == f"{server_uri}/transcription/v1"
+
+    # Test stamping DraftEvent
+    draft = Draft(start_text=TextMark(0, 10, "test"))
+    draft_event = DraftStartEvent(draft=draft)
+    assert draft_event.author_uri is None
+    router._stamp_author_uri(draft_event)
+    assert draft_event.author_uri == f"{server_uri}/drafts/v1"
+
+
+@stage(Stage.PROTOTYPE, track_coverage=True)
+@pytest.mark.asyncio
+async def test_event_router_author_uri_backward_compatible():
+    """Test backward compatibility: server_uri=None works as before (Story 007)."""
+    router = EventRouter(server_uri=None)
+    ws = MockWebSocket()
+    await router.register_client(ws, {"all"})
+
+    # Send event
+    text_event = TextEvent(text="backward compatible test")
+    await router.on_text_event(text_event)
+
+    # Should work without errors, author_uri=None
+    assert len(ws.sent_messages) == 1
+    assert ws.sent_messages[0]["author_uri"] is None

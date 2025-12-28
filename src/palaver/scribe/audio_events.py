@@ -35,6 +35,7 @@ class AudioEvent:
     timestamp: float = field(default_factory=time.time)
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     creation_location: str = field(default_factory=get_creation_location, repr=True)
+    author_uri: Optional[str] = None  # Source server/service URI (Story 007)
 
 @dataclass(kw_only=True)
 class AudioErrorEvent(AudioEvent):
