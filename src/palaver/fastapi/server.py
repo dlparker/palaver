@@ -59,6 +59,7 @@ class EventNetServer:
         self.event_router = EventRouter()
         self.pipeline: Optional[ScribePipeline] = None
         self.mic_listener: Optional[MicListener] = None
+        self.draft_recorder: Optional[SQLDraftRecorder] = None
         self.app = FastAPI(lifespan=self.lifespan)
 
     def add_router(self, router):
@@ -96,13 +97,12 @@ class EventNetServer:
             logger.info("Starting audio pipeline...")
 
             # Setup draft recorder if requested
-            draft_recorder = None
             if self.draft_dir:
-                draft_recorder = SQLDraftRecorder(self.draft_dir)
+                self.draft_recorder = SQLDraftRecorder(self.draft_dir)
                 logger.info(f"Draft recorder enabled: {self.draft_dir}")
 
             # Create API wrapper
-            api_wrapper = DefaultAPIWrapper(draft_recorder=draft_recorder)
+            api_wrapper = DefaultAPIWrapper(draft_recorder=self.draft_recorder)
 
             # Create mic listener
             self.mic_listener = MicListener(chunk_duration=0.03)

@@ -11,6 +11,7 @@ import uvicorn
 from palaver.fastapi.server import EventNetServer
 from palaver.fastapi.routers.events import create_event_router
 from palaver.fastapi.routers.status import create_status_router
+from palaver.fastapi.routers.revisions import create_revision_router
 from palaver.stage_markers import Stage, stage
 
 from script_utils import create_base_parser, validate_model_path
@@ -95,7 +96,7 @@ def main():
     # Set logging level
     setup_logging(
         default_level=args.log_level,
-        info_loggers=["EventNetServer", "EventRouter", "EventsRouter", "StatusRouter", "RescanListener"],
+        info_loggers=["EventNetServer", "EventRouter", "EventsRouter", "StatusRouter", "RevisionRouter", "RescanListener"],
         debug_loggers=[],
     )
 
@@ -118,6 +119,7 @@ def main():
     # Compose routers
     server.add_router(create_event_router(server))
     server.add_router(create_status_router(server))
+    server.add_router(create_revision_router(server))
 
     # Run server
     import logging

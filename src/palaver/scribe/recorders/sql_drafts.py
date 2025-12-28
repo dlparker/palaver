@@ -50,6 +50,20 @@ class EventRecord(SQLModel, table=True):
     draft: Optional[DraftRecord] = Relationship(back_populates="events")
 
 
+class RevisionRecord(SQLModel, table=True):
+    """SQLModel for persisting draft revisions from rescan servers"""
+    __tablename__ = "revisions"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    revision_id: str = Field(index=True, unique=True)  # UUID for revision
+    original_draft_id: str = Field(index=True)  # FK to drafts.draft_id (UUID)
+    revised_draft_json: str  # Full Draft object as JSON
+    model: Optional[str] = None  # e.g., "multilang_whisper_large3_turbo.ggml"
+    source: Optional[str] = None  # e.g., "rescan_server"
+    source_uri: Optional[str] = None  # e.g., "http://192.168.100.214:8765/transcription/v1"
+    created_at: datetime = Field(default_factory=datetime.now, index=True)
+
+
 class SQLDraftRecorder(ScribeAPIListener):
     """
     DraftRecorder that uses SQLModel to persist drafts in a SQLite database.
@@ -223,3 +237,66 @@ class SQLDraftRecorder(ScribeAPIListener):
             from sqlmodel import select
             statement = select(DraftRecord).where(DraftRecord.draft_id == draft_uuid)
             return session.exec(statement).first()
+
+    async def store_revision(
+        self,
+        original_draft_id: str,
+        revised_draft_json: str,
+        metadata: dict
+    ) -> str:
+        """Store a revision for a draft.
+
+        Args:
+            original_draft_id: UUID of the original draft
+            revised_draft_json: JSON-serialized Draft object
+            metadata: Dict containing model, source, source_uri, etc.
+
+        Returns:
+            revision_id: UUID of the created revision
+
+        Raises:
+            ValueError: If original_draft_id doesn't exist in database
+        """
+        import uuid
+
+        # Verify original draft exists
+        original_draft = self.get_draft_by_uuid(original_draft_id)
+        if not original_draft:
+            raise ValueError(f"Original draft not found: {original_draft_id}")
+
+        # Generate revision ID
+        revision_id = str(uuid.uuid4())
+
+        # Create revision record
+        with Session(self._engine) as session:
+            revision_record = RevisionRecord(
+                revision_id=revision_id,
+                original_draft_id=original_draft_id,
+                revised_draft_json=revised_draft_json,
+                model=metadata.get("model"),
+                source=metadata.get("source"),
+                source_uri=metadata.get("source_uri"),
+            )
+            session.add(revision_record)
+            session.commit()
+            logger.info(f"Stored revision {revision_id} for draft {original_draft_id}")
+
+        return revision_id
+
+    async def get_revisions(self, draft_id: str) -> list[RevisionRecord]:
+        """Get all revisions for a draft, ordered by created_at descending (newest first).
+
+        Args:
+            draft_id: UUID of the original draft
+
+        Returns:
+            List of RevisionRecord objects
+        """
+        with Session(self._engine) as session:
+            from sqlmodel import select
+            statement = (
+                select(RevisionRecord)
+                .where(RevisionRecord.original_draft_id == draft_id)
+                .order_by(RevisionRecord.created_at.desc())
+            )
+            return list(session.exec(statement).all())
