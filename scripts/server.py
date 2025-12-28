@@ -158,6 +158,8 @@ async def run_rescan_mode(args):
     from palaver.fastapi.rescan_listener import RescanListener
     from palaver.scribe.scriven.whisper import WhisperWrapper
     from palaver.scribe.scriven.drafts import DraftMaker
+    from palaver.scribe.api import ScribeAPIListener
+    from palaver.scribe.draft_events import DraftEvent
     from palaver.utils.top_error import TopErrorHandler, TopLevelCallback, ERROR_HANDLER
 
     logger = logging.getLogger("RescanMode")
@@ -170,6 +172,32 @@ async def run_rescan_mode(args):
     error_handler = TopErrorHandler(top_level_callback=ErrorCallback(), logger=logger)
     token = ERROR_HANDLER.set(error_handler)
 
+    # Create API wrapper for rescan mode (routes events to DraftMaker)
+    class RescanAPIWrapper(ScribeAPIListener):
+        """API wrapper that routes TextEvents to DraftMaker for rescan mode."""
+
+        def __init__(self):
+            super().__init__()
+            self.draft_maker = DraftMaker()
+            self._draft_listeners = []
+
+        async def on_text_event(self, event):
+            """Route TextEvents to DraftMaker."""
+            await self.draft_maker.handle_text_event(event)
+
+        async def on_draft_event(self, event):
+            """Route DraftEvents from DraftMaker to registered listeners."""
+            for listener in self._draft_listeners:
+                await listener.on_draft_event(event)
+
+        def add_draft_listener(self, listener):
+            """Add listener for DraftEvents from DraftMaker."""
+            self._draft_listeners.append(listener)
+
+        async def on_pipeline_ready(self, pipeline):
+            """Wire up DraftMaker to emit events to this wrapper."""
+            self.draft_maker.add_event_listener(self)
+
     try:
         logger.info("Starting rescan mode...")
         logger.info(f"  Audio source: {args.audio_source_url}")
@@ -178,30 +206,32 @@ async def run_rescan_mode(args):
         logger.info(f"  Buffer size: {args.rescan_buffer_seconds}s")
 
         # Create local WhisperWrapper for high-quality rescanning
-        # WhisperWrapper config includes pre_buffer_seconds=1.0 by default
         # Use multiprocessing for better performance on Machine 2 (better GPU)
         whisper = WhisperWrapper(
             model_path=str(args.model),
             use_mp=True,
         )
 
-        # Create local DraftMaker
-        draft_maker = DraftMaker()
+        # Create API wrapper (contains DraftMaker)
+        api_wrapper = RescanAPIWrapper()
 
-        # Wire up pipeline: WhisperWrapper → DraftMaker
-        whisper.add_event_listener(draft_maker)
+        # Wire up: WhisperWrapper → API wrapper (TextEvents)
+        whisper.add_text_event_listener(api_wrapper)
+
+        # Wire up DraftMaker to emit through API wrapper
+        await api_wrapper.on_pipeline_ready(None)
 
         # Create RescanListener
         rescan_listener = RescanListener(
             audio_source_url=args.audio_source_url,
             revision_target=args.revision_target,
             local_whisper=whisper,
-            local_draft_maker=draft_maker,
+            local_draft_maker=api_wrapper.draft_maker,
             buffer_seconds=args.rescan_buffer_seconds,
         )
 
-        # Wire up: DraftMaker → RescanListener (for local rescan results)
-        draft_maker.add_event_listener(rescan_listener)
+        # Wire up: API wrapper → RescanListener (DraftEvents)
+        api_wrapper.add_draft_listener(rescan_listener)
 
         # Connect to remote audio source
         await rescan_listener.connect()
