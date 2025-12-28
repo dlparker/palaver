@@ -1,0 +1,87 @@
+#+TITLE: Task Template for Story Implementation
+#+AUTHOR: AI Agent
+#+DATE: [YYYY-MM-DD]
+
+* ⚠️ AGENT: READ BEFORE CREATING TASKS
+Before writing tasks for a story, READ:
+- [[file:guardrails_0.1.org][Guardrails 0.1]] - CRITICAL RULES:
+  - NO error handling (except shutdown: CancelledError, ConnectionClosed)
+  - NO unnecessary parameters
+  - NO refactoring without direction
+  - NO unrequested features
+- [[file:labs_n_foundries_0.2.org][LabsNFoundries 0.2]] - Stage-appropriate code investment
+- The Story file itself - understand requirements and constraints
+
+* Task Template
+
+** PLANNED Task N: [Concise action-oriented description]
+
+*** Scope
+[Small/Medium/Large - based on complexity and time]
+
+*** Prerequisites
+- Story-XXX must be complete
+- Task N-1 must be complete
+- [Other dependencies]
+
+*** Acceptance Criteria
+- [ ] [Specific, testable criterion 1]
+- [ ] [Specific, testable criterion 2]
+- [ ] [Specific, testable criterion 3]
+
+*** Implementation Notes
+[Details about approach, files to modify, etc.]
+
+*** Guardrails Checklist
+Before implementing, verify:
+- [ ] NO try/except blocks (except shutdown logic)
+- [ ] NO parameters added without current need
+- [ ] NO code extraction/refactoring without direction
+- [ ] NO features beyond task requirements
+
+*** Related Files
+- [File 1]: [why it's relevant]
+- [File 2]: [why it's relevant]
+
+*** Testing Approach
+[How to verify this task works - can be manual for early stages]
+
+* Example Task
+
+** PLANNED Task 1: Add WebSocket subscription endpoint
+
+*** Scope
+Small
+
+*** Prerequisites
+- Story-003 (Refactor server architecture) complete
+- EventRouter implemented
+
+*** Acceptance Criteria
+- [ ] /events WebSocket endpoint accepts connections
+- [ ] Clients can send subscription JSON: {"subscribe": ["EventType1", "EventType2"]}
+- [ ] EventRouter receives subscription and stores client preferences
+- [ ] Invalid JSON returns error (let it crash - no error handling!)
+
+*** Implementation Notes
+- Add endpoint to routers/events.py
+- Use FastAPI WebSocket
+- Call server.event_router.register_client(websocket, event_types)
+
+*** Guardrails Checklist
+- [ ] NO try/except for JSON parsing (let json.loads crash on bad input)
+- [ ] NO try/except for send errors (let them propagate)
+- [ ] NO optional parameters for "future extensibility"
+- [ ] NO features beyond: connect, parse subscription, register
+
+*** Related Files
+- src/palaver/fastapi/routers/events.py: Add endpoint here
+- src/palaver/fastapi/event_router.py: Uses register_client() method
+
+*** Testing Approach
+Manual test with websocat:
+```bash
+websocat ws://localhost:8000/events
+{"subscribe": ["TextEvent", "DraftEvent"]}
+```
+Should connect without error. Verify in logs that client registered.

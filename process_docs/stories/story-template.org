@@ -5,6 +5,11 @@
 #+PROPERTY: STAGE [Research|Study|POC|Prototype|MVP|Production]
 #+PROPERTY: STATUS [Draft|Planned|In Progress|Review|Complete|Discarded]
 
+* ⚠️ AGENT: READ FIRST
+Before planning or implementing this story, READ:
+- [[file:../guardrails_0.1.org][Guardrails]] - CRITICAL: No error handling except shutdown logic!
+- [[file:../labs_n_foundries_0.2.org][LabsNFoundries Process]] - Stage-appropriate investment levels
+
 * Story Overview
 
 ** Title
@@ -111,6 +116,11 @@ documents decisions made, challenges encountered, and how they were resolved.]
 
 * References
 
+** Process Documents (REQUIRED READING)
+- [[file:../guardrails_0.1.org][Guardrails 0.1]] - Development guardrails (NO error handling!)
+- [[file:../labs_n_foundries_0.2.org][LabsNFoundries 0.2]] - Process model and stage definitions
+
+** Story-Specific References
 [Any relevant documentation, design docs, or external references]
 - [Reference 1]
 - [Reference 2]
