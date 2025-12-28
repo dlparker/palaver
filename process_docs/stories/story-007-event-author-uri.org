@@ -1,0 +1,499 @@
+#+TITLE: Story 007: Add Author URI to Events for Distributed Source Identification
+#+AUTHOR: Claude Code
+#+DATE: 2025-12-27
+#+PROPERTY: STORY_ID 007
+#+PROPERTY: STAGE Prototype
+#+PROPERTY: STATUS Planning
+#+PROPERTY: EPIC rescan-distributed
+
+* Story Overview
+
+** Title
+Add Author URI to Events for Distributed Source Identification
+
+** Story ID
+007
+
+** Stage
+Prototype
+
+** Status
+Planning
+
+** Epic
+rescan-distributed (Story 7 of Epic: Distributed Rescan Server)
+
+** Blocks
+- Story 008: Rescan Mode (needs author_uri to distinguish remote vs local events)
+- Story 009: Revision API (may need author_uri for revision metadata)
+
+* Description
+
+Add =author_uri= field to all event types to identify the source server and service that created the event. This enables distributed systems to distinguish between events from different sources, particularly for the rescan server which needs to differentiate remote audio source events from local rescan events.
+
+** Problem
+
+With the addition of WebSocket event streaming (Story 003-004) and the planned rescan server architecture (Story 008), the system now has multiple event sources:
+
+1. **Audio Source Server (Machine 1):**
+   - MicListener → AudioEvents
+   - VADFilter → AudioEvents (with speech detection)
+   - WhisperWrapper → TextEvents
+   - DraftMaker → DraftEvents
+
+2. **Rescan Server (Machine 2):**
+   - Remote events via WebSocket (from Machine 1)
+   - Local WhisperWrapper → TextEvents (rescan results)
+   - Local DraftMaker → DraftEvents (rescan drafts)
+
+**Current state:**
+- Events have limited source identification (e.g., =audio_source_id= in AudioEvent)
+- No standardized way to identify which server/service created an event
+- Rescan server cannot distinguish "which DraftEndEvent is this?" (original vs rescanned)
+- Debugging distributed systems requires event provenance
+
+** Solution
+
+Add =author_uri: Optional[str]= field to all event types using an "edge signing" pattern:
+
+1. **Local events:** Created with =author_uri=None= (or omitted)
+2. **Outbound events:** Server sets =author_uri= when serializing for WebSocket send
+3. **Inbound events:** Server sets =author_uri= when deserializing from WebSocket receive
+
+This "edge signing" approach:
+- Keeps local event creation simple (no URI needed)
+- Stamps events at network boundaries (in/out)
+- Works with any transport mechanism (WebSocket, HTTP, future options)
+- Enables service discovery (e.g., Etcd) in the future without code changes
+
+** URI Format
+
+Use standard HTTP URI format with service and version:
+#+begin_example
+http://{host}:{port}/{service}/v{version}
+#+end_example
+
+Examples:
+- =http://192.168.100.213:8000/audio/v1= - Audio source service
+- =http://192.168.100.213:8000/transcription/v1= - Whisper transcription service
+- =http://192.168.100.213:8000/drafts/v1= - Draft creation service
+- =http://localhost:0/transcription/v1= - Local-only WhisperWrapper (no network server)
+
+**Service names:**
+- =audio= - AudioEvent sources (MicListener, VADFilter, downsampler)
+- =transcription= - TextEvent sources (WhisperWrapper)
+- =drafts= - DraftEvent sources (DraftMaker)
+- =api_listener= - Custom API listeners (future)
+
+**Version format:**
+- Simple =v1=, =v2= for Prototype stage
+- Could expand to semver =v1.2.3= in MVP stage
+
+** Architecture Changes
+
+*** Event Dataclasses
+
+Add =author_uri= field to all event types:
+
+**** AudioEvent (=src/palaver/scribe/audio_events.py=)
+#+begin_src python
+@dataclass
+class AudioEvent:
+    timestamp: float = field(default_factory=time.time)
+    event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    audio_source_id: str = None  # Existing field
+    author_uri: Optional[str] = None  # NEW: Source server/service
+#+end_src
+
+**** TextEvent (=src/palaver/scribe/text_events.py=)
+#+begin_src python
+@dataclass
+class TextEvent:
+    text: str = ""
+    timestamp: float = field(default_factory=time.time)
+    event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    audio_source_id: str = None
+    audio_start_time: float = None
+    audio_end_time: float = None
+    author_uri: Optional[str] = None  # NEW: Source server/service
+#+end_src
+
+**** DraftEvent (=src/palaver/scribe/draft_events.py=)
+#+begin_src python
+@dataclass(kw_only=True)
+class DraftEvent:
+    draft: Draft
+    timestamp: float = field(default_factory=time.time)
+    event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    author_uri: Optional[str] = None  # NEW: Source server/service
+#+end_src
+
+*** EventRouter Edge Signing (=src/palaver/fastapi/event_router.py=)
+
+Add server URI configuration and edge signing:
+
+#+begin_src python
+class EventRouter:
+    def __init__(
+        self,
+        listener: AudioEventListener,
+        pre_buffer_seconds: float = 1.0,
+        server_uri: Optional[str] = None  # NEW: e.g., "http://192.168.100.213:8000"
+    ):
+        self.server_uri = server_uri
+        # ... existing init
+
+    async def _send_to_websocket(self, client_id: str, event: Any):
+        """Send event to WebSocket client, stamping with author_uri."""
+        # Determine service from event type
+        service = self._get_service_for_event(event)
+
+        # Stamp event with author_uri if server_uri configured
+        if self.server_uri and hasattr(event, 'author_uri'):
+            event.author_uri = f"{self.server_uri}/{service}/v1"
+
+        # Serialize and send
+        await self._websocket_send(client_id, event)
+
+    def _get_service_for_event(self, event: Any) -> str:
+        """Determine service name from event type."""
+        if isinstance(event, AudioEvent):
+            return "audio"
+        elif isinstance(event, TextEvent):
+            return "transcription"
+        elif isinstance(event, DraftEvent):
+            return "drafts"
+        else:
+            return "unknown"
+#+end_src
+
+*** WebSocket Client Receiving (for Story 008 Rescan Mode)
+
+When receiving events from remote WebSocket:
+#+begin_src python
+async def on_websocket_message(self, message: dict):
+    """Receive event from WebSocket, stamp with remote author_uri."""
+    event_type = message.get("type")
+    event = self._deserialize_event(message)
+
+    # Stamp with remote server URI
+    if hasattr(event, 'author_uri'):
+        event.author_uri = self.remote_server_uri  # e.g., ws://machine1:8765
+
+    # Route to local handlers
+    await self._route_event(event)
+#+end_src
+
+** Acceptance Criteria
+
+1. AudioEvent, TextEvent, and DraftEvent have =author_uri: Optional[str]= field
+2. Field defaults to =None= (backward compatible)
+3. EventRouter accepts =server_uri= configuration parameter
+4. EventRouter stamps =author_uri= when sending events via WebSocket
+5. Author URI format: =http://{host}:{port}/{service}/v1=
+6. Service names defined: =audio=, =transcription=, =drafts=
+7. Local-only components use =http://localhost:0/{service}/v1= (optional)
+8. Tests verify author_uri stamping and serialization
+9. Existing tests pass (backward compatible)
+10. Documentation updated with URI format and edge signing pattern
+
+* Constraints
+
+- Prototype stage: Simple implementation, defer advanced features
+- Backward compatible: =author_uri= optional, defaults to =None=
+- Edge signing only: Don't require local event creation to set URI
+- URI format consistent and parseable
+- Version tracking simple (just =v1= for now)
+- Don't implement service discovery (Etcd) yet - that's MVP stage
+- Don't add event filtering/routing by author yet - defer to when needed
+
+* Tasks
+
+** PLANNED Task 1: Add author_uri field to event dataclasses
+- Add =author_uri: Optional[str] = None= to AudioEvent
+- Add =author_uri: Optional[str] = None= to TextEvent
+- Add =author_uri: Optional[str] = None= to DraftEvent
+- Update __init__ methods if needed (dataclass should handle)
+- Verify backward compatibility (existing event creation works)
+- Files: audio_events.py, text_events.py, draft_events.py
+
+** PLANNED Task 2: Add server_uri configuration to EventRouter
+- Add =server_uri: Optional[str] = None= parameter to EventRouter.__init__
+- Store as =self.server_uri=
+- Add helper method =_get_service_for_event(event)= to determine service name
+- Add helper method =_build_author_uri(service)= to construct URI
+- File: event_router.py
+
+** PLANNED Task 3: Implement edge signing for outbound events
+- Modify =_send_to_websocket()= to stamp author_uri before sending
+- Use =self.server_uri + "/" + service + "/v1"=
+- Only stamp if =server_uri= is configured
+- Only stamp if event has =author_uri= attribute
+- File: event_router.py
+
+** PLANNED Task 4: Update WebSocket serialization
+- Ensure =author_uri= field is included in JSON serialization
+- Handle =None= values correctly (omit or send as null)
+- Test round-trip serialization (serialize → deserialize → verify)
+- Files: event_router.py, routers/events.py
+
+** PLANNED Task 5: Add tests for author_uri functionality
+- Test event dataclasses have author_uri field
+- Test EventRouter with server_uri configured
+- Test edge signing (events get stamped before send)
+- Test serialization includes author_uri
+- Test backward compatibility (server_uri=None works)
+- Test _get_service_for_event() returns correct service names
+- Add to tests/test_event_router.py
+
+** PLANNED Task 6: Update documentation
+- Document URI format in CLAUDE.md or architecture doc
+- Document edge signing pattern
+- Document service names (audio, transcription, drafts)
+- Note future service discovery (Etcd) compatibility
+- Update Story 007 with implementation notes
+
+** DEFERRED Task 7: Add author_uri to local components (optional)
+- Optionally set =author_uri= in MicListener, WhisperWrapper, DraftMaker
+- Use =http://localhost:0/{service}/v1= format
+- This is optional - edge signing handles most cases
+- Could defer to MVP stage if not needed for Prototype
+
+* Implementation Notes
+
+** 2025-12-27 Story Created
+
+User identified architectural need while reviewing Story 008 (Rescan Mode) sketch. With distributed systems, multiple event sources need clear identification.
+
+Key insight: "Edge signing" pattern
+- Events created locally have =author_uri=None=
+- Events stamped at network boundaries (send/receive)
+- Works with any transport (WebSocket, HTTP, future options)
+- Enables service discovery without code changes
+
+User approved approach with clarification that setting URI in WebSocket serialization is the correct long-term option. Additional event streaming options can use the same pattern. Events received inside a server were either local (None URI) or the URI can be used to find the interface to connect and register.
+
+Future: Use name service like Etcd to gain independence from port numbers. Edge signing pattern works there too.
+
+This story blocks Story 008 (Rescan Mode) and Story 009 (Revision API).
+
+** Design Decisions
+
+*** Why "edge signing" instead of setting author_uri during event creation?
+
+**Advantages of edge signing:**
+- Local code stays simple (no URI management)
+- Events stamped automatically at network boundary
+- Works with any transport mechanism (WebSocket, HTTP, gRPC, etc.)
+- Enables service discovery (Etcd) without changing event creation code
+- Clear semantic: "where did this event come from?" (network source)
+
+**Edge cases handled:**
+- Local events never leave server: =author_uri=None= is fine
+- Events sent to remote: stamped with source URI
+- Events received from remote: stamped with remote URI
+- Round-trip doesn't double-stamp (deserialize creates new instance)
+
+*** Why Optional[str] instead of required?
+
+Backward compatibility and simplicity:
+- Existing code creates events without author_uri
+- Local-only scenarios don't need URIs
+- None is a valid semantic ("local/unknown source")
+- Can make required in future if needed (MVP stage)
+
+*** Why http:// instead of custom scheme (palaver://)?
+
+Standard HTTP URIs provide:
+- Familiar format, parseable with standard libraries
+- Could potentially be used as actual HTTP endpoints (health checks, metrics)
+- Compatible with service discovery systems (Consul, Etcd)
+- Future-proof for REST APIs
+
+Custom scheme would require:
+- Custom parsing logic
+- Explanation to developers
+- Less compatible with standard tools
+
+*** Why include version in URI?
+
+Version tracking enables:
+- Compatibility checking (client expects v1, server sends v2)
+- Gradual migration (support v1 and v2 simultaneously)
+- Clear semantic ("this event uses v1 schema")
+
+Simple =v1= format for Prototype, can expand to semver later.
+
+*** Why service names (audio, transcription, drafts)?
+
+Groups related events by functional area:
+- =audio= - All audio-related events (chunks, speech start/stop)
+- =transcription= - Text transcription results
+- =drafts= - Draft creation and management
+
+Alternative would be component names (mic_listener, vad_filter, whisper), but:
+- Too granular for network identification
+- Harder to maintain consistency
+- Service-level grouping is more stable
+
+*** Why localhost:0 for local-only components?
+
+Format: =http://localhost:0/{service}/v1=
+
+Advantages:
+- Consistent URI format (always http://)
+- Port 0 is reserved, won't conflict
+- Clear semantic: "not networked"
+- Can parse with standard URI libraries
+
+Alternative would be None, but URI provides more information.
+
+** Future Enhancements (MVP Stage)
+
+*** Service Discovery Integration
+Use Etcd/Consul instead of hardcoded host:port:
+#+begin_src python
+# Instead of:
+server_uri = "http://192.168.100.213:8000"
+
+# Use service discovery:
+server_uri = await service_registry.get_uri("audio-source-1")
+# Returns current URI from Etcd
+#+end_src
+
+Edge signing pattern works unchanged - just URI source changes.
+
+*** Event Filtering by Author
+EventRouter could filter events based on author:
+#+begin_src python
+# Only route events from specific sources
+if event.author_uri in self.allowed_authors:
+    await self.route_event(event)
+#+end_src
+
+*** Author-Based Routing
+Route events to different handlers based on source:
+#+begin_src python
+if event.author_uri.startswith("http://192.168.100.213"):
+    await self.remote_handler(event)
+else:
+    await self.local_handler(event)
+#+end_src
+
+*** Semantic Versioning
+Expand version format to semver:
+- =v1= → =v1.0.0=
+- Check compatibility: =v1.2.0= compatible with =v1.0.0=
+- Breaking change: =v2.0.0= incompatible with =v1.x.x=
+
+*** Author URI Validation
+Validate URI format on assignment:
+#+begin_src python
+@property
+def author_uri(self) -> Optional[str]:
+    return self._author_uri
+
+@author_uri.setter
+def author_uri(self, value: Optional[str]):
+    if value is not None:
+        validate_uri_format(value)  # Raises if invalid
+    self._author_uri = value
+#+end_src
+
+** Impact on Story 008 (Rescan Mode)
+
+With author_uri, the rescan server can easily distinguish event sources:
+
+#+begin_src python
+class RescanCoordinator:
+    def __init__(self, remote_audio_source_uri: str):
+        self.remote_audio_source_uri = remote_audio_source_uri
+        # e.g., "ws://192.168.100.213:8765"
+
+    async def on_draft_event(self, event: DraftEvent):
+        # Check event source
+        if event.author_uri and event.author_uri.startswith(self.remote_audio_source_uri):
+            # Remote draft from audio source server
+            logger.info(f"Received remote draft {event.draft.draft_id} from {event.author_uri}")
+            await self.handle_remote_draft(event)
+
+        elif event.author_uri is None or event.author_uri.startswith("http://localhost:0"):
+            # Local draft from our own WhisperWrapper (rescan result)
+            logger.info(f"Received local rescan result {event.draft.draft_id}")
+            await self.handle_rescan_result(event)
+
+        else:
+            logger.warning(f"Received draft from unexpected source: {event.author_uri}")
+#+end_src
+
+This clear source identification makes the rescan logic much simpler and less error-prone.
+
+** Testing Strategy
+
+*** Unit Tests
+- Event dataclasses have author_uri field (defaults to None)
+- EventRouter stores server_uri configuration
+- _get_service_for_event returns correct service names
+- _build_author_uri constructs correct format
+- Edge signing stamps events before send
+- Serialization includes author_uri
+
+*** Integration Tests
+- WebSocket send includes author_uri in JSON
+- WebSocket receive can stamp author_uri
+- Round-trip preserves author_uri
+- Multiple clients receive correctly stamped events
+
+*** Manual Verification
+- Start server with server_uri configured
+- Connect WebSocket client
+- Verify events include author_uri field
+- Check URI format matches expected pattern
+
+* Related Work
+
+** Epic Context
+Story 7 blocks Story 8 (Rescan Mode):
+- Rescan server needs author_uri to distinguish remote vs local events
+- Clear event provenance simplifies rescan logic
+- Enables debugging of distributed system
+
+May inform Story 9 (Revision API):
+- Revision metadata could include author_uri
+- Track which server produced which revision
+
+** Existing Patterns
+- =audio_source_id= in AudioEvent/TextEvent: Similar concept, less structured
+- EventRouter WebSocket serialization: Already serializes events, extend to stamp URI
+- Service discovery: Pattern works with future Etcd/Consul integration
+
+** Standards & Conventions
+- URI format: RFC 3986 (standard HTTP URIs)
+- Service names: RESTful API conventions
+- Edge signing: Common pattern in distributed systems (similar to JWT signing)
+
+* Completion Criteria
+
+Story 7 is complete when:
+1. All event types have author_uri field
+2. EventRouter can stamp author_uri on outbound events
+3. URI format documented and tested
+4. Service names defined (audio, transcription, drafts)
+5. Tests verify edge signing behavior
+6. Backward compatible (existing tests pass)
+7. Documentation updated
+8. Story 8 (Rescan Mode) unblocked
+
+* Notes
+
+This story emerged from reviewing Story 8 (Rescan Mode) architecture. The distributed nature of the rescan system exposed the need for clear event source identification.
+
+The "edge signing" pattern is elegant:
+- Simple to implement
+- Works with any transport
+- Future-proof for service discovery
+- Keeps local code clean
+
+This is a small story but architecturally important. It sets up the foundation for distributed event-driven systems while maintaining simplicity for local-only scenarios.
+
+Key insight: Don't require event creators to know about URIs. Stamp at the boundary where events cross the network. This separation of concerns makes the system more maintainable and flexible.

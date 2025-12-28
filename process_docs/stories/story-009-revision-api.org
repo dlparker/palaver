@@ -1,0 +1,813 @@
+#+TITLE: Story 009: Add Draft Revision API for Rescan Results
+#+AUTHOR: Claude Code
+#+DATE: 2025-12-27
+#+PROPERTY: STORY_ID 009
+#+PROPERTY: STAGE Prototype
+#+PROPERTY: STATUS Planning
+#+PROPERTY: EPIC rescan-distributed
+
+* Story Overview
+
+** Title
+Add Draft Revision API for Rescan Results
+
+** Story ID
+009
+
+** Stage
+Prototype
+
+** Status
+Planning
+
+** Epic
+rescan-distributed (Story 9 of Epic: Distributed Rescan Server)
+
+** Dependencies
+- Story 006: Draft Audio Timing (COMPLETE - provides complete Draft model)
+- Story 007: Event Author URI (PLANNED - provides revision source identification)
+
+** Required By
+- Story 008: Rescan Mode (needs POST /api/revisions endpoint)
+
+* Description
+
+Add HTTP REST API endpoints for accepting draft revisions from rescan servers and querying revisions for a given draft. This enables the audio source server to receive improved transcriptions from rescan servers and make them available to users for comparison.
+
+** Problem
+
+The rescan server (Story 008) produces improved draft transcriptions using better models, but needs a way to send these revisions back to the audio source server. Users need:
+
+1. **Revision submission** - Rescan server POSTs improved draft to audio source server
+2. **Revision querying** - Audio source server can retrieve all revisions for a draft
+3. **Revision storage** - Persistent storage associating revisions with original drafts
+4. **Revision metadata** - Track model used, timestamp, source server
+
+Without revision API:
+- Rescan results have nowhere to go (rescan server isolated)
+- No way to compare original draft vs improved revision
+- No persistent record of which model produced which transcription
+- Users can't benefit from async quality improvement
+
+** Solution
+
+Implement two REST API endpoints:
+
+1. **POST /api/revisions** - Accept a draft revision
+   - Request body: original_draft_id, revised_draft, metadata
+   - Store revision with association to original draft
+   - Return revision_id and stored status
+
+2. **GET /api/revisions/{draft_id}** - Query revisions for a draft
+   - Path parameter: original draft_id
+   - Return list of revisions with metadata
+   - Include revision_id, created_at, model, source, text preview
+
+Storage using SQLite table (extends SQLDraftRecorder pattern):
+- Table =revisions= with =original_draft_id= foreign key
+- Full revision draft stored as JSON blob
+- Queryable by draft_id, created_at, model, source
+
+** API Specification
+
+*** POST /api/revisions
+
+Accept a draft revision from rescan server.
+
+**** Request
+#+begin_src http
+POST /api/revisions HTTP/1.1
+Content-Type: application/json
+
+{
+  "original_draft_id": "abc-123-def",
+  "revised_draft": {
+    "draft_id": "xyz-789-uvw",
+    "audio_start_time": 1735330000.123,
+    "audio_end_time": 1735330005.456,
+    "start_text": {
+      "start": 0,
+      "end": 23,
+      "text": "Rupert, start draft now"
+    },
+    "end_text": {
+      "start": 150,
+      "end": 169,
+      "text": "Rupert, stop draft"
+    },
+    "full_text": "This is the improved transcription with better model",
+    "timestamp": 1735330006.789,
+    "start_matched_events": [...],
+    "end_matched_events": [...]
+  },
+  "metadata": {
+    "model": "multilang_whisper_large3_turbo.ggml",
+    "source": "rescan_server",
+    "source_uri": "http://192.168.100.214:8765/transcription/v1",
+    "revision_created_at": "2025-12-27T12:34:56.789Z"
+  }
+}
+#+end_src
+
+**** Response (Success)
+#+begin_src http
+HTTP/1.1 201 Created
+Content-Type: application/json
+
+{
+  "revision_id": "rev-456-ghi",
+  "original_draft_id": "abc-123-def",
+  "stored": true,
+  "created_at": "2025-12-27T12:34:56.789Z"
+}
+#+end_src
+
+**** Response (Error - Draft Not Found)
+#+begin_src http
+HTTP/1.1 404 Not Found
+Content-Type: application/json
+
+{
+  "error": "original_draft_not_found",
+  "original_draft_id": "abc-123-def",
+  "message": "Original draft not found in database"
+}
+#+end_src
+
+*** GET /api/revisions/{draft_id}
+
+Query all revisions for a given draft.
+
+**** Request
+#+begin_src http
+GET /api/revisions/abc-123-def HTTP/1.1
+#+end_src
+
+**** Response (Success)
+#+begin_src http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "draft_id": "abc-123-def",
+  "original_draft": {
+    "draft_id": "abc-123-def",
+    "full_text": "This is the original fast transcription",
+    "created_at": "2025-12-27T12:34:50.000Z",
+    "model": "ggml-base.en.bin"
+  },
+  "revisions": [
+    {
+      "revision_id": "rev-456-ghi",
+      "created_at": "2025-12-27T12:34:56.789Z",
+      "model": "multilang_whisper_large3_turbo.ggml",
+      "source": "rescan_server",
+      "source_uri": "http://192.168.100.214:8765/transcription/v1",
+      "text_preview": "This is the improved transcription with...",
+      "full_text": "This is the improved transcription with better model"
+    }
+  ]
+}
+#+end_src
+
+**** Response (No Revisions)
+#+begin_src http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "draft_id": "abc-123-def",
+  "original_draft": { ... },
+  "revisions": []
+}
+#+end_src
+
+**** Response (Draft Not Found)
+#+begin_src http
+HTTP/1.1 404 Not Found
+Content-Type: application/json
+
+{
+  "error": "draft_not_found",
+  "draft_id": "abc-123-def",
+  "message": "Draft not found in database"
+}
+#+end_src
+
+** Architecture Components
+
+*** RevisionRouter (new FastAPI router)
+
+FastAPI router implementing the revision API:
+
+#+begin_src python
+# src/palaver/fastapi/routers/revisions.py
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from typing import Optional
+
+router = APIRouter(prefix="/api/revisions", tags=["revisions"])
+
+class RevisionSubmission(BaseModel):
+    """Request body for POST /api/revisions."""
+    original_draft_id: str
+    revised_draft: dict  # Draft serialized as dict
+    metadata: dict  # Model, source, timestamp, etc.
+
+class RevisionResponse(BaseModel):
+    """Response for POST /api/revisions."""
+    revision_id: str
+    original_draft_id: str
+    stored: bool
+    created_at: str
+
+@router.post("", response_model=RevisionResponse, status_code=201)
+async def submit_revision(submission: RevisionSubmission):
+    """Accept a draft revision from rescan server."""
+    # Verify original draft exists
+    # Store revision in database
+    # Return revision_id
+
+@router.get("/{draft_id}")
+async def get_revisions(draft_id: str):
+    """Get all revisions for a draft."""
+    # Query original draft
+    # Query all revisions for draft_id
+    # Return draft + revisions
+#+end_src
+
+*** RevisionStorage (extends SQLDraftRecorder)
+
+Extend SQLDraftRecorder to store revisions:
+
+#+begin_src python
+# src/palaver/scribe/recorders/sql_drafts.py
+
+class SQLDraftRecorder:
+    """Stores drafts and revisions in SQLite database."""
+
+    def _create_tables(self):
+        """Create drafts and revisions tables."""
+        # Existing drafts table
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS drafts (
+                draft_id TEXT PRIMARY KEY,
+                full_text TEXT,
+                created_at TEXT,
+                audio_start_time REAL,
+                audio_end_time REAL,
+                model TEXT,
+                -- ... other fields
+            )
+        """)
+
+        # New revisions table
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS revisions (
+                revision_id TEXT PRIMARY KEY,
+                original_draft_id TEXT NOT NULL,
+                revised_draft_json TEXT NOT NULL,
+                model TEXT,
+                source TEXT,
+                source_uri TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (original_draft_id) REFERENCES drafts(draft_id)
+            )
+        """)
+
+    async def store_revision(
+        self,
+        original_draft_id: str,
+        revised_draft: Draft,
+        metadata: dict
+    ) -> str:
+        """Store a revision for a draft."""
+        # Generate revision_id
+        # Verify original_draft_id exists
+        # Serialize revised_draft to JSON
+        # Insert into revisions table
+        # Return revision_id
+
+    async def get_revisions(self, draft_id: str) -> list[dict]:
+        """Get all revisions for a draft."""
+        # Query revisions table WHERE original_draft_id = draft_id
+        # Deserialize revised_draft_json
+        # Return list of revisions with metadata
+#+end_src
+
+** Acceptance Criteria
+
+1. POST /api/revisions endpoint accepts revision submissions
+2. Request validates original_draft_id exists in database
+3. Revision stored in SQLite =revisions= table
+4. Revision associated with original draft via foreign key
+5. Response includes revision_id and created_at timestamp
+6. GET /api/revisions/{draft_id} endpoint returns all revisions
+7. Response includes original draft + list of revisions
+8. Revisions ordered by created_at (newest first)
+9. 404 error when draft_id not found
+10. Tests verify POST success, validation, and GET queries
+11. RevisionStorage integrated with SQLDraftRecorder
+12. API documentation (OpenAPI/Swagger) auto-generated
+
+* Constraints
+
+- Prototype stage: Simple implementation, defer advanced features
+- Use SQLite for storage (matches SQLDraftRecorder pattern)
+- Store full revised_draft as JSON blob (don't decompose to columns)
+- Single revision per POST (batch submission deferred to MVP)
+- No revision editing/deletion (append-only for Prototype)
+- No authentication/authorization (trust local network)
+- No revision comparison API (defer to MVP or UI layer)
+- No pagination for revisions (assume <100 revisions per draft)
+
+* Tasks
+
+** PLANNED Task 1: Create revisions table schema
+- Add =revisions= table to SQLDraftRecorder
+- Define schema: revision_id, original_draft_id, revised_draft_json, metadata
+- Add foreign key constraint to drafts table
+- Create indexes for efficient querying (original_draft_id, created_at)
+- Add migration logic if database already exists
+- File: src/palaver/scribe/recorders/sql_drafts.py
+
+** PLANNED Task 2: Implement RevisionStorage methods
+- Add =store_revision()= method to SQLDraftRecorder
+- Add =get_revisions()= method to SQLDraftRecorder
+- Add =revision_exists()= helper method
+- Serialize/deserialize Draft to/from JSON
+- Handle database errors gracefully
+- File: src/palaver/scribe/recorders/sql_drafts.py
+- Dependencies: Task 1
+
+** PLANNED Task 3: Create RevisionRouter
+- Create =src/palaver/fastapi/routers/revisions.py=
+- Define Pydantic models for request/response
+- Implement POST /api/revisions endpoint
+- Implement GET /api/revisions/{draft_id} endpoint
+- Add error handling (404, 400, 500)
+- Add OpenAPI documentation strings
+- Dependencies: Task 2
+
+** PLANNED Task 4: Integrate RevisionRouter into server
+- Import RevisionRouter in =src/palaver/fastapi/server.py=
+- Add router to FastAPI app: =app.include_router(revisions.router)=
+- Pass SQLDraftRecorder instance to router (dependency injection)
+- Verify routes appear in /docs (Swagger UI)
+- File: src/palaver/fastapi/server.py
+- Dependencies: Task 3
+
+** PLANNED Task 5: Add tests for RevisionStorage
+- Test =store_revision()= creates database entry
+- Test =get_revisions()= returns correct revisions
+- Test foreign key constraint (original_draft_id must exist)
+- Test revision ordering (newest first)
+- Test JSON serialization round-trip
+- File: tests/test_sql_drafts.py (extend existing tests)
+- Dependencies: Task 2
+
+** PLANNED Task 6: Add tests for RevisionRouter
+- Test POST /api/revisions success case
+- Test POST validation (missing fields, invalid draft_id)
+- Test GET /api/revisions/{draft_id} success case
+- Test GET 404 when draft not found
+- Test GET returns empty list when no revisions
+- Use FastAPI TestClient for HTTP testing
+- File: tests/test_revision_api.py (new file)
+- Dependencies: Task 4
+
+** PLANNED Task 7: Manual end-to-end testing
+- Start audio source server with revision API
+- Use curl to POST sample revision
+- Verify revision stored in database
+- Use curl to GET revisions for draft
+- Verify response format matches specification
+- Test with Story 008 rescan server integration
+- Dependencies: Task 6
+
+** DEFERRED Task 8: Add revision comparison endpoint (MVP stage)
+- GET /api/revisions/{draft_id}/compare
+- Return diff between original and revisions
+- Highlight word changes, additions, deletions
+- Dependencies: Task 7
+
+** DEFERRED Task 9: Add authentication (MVP stage)
+- API key or JWT authentication for revision submission
+- Prevent unauthorized revision submission
+- Trust model for local network, but validate for internet
+- Dependencies: Task 7
+
+* Implementation Notes
+
+** 2025-12-27 Story Created
+
+Story 9 (formerly Story 8 in epic_rescan_server.org) defines the revision API that enables rescan servers to submit improved transcriptions back to the audio source server.
+
+Dependencies:
+- Story 006: Provides complete Draft model for serialization
+- Story 007: Provides =author_uri= for revision source identification
+
+Required by:
+- Story 008: Rescan Mode (needs POST endpoint to submit revisions)
+
+** Design Decisions
+
+*** Why SQLite table instead of filename convention?
+
+**SQLite advantages:**
+- Queryable (find all revisions for draft_id)
+- Relational (foreign key to original draft)
+- Atomic operations (no file locking issues)
+- Indexable (fast lookups by draft_id, created_at)
+- Matches SQLDraftRecorder pattern (consistency)
+
+**Filename alternative:**
+- ={draft_id}.revision.{revision_id}.txt= - Harder to query
+- Need to scan directory for matching files
+- No foreign key constraint
+- File locking complexity
+
+*** Why JSON blob instead of decomposed columns?
+
+**JSON blob advantages:**
+- Complete Draft object preserved (no data loss)
+- Schema flexibility (Draft model can evolve)
+- Simpler queries (one column, no joins)
+- Easy serialization/deserialization
+
+**Decomposed columns alternative:**
+- Many columns (full_text, start_text, end_text, timestamps, etc.)
+- Complex INSERT/UPDATE queries
+- Schema migration on Draft model changes
+- Harder to maintain consistency
+
+Prototype stage: JSON blob is simpler. MVP stage could decompose if query performance needed.
+
+*** Why foreign key constraint?
+
+Ensures referential integrity:
+- Can't submit revision for non-existent draft
+- Database prevents orphaned revisions
+- Clear relationship: revision belongs to draft
+
+Downside: Requires original draft to exist before revision submission. But this is desired behavior (revisions without originals are meaningless).
+
+*** Why no authentication for Prototype?
+
+Trust local network:
+- Audio source and rescan servers on same LAN
+- No internet exposure (behind firewall)
+- Simplifies implementation (no auth middleware)
+
+MVP stage should add authentication if exposing to internet.
+
+*** Why store source_uri from Story 007?
+
+Enables:
+- Identifying which rescan server produced revision
+- Debugging (trace revision back to source)
+- Future filtering (only accept from trusted servers)
+- Service discovery integration (URI points to actual server)
+
+*** Why newest-first ordering?
+
+User experience:
+- Most recent revision is typically best (latest model)
+- UI shows newest at top
+- Easy to scan for "what's the latest?"
+
+Could add sorting options in MVP (oldest-first, by-model, by-quality).
+
+** Storage Schema
+
+*** Revisions Table
+
+#+begin_src sql
+CREATE TABLE IF NOT EXISTS revisions (
+    revision_id TEXT PRIMARY KEY,          -- UUID for revision
+    original_draft_id TEXT NOT NULL,       -- FK to drafts.draft_id
+    revised_draft_json TEXT NOT NULL,      -- Full Draft object as JSON
+    model TEXT,                            -- e.g., "multilang_whisper_large3_turbo.ggml"
+    source TEXT,                           -- e.g., "rescan_server"
+    source_uri TEXT,                       -- e.g., "http://192.168.100.214:8765/transcription/v1"
+    created_at TEXT NOT NULL,              -- ISO 8601 timestamp
+    FOREIGN KEY (original_draft_id) REFERENCES drafts(draft_id)
+);
+
+CREATE INDEX idx_revisions_original_draft_id ON revisions(original_draft_id);
+CREATE INDEX idx_revisions_created_at ON revisions(created_at DESC);
+#+end_src
+
+*** Query Examples
+
+Get all revisions for a draft:
+#+begin_src sql
+SELECT * FROM revisions
+WHERE original_draft_id = ?
+ORDER BY created_at DESC;
+#+end_src
+
+Get revisions by model:
+#+begin_src sql
+SELECT * FROM revisions
+WHERE original_draft_id = ? AND model = ?
+ORDER BY created_at DESC;
+#+end_src
+
+Get revision count per draft:
+#+begin_src sql
+SELECT original_draft_id, COUNT(*) as revision_count
+FROM revisions
+GROUP BY original_draft_id;
+#+end_src
+
+** API Error Handling
+
+*** POST /api/revisions Errors
+
+**** 400 Bad Request - Missing Fields
+#+begin_src json
+{
+  "error": "validation_error",
+  "message": "Missing required field: original_draft_id"
+}
+#+end_src
+
+**** 404 Not Found - Original Draft Not Found
+#+begin_src json
+{
+  "error": "original_draft_not_found",
+  "original_draft_id": "abc-123-def",
+  "message": "Original draft not found in database"
+}
+#+end_src
+
+**** 500 Internal Server Error - Database Error
+#+begin_src json
+{
+  "error": "database_error",
+  "message": "Failed to store revision in database"
+}
+#+end_src
+
+*** GET /api/revisions/{draft_id} Errors
+
+**** 404 Not Found - Draft Not Found
+#+begin_src json
+{
+  "error": "draft_not_found",
+  "draft_id": "abc-123-def",
+  "message": "Draft not found in database"
+}
+#+end_src
+
+** Serialization Format
+
+*** Draft to JSON
+
+Use dataclass serialization (dataclasses.asdict or custom):
+#+begin_src python
+import json
+from dataclasses import asdict
+
+def serialize_draft(draft: Draft) -> str:
+    """Serialize Draft to JSON string."""
+    draft_dict = asdict(draft)
+    # Handle special fields (TextEvent objects in matched_events)
+    draft_dict['start_matched_events'] = [
+        asdict(e) for e in draft.start_matched_events
+    ]
+    draft_dict['end_matched_events'] = [
+        asdict(e) for e in draft.end_matched_events
+    ]
+    return json.dumps(draft_dict)
+
+def deserialize_draft(json_str: str) -> Draft:
+    """Deserialize JSON string to Draft."""
+    draft_dict = json.loads(json_str)
+    # Reconstruct TextEvent objects
+    draft_dict['start_matched_events'] = [
+        TextEvent(**e) for e in draft_dict['start_matched_events']
+    ]
+    draft_dict['end_matched_events'] = [
+        TextEvent(**e) for e in draft_dict['end_matched_events']
+    ]
+    return Draft(**draft_dict)
+#+end_src
+
+** Testing Strategy
+
+*** Unit Tests (tests/test_sql_drafts.py)
+
+Extend existing SQLDraftRecorder tests:
+- Test revision table creation
+- Test =store_revision()= with valid draft
+- Test =store_revision()= with invalid draft_id (raises error)
+- Test =get_revisions()= returns correct data
+- Test revision ordering (newest first)
+- Test foreign key constraint enforcement
+
+*** API Tests (tests/test_revision_api.py)
+
+Use FastAPI TestClient:
+#+begin_src python
+from fastapi.testclient import TestClient
+from palaver.fastapi.server import app
+
+client = TestClient(app)
+
+def test_post_revision_success():
+    # Create original draft
+    # POST revision
+    response = client.post("/api/revisions", json={...})
+    assert response.status_code == 201
+    assert "revision_id" in response.json()
+
+def test_get_revisions_success():
+    # Create draft and revisions
+    # GET revisions
+    response = client.get(f"/api/revisions/{draft_id}")
+    assert response.status_code == 200
+    assert len(response.json()["revisions"]) == 2
+#+end_src
+
+*** Integration Tests (manual)
+
+- Start server with SQLDraftRecorder
+- Use curl to POST revision
+- Verify database contains revision
+- Use curl to GET revisions
+- Verify response format
+- Test with Story 008 rescan client
+
+** Performance Considerations
+
+*** Database Queries
+
+Indexes on =original_draft_id= and =created_at= ensure fast queries:
+- Single draft revisions: O(log N) with index
+- Ordering by created_at: O(K log K) where K = revision count
+
+Typical revision counts <100 per draft, so performance acceptable.
+
+*** JSON Serialization
+
+JSON blob is compact:
+- Typical draft: ~500 bytes text + ~200 bytes metadata = ~700 bytes
+- 100 revisions per draft = ~70 KB per draft
+- Acceptable for SQLite storage
+
+Deserialization cost is negligible (milliseconds).
+
+*** API Response Size
+
+GET /api/revisions/{draft_id} returns full drafts:
+- 100 revisions * 700 bytes = ~70 KB response
+- Acceptable for local network
+- MVP stage: add pagination if needed (limit=10, offset=0)
+
+** Future Enhancements (MVP Stage)
+
+*** Pagination
+
+Add pagination to GET endpoint:
+#+begin_src
+GET /api/revisions/{draft_id}?limit=10&offset=0
+#+end_src
+
+Response includes pagination metadata:
+#+begin_src json
+{
+  "draft_id": "...",
+  "revisions": [...],
+  "pagination": {
+    "total": 42,
+    "limit": 10,
+    "offset": 0,
+    "has_more": true
+  }
+}
+#+end_src
+
+*** Revision Comparison
+
+Add diff endpoint:
+#+begin_src
+GET /api/revisions/{draft_id}/compare?revision_id={rev_id}
+#+end_src
+
+Returns word-level diff:
+#+begin_src json
+{
+  "original": "This is the original text",
+  "revised": "This is the improved text",
+  "diff": [
+    {"type": "unchanged", "text": "This is the "},
+    {"type": "deleted", "text": "original"},
+    {"type": "added", "text": "improved"},
+    {"type": "unchanged", "text": " text"}
+  ]
+}
+#+end_src
+
+*** Revision Metadata
+
+Add more metadata fields:
+- =confidence_score= - Whisper confidence
+- =processing_time= - Rescan duration
+- =word_error_rate= - If ground truth available
+- =user_rating= - Thumbs up/down
+- =selected= - User chose this revision
+
+*** Batch Submission
+
+Accept multiple revisions in one POST:
+#+begin_src json
+{
+  "revisions": [
+    {"original_draft_id": "...", "revised_draft": {...}},
+    {"original_draft_id": "...", "revised_draft": {...}}
+  ]
+}
+#+end_src
+
+Reduces HTTP overhead for multiple rescan servers.
+
+*** Revision Deletion
+
+Add DELETE endpoint:
+#+begin_src
+DELETE /api/revisions/{revision_id}
+#+end_src
+
+Allows removing bad revisions (model errors, etc.).
+
+*** WebSocket Notifications
+
+Emit event when revision arrives:
+#+begin_src
+RevisionArrivedEvent {
+  draft_id: "abc-123-def",
+  revision_id: "rev-456-ghi",
+  model: "large3_turbo"
+}
+#+end_src
+
+UI can update in real-time when revision arrives.
+
+* Completion Criteria
+
+Story 9 is complete when:
+1. POST /api/revisions endpoint accepts and stores revisions
+2. GET /api/revisions/{draft_id} endpoint queries and returns revisions
+3. SQLite revisions table created with foreign key constraint
+4. RevisionStorage methods (store, query) implemented and tested
+5. RevisionRouter integrated into FastAPI server
+6. Error handling for 400, 404, 500 status codes
+7. Unit tests verify database operations
+8. API tests verify HTTP endpoints
+9. OpenAPI documentation auto-generated (/docs)
+10. Manual testing with curl validates end-to-end workflow
+11. Story 008 rescan client can POST revisions successfully
+
+* Related Work
+
+** Epic Context
+
+Story 9 completes the rescan-distributed epic by providing the endpoint for revision submission. With Stories 6-9 complete, the full distributed rescan architecture is functional:
+
+- Story 006: Draft audio timing (enables audio extraction)
+- Story 007: Event author URI (enables source identification)
+- Story 008: Rescan mode (produces improved transcriptions)
+- Story 009: Revision API (receives and stores improved transcriptions)
+
+** Existing Patterns Leveraged
+
+- SQLDraftRecorder: Draft storage pattern (extend for revisions)
+- FastAPI routers: REST API pattern (add RevisionRouter)
+- Pydantic models: Request/response validation
+- TestClient: API testing pattern
+
+** Files to Reference
+
+- =src/palaver/scribe/recorders/sql_drafts.py= - SQLDraftRecorder implementation
+- =src/palaver/fastapi/routers/status.py= - Simple router example
+- =src/palaver/fastapi/routers/events.py= - WebSocket router example
+- =tests/test_sql_drafts.py= - SQLDraftRecorder tests
+
+** New Components Created
+
+- =src/palaver/fastapi/routers/revisions.py= - RevisionRouter
+- =tests/test_revision_api.py= - API tests
+- Schema: =revisions= table in SQLite
+
+* Notes
+
+This story is the simplest of the rescan epic - it's a straightforward REST API for storing and querying revisions. The main design decision is using SQLite with JSON blobs, which balances flexibility (no schema migrations) with queryability (indexed lookups).
+
+The revision API is the "receiving end" of the rescan workflow. Without it, rescan servers would produce improved transcriptions with nowhere to send them. With it, the full cycle closes: audio source → fast draft → rescan → improved revision → user comparison.
+
+Key insight: Store full revised_draft as JSON blob rather than decomposing to columns. This keeps the schema simple and flexible, allowing the Draft model to evolve without database migrations. The revision count per draft is typically small (<100), so performance is not a concern.
+
+The API is intentionally simple for Prototype stage: no auth, no pagination, no comparison. These can be added in MVP if user testing shows the need. The core value is proven with just POST and GET endpoints.

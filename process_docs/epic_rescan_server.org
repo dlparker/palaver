@@ -1,0 +1,464 @@
+#+TITLE: Epic: Distributed Rescan Server for High-Quality Transcription
+#+AUTHOR: Dennis Parker
+#+DATE: 2025-12-27
+#+PROPERTY: EPIC_ID rescan-distributed
+#+PROPERTY: STAGE Prototype
+#+PROPERTY: STATUS Planning Complete
+
+* ⚠️ PLANNING COMPLETE - SEE INDIVIDUAL STORIES ⚠️
+
+This epic document served as initial planning and exploration. All stories have been documented and are ready for implementation:
+
+- **Story 006:** Draft Audio Timing ✅ COMPLETE (2025-12-27)
+  - File: =process_docs/stories/story-006-draft-audio-timing.org=
+  - Status: Complete, committed (28b3a83)
+  - Added =audio_start_time= and =audio_end_time= properties to Draft class
+
+- **Story 007:** Event Author URI 📝 PLANNING
+  - File: =process_docs/stories/story-007-event-author-uri.org=
+  - Status: Planning
+  - Add =author_uri= field to events for distributed source identification
+
+- **Story 008:** Rescan Mode 📝 PLANNING
+  - File: =process_docs/stories/story-008-rescan-mode.org=
+  - Status: Planning
+  - Server mode for connecting to remote audio source and rescanning with better model
+
+- **Story 009:** Revision API 📝 PLANNING
+  - File: =process_docs/stories/story-009-revision-api.org=
+  - Status: Planning
+  - HTTP endpoints for receiving and querying draft revisions
+
+**Implementation Order:** Story 007 → Story 009 → Story 008
+
+**This epic document is now archived for reference.** Refer to individual story files for implementation details, tasks, and acceptance criteria.
+
+* Epic Overview
+
+** Title
+Distributed Rescan Server for High-Quality Transcription
+
+** Epic ID
+rescan-distributed
+
+** Stage
+Prototype
+
+** Status
+Planning
+
+* Vision
+
+Enable a two-tier distributed transcription architecture where:
+
+1. **Machine 1 (Audio Source Server)**: Fast, responsive transcription
+   - Microphone input → small/fast Whisper model
+   - Low latency draft creation for immediate feedback
+   - Streams all events (audio chunks, text, drafts) via websocket
+
+2. **Machine 2 (Rescan Server)**: High-quality rescanning
+   - Better GPU → large/slow Whisper model (large3_turbo)
+   - Subscribes to Machine 1's event stream
+   - Buffers audio chunks during draft creation
+   - When draft completes, rescans buffered audio with better model
+   - Sends improved transcription back to Machine 1 as draft revision
+
+This architecture separates real-time responsiveness from transcription quality, allowing users to get immediate feedback while better results arrive asynchronously.
+
+* Use Case Scenario
+
+** User Experience Flow
+
+1. User speaks into microphone (Machine 1)
+2. Fast draft appears within seconds using base.en model
+3. 5-10 seconds later, improved draft revision arrives from rescan server
+4. User sees both versions, can choose which to keep
+
+** Example Configuration
+
+***Machine 1 (Audio Source Server):***
+#+begin_src bash
+uv run scripts/server.py \
+  --model models/ggml-base.en.bin \
+  --draft-dir ~/drafts \
+  --port 8765
+#+end_src
+
+***Machine 2 (Rescan Server):***
+#+begin_src bash
+uv run scripts/server.py \
+  --rescan-mode \
+  --audio-source-url ws://machine1:8765/events \
+  --model models/multilang_whisper_large3_turbo.ggml \
+  --seconds-per-scan 15 \
+  --revision-target http://machine1:8765/api/revisions
+#+end_src
+
+* Architecture Components
+
+** Story 6: Add Audio Timing to Draft Class
+
+*** Problem
+Current Draft class lacks timing information to identify the audio segment that produced it. Rescan server needs to know exactly which audio chunks to process.
+
+*** Solution
+Add fields to Draft class:
+- =audio_start_time=: Timestamp of first audio sample in draft (float, seconds since epoch)
+- =audio_end_time=: Timestamp of last audio sample in draft (float, seconds since epoch)
+
+Update DraftMaker to compute these from incoming TextEvents.
+
+*** Complexity
+Simpler than initially expected - WhisperWrapper already handles pre-buffer timing correctly:
+- TextEvent.audio_start_time uses first_chunk.timestamp from pre-buffer (whisper.py:432)
+- When pre-buffer has data, first pre-buffered chunk becomes first_chunk (whisper.py:360-361)
+- Audio timing already includes pre-buffered audio before VAD detection
+- Main challenge: Drafts spanning multiple TextEvents (need min start, max end)
+
+*** Implementation Considerations
+- DraftMaker already tracks TextEvents for each draft
+- TextEvent.audio_start_time and audio_end_time already exist and are correctly set
+- Draft fields can directly copy from TextEvent (no AudioChunkEvent tracking needed)
+- Pre-buffer timing already handled by WhisperWrapper (verified in whisper.py:354-433)
+- For multi-TextEvent drafts: audio_start_time = min(text_events), audio_end_time = max(text_events)
+
+** Story 7: Add Rescan Mode to Server
+
+*** Problem
+Need server mode that:
+1. Connects to remote audio source server as websocket client
+2. Buffers incoming audio chunks (large buffer, 30+ seconds)
+3. Detects DraftStartEvent → trims buffer to audio_start_time
+4. Continues buffering until DraftEndEvent
+5. Submits buffered audio to local WhisperWrapper for rescanning
+6. Waits for local DraftEndEvent (the rescan result)
+7. Sends result to audio source server as revision
+
+*** Configuration Options
+New command-line arguments for =scripts/server.py=:
+- =--rescan-mode=: Enable rescan mode (vs normal microphone mode)
+- =--audio-source-url=: WebSocket URL to subscribe to (e.g., ws://machine1:8765/events)
+- =--revision-target=: HTTP URL to send completed revisions (e.g., http://machine1:8765/api/revisions)
+- =--rescan-buffer-seconds=: Size of audio buffer (default 60 seconds)
+
+*** Dual Event Source Challenge
+Rescan server needs to listen to TWO event sources:
+1. **Remote events** (from audio source server): AudioChunkEvent, DraftStartEvent, DraftEndEvent
+2. **Local events** (from own WhisperWrapper): TextEvent, DraftEndEvent (for rescan result)
+
+This is architecturally interesting - current EventRouter assumes single event source.
+
+*** Possible Approaches
+
+**** Approach A: Dual EventRouter Instances
+- One EventRouter for remote events (websocket client)
+- One EventRouter for local events (WhisperWrapper)
+- RescanCoordinator listens to both
+
+**** Approach B: Event Source Tagging
+- Enhance events with =source_id= or =source_type= field
+- Single EventRouter handles both, routes based on source
+- Already have source_id in AudioEvent - could leverage this
+
+**** Approach C: Dedicated RescanListener
+- Custom api_listener that handles rescan workflow
+- Subscribes to remote websocket
+- Coordinates local WhisperWrapper
+- Manages buffer and timing logic
+- This is probably cleanest for Prototype stage
+
+*** Buffer Management
+Use AudioRingBuffer pattern (from Story 005):
+- Large buffer (60+ seconds) for incoming remote audio
+- When DraftStartEvent arrives, trim to audio_start_time
+- Continue collecting until DraftEndEvent
+- Extract buffered audio for WhisperWrapper submission
+
+*** Workflow State Machine
+#+begin_src
+State: IDLE
+  → Receive remote DraftStartEvent
+  → Trim buffer to draft.audio_start_time
+  → State: COLLECTING
+
+State: COLLECTING
+  → Continue buffering remote AudioChunkEvents
+  → Receive remote DraftEndEvent
+  → Extract buffered audio [draft.audio_start_time, draft.audio_end_time]
+  → Submit to local WhisperWrapper
+  → State: RESCANNING
+
+State: RESCANNING
+  → Receive local TextEvents (ignore or log)
+  → Receive local DraftEndEvent
+  → Send draft to revision_target
+  → State: IDLE
+#+end_src
+
+** Story 8: Add Draft Revision API
+
+*** Problem
+Need HTTP endpoints for:
+1. Accepting draft revisions from rescan server
+2. Querying revisions for a given draft_id
+3. Associating revisions with original drafts
+
+*** API Endpoints
+
+**** POST /api/revisions
+Accept a draft revision:
+#+begin_src json
+{
+  "original_draft_id": "uuid-of-original-draft",
+  "revised_draft": {
+    "draft_id": "uuid-of-revision",
+    "audio_start_time": 1735330000.123,
+    "audio_end_time": 1735330005.456,
+    "text": "Revised transcription with better model",
+    "created_at": "2025-12-27T12:34:56.789Z",
+    "model": "multilang_whisper_large3_turbo.ggml",
+    "source": "rescan_server"
+  }
+}
+#+end_src
+
+Response:
+#+begin_src json
+{
+  "revision_id": "uuid-of-revision",
+  "stored": true
+}
+#+end_src
+
+**** GET /api/revisions/{draft_id}
+Query revisions for a draft:
+#+begin_src json
+{
+  "draft_id": "uuid-of-original-draft",
+  "revisions": [
+    {
+      "revision_id": "uuid-of-revision-1",
+      "created_at": "2025-12-27T12:34:56.789Z",
+      "model": "multilang_whisper_large3_turbo.ggml",
+      "source": "rescan_server",
+      "text_preview": "Revised transcription with..."
+    }
+  ]
+}
+#+end_src
+
+*** Storage Model
+Need to decide:
+- Store revisions in same directory as drafts?
+- Separate revision table in SQLDraftRecorder?
+- Naming convention: ={draft_id}.revision.{revision_id}.txt=?
+- Metadata storage: JSON sidecar? SQLite table?
+
+*** Rescan Client Logic
+After local DraftEndEvent (rescan complete):
+1. Read completed draft from local storage
+2. POST to revision_target with original_draft_id
+3. Handle success/failure
+4. Log revision submission
+
+* Design Questions & Observations
+
+** 1. Audio Timing with Pre-Buffer (VERIFIED - No Issue)
+Story 005 added pre-buffering to EventRouter, but WhisperWrapper already handles timing correctly:
+- WhisperWrapper uses AudioRingBuffer for pre-buffering (whisper.py:226-229)
+- When speech starts, pre-buffered chunks are processed first (whisper.py:360-361)
+- The FIRST pre-buffered chunk becomes first_chunk (whisper.py:320)
+- TextEvent.audio_start_time uses first_chunk.timestamp (whisper.py:432)
+- Result: audio_start_time already includes pre-buffered audio timing
+
+**Verified Implementation**: No changes needed. As long as EventRouter and WhisperWrapper use similar pre_buffer_seconds (both default to 1.0), timing aligns correctly. Draft can directly copy audio_start_time/audio_end_time from TextEvents.
+
+** 2. Dual Event Source Pattern
+Rescan server needs to listen to both remote and local events. Current architecture assumes single event source.
+
+**Options:**
+- Dual EventRouter instances (complex)
+- Event source tagging (requires EventRouter changes)
+- Dedicated RescanListener (cleanest for Prototype)
+
+**Recommendation**: Dedicated RescanListener for Story 7 (Prototype stage). If this pattern proves useful, generalize in MVP.
+
+** 3. Revision Storage Model
+Current SQLDraftRecorder stores drafts as text files with metadata. Revisions need:
+- Association with original draft_id
+- Revision metadata (model, source, timestamp)
+- Queryable by draft_id
+
+**Options:**
+- Filename convention: ={draft_id}.revision.{timestamp}.txt=
+- SQLite table: =revisions= with =original_draft_id= foreign key
+- JSON sidecar: ={draft_id}.revisions.json= with list of revisions
+
+**Recommendation**: SQLite table for queryability. Matches SQLDraftRecorder pattern.
+
+** 4. Network Failure Handling
+What happens if:
+- Rescan server disconnects mid-draft?
+- Revision POST fails?
+- Audio source server goes down?
+
+**Prototype Stage**: Log errors, skip revision. Don't block.
+
+**MVP Stage**: Add retry logic, queue failed revisions, health monitoring.
+
+** 5. Multiple Rescan Servers
+Architecture supports multiple rescan servers subscribing to same audio source:
+- Different models (large3, medium, multilingual)
+- Different quality/speed tradeoffs
+- Multiple revisions per draft
+
+**Consideration**: Revision API should support multiple revisions per draft_id.
+
+** 6. Buffer Size and Memory
+Large audio buffer (60+ seconds @ 16kHz, 1 channel):
+- 60s * 16000 samples/s * 4 bytes/sample = ~3.8 MB
+- AudioRingBuffer uses deque of AudioChunkEvent objects (overhead)
+- Multiple concurrent drafts possible (overlapping speech)
+
+**Recommendation**: Make buffer size configurable (--rescan-buffer-seconds). Default 60s reasonable.
+
+** 7. Rescan Latency
+User experience consideration:
+- Fast draft: 2-3 seconds after speech ends
+- Rescan draft: 5-15 seconds after speech ends (network + large model)
+- Need clear UI indication that revision is pending/arriving
+
+**Prototype Stage**: Log timestamps, measure latency empirically.
+
+**MVP Stage**: Add progress events (RescanStartEvent, RescanProgressEvent, RescanCompleteEvent).
+
+** 8. Draft Revision Ordering
+If multiple revisions arrive for same draft:
+- Timestamp-based ordering (created_at)
+- Quality metric (confidence score)?
+- User preference (model selection)?
+
+**Recommendation**: Order by created_at. Let user choose which to keep.
+
+** 9. Existing --rescan-path Pattern
+=scripts/file_vtt.py= already has =--rescan-path= option:
+- Uses large model (multilang_whisper_large3_turbo.ggml)
+- Uses seconds_per_scan=15 (vs default 2)
+- Pattern to replicate in distributed mode
+
+**Observation**: This validates the approach. File-based rescan works, now extend to network-based.
+
+** 10. Testing Strategy
+Testing distributed system is complex:
+- Mock websocket connections
+- Simulate event streams
+- Test buffer management
+- Test revision submission
+
+**Recommendation:**
+- Story 6: Unit tests for Draft timing computation
+- Story 7: Integration test with MockWebSocket for remote events
+- Story 8: Unit tests for revision API with TestClient
+- Epic: Defer end-to-end distributed test to manual verification
+
+* Story Dependencies
+
+Story 6 (Draft timing) blocks both Story 7 and Story 8:
+- Story 7 needs audio_start_time/audio_end_time to trim buffer
+- Story 8 needs complete Draft model for revision storage
+
+Stories 7 and 8 can proceed in parallel after Story 6 completes.
+
+#+begin_src
+Story 6: Draft Audio Timing
+   ├─ Story 7: Rescan Mode (depends on 6)
+   └─ Story 8: Revision API (depends on 6)
+#+end_src
+
+* Related Work
+
+** Existing Patterns to Leverage
+- AudioRingBuffer (Story 005): Large buffer management
+- EventRouter (Story 003-005): Event streaming architecture
+- SQLDraftRecorder: Draft storage pattern
+- MockStream testing (test_mic_mock_to_text.py): Mock audio sources
+- WebSocket subscription protocol: Client subscription model
+
+** Files to Reference
+- =scripts/file_vtt.py=: --rescan-path pattern (lines 38-82)
+- =src/palaver/scribe/recorders/sql_drafts.py=: SQLDraftRecorder
+- =src/palaver/fastapi/event_router.py=: EventRouter with pre-buffer
+- =src/palaver/scribe/audio_events.py=: AudioRingBuffer implementation
+- =src/palaver/scribe/scriven/whisper.py=: WhisperWrapper large buffer usage
+
+** New Components Needed
+- RescanListener (api_listener for rescan workflow)
+- RescanCoordinator (state machine for rescan workflow)
+- RevisionRouter (FastAPI router for revision endpoints)
+- RevisionStorage (extend SQLDraftRecorder or new component)
+
+* Success Criteria
+
+** Prototype Stage Goals
+1. Machine 1 produces fast drafts with audio timing
+2. Machine 2 connects, buffers audio, rescans completed drafts
+3. Machine 1 receives and stores revisions
+4. Manual verification shows improved transcription quality
+5. Basic error logging (network failures, rescan failures)
+
+** Not Required for Prototype
+- Retry logic for failed revisions
+- Progress events during rescan
+- Multiple concurrent rescan servers
+- Revision quality metrics
+- UI for revision comparison
+
+** Validation Tests
+1. Unit tests for Draft timing computation
+2. Integration tests for revision API
+3. Manual end-to-end test with two machines
+4. Performance measurement (latency, quality improvement)
+
+* Next Steps
+
+1. **Review & Refine**: Dennis reviews this epic, identifies gaps or improvements
+2. **Finalize Story 6**: Write detailed story for Draft audio timing
+3. **Finalize Story 7**: Write detailed story for rescan mode
+4. **Finalize Story 8**: Write detailed story for revision API
+5. **Create Beads Issues**: Track work items for all three stories
+6. **Implement Incrementally**: Start with Story 6, validate approach, proceed to 7 & 8
+
+* Open Questions for Review
+
+1. ~~**Draft Timing Boundaries**~~: **RESOLVED** - WhisperWrapper already handles pre-buffer timing correctly. Draft can directly use TextEvent.audio_start_time/audio_end_time. Multi-TextEvent drafts use min/max of text events.
+
+2. **Event Source Pattern**: Dedicated RescanListener vs enhancing EventRouter for dual sources?
+
+3. **Revision Storage**: SQLite table vs filename convention vs JSON sidecar?
+
+4. **Network Failures**: Prototype stage error handling sufficient, or need basic retry?
+
+5. **Multiple Revisions**: Support multiple rescan servers per audio source? Limit revisions per draft?
+
+6. **Buffer Management**: Is 60 second default reasonable? Should it auto-adjust based on draft length?
+
+7. **API Authentication**: Revision API needs auth? Or trust local network for Prototype?
+
+8. **Draft Revision Metadata**: What fields beyond (original_draft_id, revised_text, model, timestamp)?
+
+9. **Testing Approach**: Mock websockets sufficient, or need actual network testing?
+
+10. **User Experience**: How to signal "revision pending" vs "revision arrived"? (Deferred to MVP?)
+
+* Notes
+
+This epic represents a significant architectural evolution:
+- From single-machine to distributed processing
+- From single model to multi-tier quality
+- From immediate results to async improvement
+
+The rescan pattern mirrors existing file_vtt.py --rescan-path but extends it to networked, real-time operation. This is ambitious but builds on solid foundations (EventRouter, AudioRingBuffer, SQLDraftRecorder).
+
+**Pre-Buffer Timing Verified**: Code review of WhisperWrapper (whisper.py:354-433) confirms that TextEvent.audio_start_time already includes pre-buffered audio timing. The first pre-buffered chunk becomes first_chunk, and its timestamp is used for audio_start_time. This means Story 6 is simpler than initially expected - Draft can directly copy timing fields from TextEvents without tracking AudioChunkEvents.
+
+Prototype stage focus: Prove the concept works. Defer retry logic, progress events, and UI polish to MVP.
