@@ -87,25 +87,23 @@ def create_revision_router(server: "EventNetServer") -> APIRouter:
                 status_code=503,
                 detail="Draft recording not enabled on this server"
             )
-
-        try:
-            # Serialize revised_draft to JSON
-            revised_draft_json = json.dumps(submission.revised_draft)
-
-            # Store revision
-            revision_id = await server.draft_recorder.store_revision(
-                original_draft_id=submission.original_draft_id,
-                revised_draft_json=revised_draft_json,
-                metadata=submission.metadata
-            )
-
-            return RevisionResponse(
-                revision_id=revision_id,
-                original_draft_id=submission.original_draft_id,
-                stored=True,
-                created_at=datetime.now().isoformat()
-            )
-
+        # Serialize revised_draft to JSON
+        revised_draft_json = json.dumps(submission.revised_draft)
+        
+        # Store revision
+        revision_id = await server.draft_recorder.store_revision(
+            original_draft_id=submission.original_draft_id,
+            revised_draft_json=revised_draft_json,
+            metadata=submission.metadata
+        )
+        
+        return RevisionResponse(
+            revision_id=revision_id,
+            original_draft_id=submission.original_draft_id,
+            stored=True,
+            created_at=datetime.now().isoformat()
+        )
+    
     @router.get("/{draft_id}", response_model=RevisionsQueryResponse)
     async def get_revisions(draft_id: str):
         """Get all revisions for a draft.
