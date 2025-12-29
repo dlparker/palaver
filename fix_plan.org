@@ -1,0 +1,26 @@
+1. Move stage_markers.py to utils
+
+
+1. Build net_audio.py NetAudioListener
+2. Build EventClient with a ScribeAPIListener connector to AudioFollower, TextFollower and DraftFollower
+3. Add --ws-listen HOST:PORT arg, update server code to have a default draft storage dir, and move MicListener setup from src to scripts
+4. Setup pipeline with NetAudioListener
+5. Connect to MicListener server and make sure it works 
+6. Add "wait_for_drafts" mode to AudioFollower to ring buffer audio while not draft, then apply when in draft
+7. Add revision support to db
+8. Add db replication logic to DraftFollower
+9. Add revision logic to db
+10. Add revision logic to DraftFollower to save revision if draft references another (by draft_id)
+11. Add revision route to fastapi (prolly can use some of broken line)
+
+    
+    
+Things to maybe fix:
+
+event_router.py
+
+1. The handling of chunks varies based on subscription, but I don't like that 'all' does not include chunks, semantically wrong.
+2. The logic in route_event that decides whether to send doesn't belong there, event filtering should be before that call
+3. Note sure if the pre-buffering is correct, need to check it, and making it a parameter is questionable.
+   
+   

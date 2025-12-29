@@ -25,7 +25,7 @@ logger = logging.getLogger("ScribeCore")
 class PipelineConfig:
     """Configuration for the Scribe pipeline."""
     model_path: Path
-    api_listener:ScribeAPIListener
+    api_listener:Optional[ScribeAPIListener] = None
     target_samplerate: int = 16000
     target_channels: int = 1
     use_multiprocessing: bool = False
@@ -60,7 +60,7 @@ class ScribePipeline:
                      Must already be configured but not yet started.
             config: Pipeline configuration parameters.
         """
-        self.listener = listener
+        self.audio = listener
         self.config = config
         self.background_error = None
 
@@ -76,7 +76,7 @@ class ScribePipeline:
         self._api_listeners = []
 
     def get_pipeline_parts(self):
-        return dict(audio_source=self.listener,
+        return dict(audio_source=self.audio,
                     downsampler=self.downsampler,
                     vadfilter=self.vadfilter,
                     transcription=self.whisper_tool,
@@ -98,7 +98,7 @@ class ScribePipeline:
         elif to_VAD:
             self.vadfilter.add_event_listener(api_listener)
         else:  # to_source
-            self.listener.add_event_listener(api_listener)
+            self.audio.add_event_listener(api_listener)
 
         # Always add text and draft event listeners
         self.whisper_tool.add_text_event_listener(api_listener)
@@ -118,16 +118,16 @@ class ScribePipeline:
             target_samplerate=self.config.target_samplerate,
             target_channels=self.config.target_channels
         )
-        self.listener.add_event_listener(self.downsampler)
+        self.audio.add_event_listener(self.downsampler)
 
-        self.vadfilter = VADFilter(self.listener)
+        self.vadfilter = VADFilter(self.audio)
         self.downsampler.add_event_listener(self.vadfilter)
         # setup the merge layer to emit VAD signals
         # but to send all original signals from listerner
         # for other audio_event types
         self.audio_merge = AudioMerge()
         full_shim, vad_shim = self.audio_merge.get_shims()
-        self.listener.add_event_listener(full_shim)
+        self.audio.add_event_listener(full_shim)
         self.vadfilter.add_event_listener(vad_shim)
         # Create whisper transcription tool thread or process
         self.whisper_tool = WhisperWrapper(
@@ -140,7 +140,7 @@ class ScribePipeline:
         # Attach to the text listener
         self.whisper_tool.add_text_event_listener(self.draft_maker)
         # Attach to the audio listener
-        self.listener.add_event_listener(self.draft_maker)
+        self.audio.add_event_listener(self.draft_maker)
         
         # Apply VAD configuration from PipelineConfig
         self.vadfilter.reset(
@@ -158,7 +158,8 @@ class ScribePipeline:
 
         self._stream_monitor = StreamMonitor(self)
         self.add_api_listener(self._stream_monitor, to_merge=True)
-        self.add_api_listener(self.config.api_listener, to_merge=True)
+        if self.config.api_listener:
+            self.add_api_listener(self.config.api_listener, to_merge=True)
 
 
         self._pipeline_setup_complete = True
@@ -216,7 +217,7 @@ class ScribePipeline:
         """Start the listener streaming audo."""
         await self.whisper_tool.start()
         await self.audio_merge.start()
-        await self.listener.start_streaming()
+        await self.audio.start_streaming()
         logger.info("Listener started")
 
     async def shutdown(self):

@@ -9,7 +9,6 @@ from palaver.scribe.scriven.drafts import DraftBuilder
 from palaver.scribe.text_events import TextEvent
 
 
-@pytest.mark.asyncio
 async def test_draft_start_with_single_event():
     """Test that start boundary phrase is tracked when it appears in a single TextEvent."""
     builder = DraftBuilder()
@@ -34,7 +33,6 @@ async def test_draft_start_with_single_event():
     assert event1.audio_end_time == 2.5
 
 
-@pytest.mark.asyncio
 async def test_draft_start_split_across_events():
     """Test that start boundary phrase is tracked when split across multiple TextEvents.
 
@@ -79,7 +77,6 @@ async def test_draft_start_split_across_events():
     assert max(end_times) == 2.0
 
 
-@pytest.mark.asyncio
 async def test_draft_end_with_single_event():
     """Test that end boundary phrase is tracked when it appears in a single TextEvent."""
     builder = DraftBuilder()
@@ -125,7 +122,6 @@ async def test_draft_end_with_single_event():
     assert 5.5 in end_times  # event3's end time should be present
 
 
-@pytest.mark.asyncio
 async def test_draft_end_split_across_events():
     """Test that end boundary phrase is tracked when split across multiple TextEvents."""
     builder = DraftBuilder()
@@ -181,7 +177,6 @@ async def test_draft_end_split_across_events():
     assert max(end_times) == 5.5
 
 
-@pytest.mark.asyncio
 async def test_complete_draft_cycle_with_events():
     """Test complete draft lifecycle with TextEvents tracking both boundaries.
 
@@ -263,7 +258,6 @@ async def test_complete_draft_cycle_with_events():
     assert end_audio_range[0] >= 4.0  # Depends on which event matched
 
 
-@pytest.mark.asyncio
 async def test_multiple_drafts_in_single_text_with_events():
     """Test recursive pattern detection when multiple boundaries appear in one text.
 
@@ -301,7 +295,6 @@ async def test_multiple_drafts_in_single_text_with_events():
     assert last_draft.end_matched_events == [event1]
 
 
-@pytest.mark.asyncio
 async def test_force_end_has_no_end_events():
     """Test that force_end creates empty end_matched_events list."""
     builder = DraftBuilder()
@@ -333,7 +326,6 @@ async def test_force_end_has_no_end_events():
     assert draft.end_matched_events == []  # No end phrase matched
 
 
-@pytest.mark.asyncio
 async def test_buffer_rolling_maintains_event_tracking():
     """Test that event tracking survives buffer rolling (roll_size=100)."""
     builder = DraftBuilder()
@@ -371,7 +363,6 @@ async def test_buffer_rolling_maintains_event_tracking():
     # The event_map should only contain events from the kept region
 
 
-@pytest.mark.asyncio
 async def test_new_draft_before_old_ends_tracks_both_boundaries():
     """Test starting new draft before old one ends (implicit close of first draft)."""
     builder = DraftBuilder()
@@ -416,7 +407,6 @@ async def test_new_draft_before_old_ends_tracks_both_boundaries():
     assert event3 in cur_draft.start_matched_events
 
 
-@pytest.mark.asyncio
 async def test_draft_audio_timing_properties():
     """Test Draft.audio_start_time and Draft.audio_end_time properties (Story 6).
 
@@ -476,7 +466,6 @@ async def test_draft_audio_timing_properties():
     assert audio_duration == 4.5  # 10.0 to 14.5 seconds
 
 
-@pytest.mark.asyncio
 async def test_draft_audio_timing_with_no_end_phrase():
     """Test that audio_end_time is None when draft has no explicit end phrase."""
     builder = DraftBuilder()
@@ -499,7 +488,6 @@ async def test_draft_audio_timing_with_no_end_phrase():
     assert draft.audio_end_time is None    # No end phrase, so no end time
 
 
-@pytest.mark.asyncio
 async def test_draft_audio_timing_with_multiple_start_events():
     """Test that audio_start_time correctly handles start phrase spanning multiple events."""
     builder = DraftBuilder()

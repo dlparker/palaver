@@ -20,7 +20,6 @@ from palaver.scribe.draft_events import (DraftEvent,
                                          DraftEndEvent,
                                          DraftEventListener,
                                          Draft,
-                                         Section,
                                          TextMark)
                                          
 logger = logging.getLogger('DraftMaker')

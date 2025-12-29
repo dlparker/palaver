@@ -11,21 +11,11 @@ class TextMark:
     start: int
     end: int
     text: str
-    
-@dataclass
-class Section:
-    draft: 'Draft'
-    start_text: TextMark
-    end_text: Optional[TextMark] = None
-    full_text: Optional[str] = field(default_factory=str)
-    timestamp: float = field(default_factory=time.time)
-    section_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
 @dataclass
 class Draft:
     start_text: TextMark
     end_text: Optional[TextMark] = None
-    sections: Optional[list[Section]] = field(default_factory=list[Section])
     full_text: Optional[str] = field(default_factory=str)
     timestamp: float = field(default_factory=time.time)
     draft_id: str = field(default_factory=lambda: str(uuid.uuid4()))

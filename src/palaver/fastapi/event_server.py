@@ -1,0 +1,218 @@
+import asyncio
+import logging
+from enum import Enum
+from pathlib import Path
+from contextlib import asynccontextmanager
+from typing import Optional
+
+from fastapi import FastAPI
+import sounddevice as sd
+import soundfile as sf
+
+from palaver.scribe.core import PipelineConfig, ScribePipeline
+from palaver.scribe.api import ScribeAPIListener
+from palaver.scribe.recorders.sql_drafts import SQLDraftRecorder
+from palaver.utils.top_error import TopErrorHandler, TopLevelCallback, ERROR_HANDLER
+from palaver.fastapi.event_sender import EventSender
+
+from palaver.scribe.audio_events import (
+    AudioEvent,
+    AudioChunkEvent,
+    AudioSpeechStartEvent,
+    AudioSpeechStopEvent,
+    AudioRingBuffer,
+)
+from palaver.scribe.audio_listeners import AudioListener
+from palaver.scribe.text_events import TextEvent
+from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent
+
+
+logger = logging.getLogger("EventNetServer")
+
+class NormalListener(ScribeAPIListener):
+    """
+    Listens to pipeline generated events and emitts them
+    to any listeners via EventSender
+    """
+
+    def __init__(self, event_sender: EventSender, play_signals:bool = True):
+        super().__init__()
+        self.event_sender = event_sender
+        self.play_signals = play_signals
+        self._current_draft = None
+
+    async def on_pipeline_ready(self, pipeline):
+        pass
+
+    async def on_pipeline_shutdown(self):
+        pass
+
+    async def on_audio_event(self, event: AudioEvent):
+        await self.event_sender.send_event(event)
+        
+    async def on_draft_event(self, event: DraftEvent):
+        if isinstance(event, DraftStartEvent):
+            logger.info("New draft")
+            self.current_draft = event.draft
+            await self.play_draft_signal("new draft")
+        if isinstance(event, DraftEndEvent):
+            logger.info("Finished draft")
+            self.current_draft = None
+            logger.info('-'*100)
+            logger.info(event.draft.full_text)
+            logger.info('-'*100)
+            await self.play_draft_signal("end draft")
+        await self.event_sender.send_event(event)
+            
+    async def on_text_event(self, event: TextEvent):
+        logger.info("text event '%s'", event.text)
+        await self.event_sender.send_event(event)
+
+    async def play_draft_signal(self, kind: str):
+        if not self.play_signals:
+            return
+        if kind == "new draft":
+            file_path = Path(__file__).parent.parent.parent.parent / "signal_sounds" / "tos-computer-06.mp3"
+        else:
+            file_path = Path(__file__).parent.parent.parent.parent / "signal_sounds" / "tos-computer-03.mp3"
+        await self.play_signal_sound(file_path)
+            
+    async def play_signal_sound(self, file_path):
+        sound_file = sf.SoundFile(file_path)
+        sr = sound_file.samplerate
+        channels = sound_file.channels
+        chunk_duration  = 0.03
+        frames_per_chunk = max(1, int(round(chunk_duration * sr)))
+        out_stream = sd.OutputStream(
+            samplerate=sr,
+            channels=channels,
+            blocksize=frames_per_chunk,
+            dtype="float32",
+        )
+        out_stream.start()
+
+        while True:
+            data = sound_file.read(frames=frames_per_chunk, dtype="float32", always_2d=True)
+            if data.shape[0] == 0:
+                break
+            out_stream.write(data)
+        out_stream.close()
+        sound_file.close()
+
+class RescanListener(ScribeAPIListener):
+
+    def __init__(self, event_sender: EventSender, audio_listener, draft_recorder):
+        self.event_sender = event_sender
+        self.draft_recorder = draft_recorder
+        self.pre_draft_buffer = AudioRingBuffer(max_seconds=30)
+        self.current_draft = None
+        self.current_revision = None
+
+    async def on_draft_event(self, event: DraftEvent):
+        if isinstance(event, DraftStartEvent):
+            if event.author_uri is not None:
+                self.current_draft = event.draft
+                # prune the ring to the first time in the draft
+                self.pre_draft_buffer.print(event.draft.audio_start_time)
+                for buffered_event in self.pre_draft_buffer.get_all(clear=True):
+                    await self.draft_recorder.on_audio_event(buffered_event)
+                
+            else:
+                self.current_revision = event.draft
+            
+    async def on_text_event(self, event: TextEvent):
+        logger.info("text event '%s'", event.text)
+
+    async def on_audio_event(self, event: AudioEvent):
+        if isinstance(event, AudioStartEvent):
+            pass
+        elif isinstance(event, AudioStopEvent):
+            logger.info("Got audio stop event %s", event)
+        elif isinstance(event, AudioChunkEvent):
+            if not self._current_draft:
+                self._pre_buffer.add(event)
+                
+
+class ServerMode(str, Enum):
+    """
+    There are three modes of operation
+    1. DIRECT: Connected to the actual audio source (microphone) and streaming
+               full pipeline events to registered listeners 
+    2. REMOTE: Accepting audio events from some source over websockets
+               and streaming full pipeline events to registered listeners 
+    3. RESCAN: Accepting all pipleline events and rescanning drafts to
+               produce revised drafts.
+    """
+    direct = "DIRECT"
+    remote = "REMOTE"
+    rescan = "RESCAN"
+        
+
+class EventNetServer:
+
+    def __init__(self,
+                 audio_listener:AudioListener,
+                 pipeline_config:PipelineConfig,
+                 draft_recorder: SQLDraftRecorder,
+                 port: Optional[int] = 8000,
+                 mode: Optional[ServerMode] = ServerMode.direct):
+        self.audio_listener = audio_listener
+        self.pipeline_config = pipeline_config
+        self.draft_recorder = draft_recorder
+        self.port = port
+        self.mode = mode
+        self.event_sender = EventSender(self.port)
+        self.app = FastAPI(lifespan=self.lifespan)
+
+    def add_router(self, router):
+        self.app.include_router(router)
+
+    @asynccontextmanager
+    async def lifespan(self, app: FastAPI):
+        # Setup error handler for pipeline context
+        class ErrorCallback(TopLevelCallback):
+            async def on_error(self, error_dict: dict):
+                logger.error(f"Pipeline error: {error_dict}")
+
+        error_handler = TopErrorHandler(top_level_callback=ErrorCallback(), logger=logger)
+        token = ERROR_HANDLER.set(error_handler)
+        router = await self.event_sender.become_router()
+        self.app.include_router(router)
+        try:
+            logger.info("Starting audio pipeline...")
+            # if mode is remote, then audio_listerner is NetListener
+            if self.mode in (ServerMode.direct, ServerMode.remote):
+                api_listener = NormalListener(self.event_sender)
+            else:
+                # We attach the audio listener to the RescanListener,
+                # and then plug it into the pipeline as the audio_listener.
+                # That way it delivers audio samples only when it is rescanning
+                # a draft, which means it can work even if something goes wrong
+                # with draft boundary detection and it has to reconstruct the
+                # actual draft from TextEvents.
+                api_listener = RescanListener(self.event_sender, self.audio_listener, self.draft_recorder)
+                self.config.audio_listener = api_listener
+            # Start pipeline with nested context managers
+            async with self.audio_listener:
+                async with ScribePipeline(self.audio_listener, self.pipeline_config) as pipeline:
+                    self.pipeline = pipeline
+
+                    # to_VAD=True for 16kHz downsampled audio
+                    pipeline.add_api_listener(api_listener,  to_VAD=True)
+
+                    if self.mode != ServerMode.rescan:
+                        pipeline.add_api_listener(self.draft_recorder)
+
+                    # Start listening
+                    await pipeline.start_listener()
+                    logger.info("Audio pipeline started")
+
+                    error_handler.wrap_task(pipeline.run_until_error_or_interrupt)
+                    
+                    # Yield to run the app
+                    yield
+
+                    # Shutdown handled by context manager exit
+                    logger.info("Shutting down audio pipeline...")
+        finally:
+            ERROR_HANDLER.reset(token)

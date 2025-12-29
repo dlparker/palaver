@@ -5,19 +5,17 @@ functionality using the EventNetServer's shared event router.
 """
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+#from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from palaver.stage_markers import Stage, stage
 
-if TYPE_CHECKING:
-    from palaver.fastapi.server import EventNetServer
+#if TYPE_CHECKING:
+#    from palaver.fastapi.server import EventNetServer
 
 logger = logging.getLogger("EventsRouter")
 
 
-@stage(Stage.PROTOTYPE, track_coverage=True)
 def create_event_router(server: "EventNetServer") -> APIRouter:
     """Create FastAPI router for event streaming via websockets.
 

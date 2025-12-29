@@ -20,7 +20,7 @@ async def chatbot():
         messages.append({'role': 'user', 'content': user_input})
 
         response = await client.chat(
-            model='gemma3:1b',
+            model='llama3.1:8b-instruct-q4_K_M',
             messages=messages
         )
 

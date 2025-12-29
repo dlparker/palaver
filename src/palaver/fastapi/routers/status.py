@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Dict, Any
 
 from fastapi import APIRouter
 
-from palaver.stage_markers import Stage, stage
 
 if TYPE_CHECKING:
     from palaver.fastapi.server import EventNetServer
@@ -16,7 +15,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger("StatusRouter")
 
 
-@stage(Stage.PROTOTYPE, track_coverage=True)
 def create_status_router(server: "EventNetServer") -> APIRouter:
     """Create FastAPI router for status and health endpoints.
 

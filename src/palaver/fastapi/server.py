@@ -16,7 +16,6 @@ from palaver.scribe.core import PipelineConfig, ScribePipeline
 from palaver.scribe.recorders.sql_drafts import SQLDraftRecorder
 from palaver.utils.top_error import TopErrorHandler, TopLevelCallback, ERROR_HANDLER
 from palaver.fastapi.event_router import EventRouter
-from palaver.stage_markers import Stage, stage
 
 # Import from scripts - this is a transitional dependency
 # TODO: Move DefaultAPIWrapper to src/palaver when promoting to MVP
@@ -30,7 +29,6 @@ sys.path.pop(0)
 logger = logging.getLogger("EventNetServer")
 
 
-@stage(Stage.PROTOTYPE, track_coverage=True)
 class EventNetServer:
     """FastAPI server base class for streaming audio pipeline events.
 

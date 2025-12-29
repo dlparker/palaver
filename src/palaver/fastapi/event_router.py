@@ -18,12 +18,9 @@ from palaver.scribe.audio_events import (
 )
 from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.draft_events import DraftEvent, DraftEventListener
-from palaver.stage_markers import Stage, stage
 
 logger = logging.getLogger("EventRouter")
 
-
-@stage(Stage.PROTOTYPE, track_coverage=True)
 class EventRouter(AudioEventListener, TextEventListener, DraftEventListener):
     """Routes pipeline events to subscribed websocket clients.
 

@@ -1,19 +1,19 @@
 from typing import Any, Optional, ClassVar, Protocol
-from enum import Enum
+from enum import StrEnum, auto
 import time
 import uuid
 import inspect
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from collections import deque
 import numpy as np
 
-class AudioEventType(str, Enum):
-    audio_start = "AUDIO_START"
-    audio_stop = "AUDIO_STOP"
-    audio_chunk = "AUDIO_CHUNK"
-    audio_input_error = "AUDIO_INPUT_ERROR"
-    audio_speech_start = "AUDIO_SPEECH_START"
-    audio_speech_stop = "AUDIO_SPEECH_STOP"
+class AudioEventType(StrEnum):
+    audio_start = auto()
+    audio_stop = auto()
+    audio_chunk = auto()
+    audio_input_error = auto()
+    audio_speech_start = auto()
+    audio_speech_stop = auto()
 
 def get_creation_location():
     # Get the frame two levels up: skip the factory func and dataclass __init__
@@ -56,18 +56,21 @@ class AudioStopEvent(AudioEvent):
     """ Emitted by audio source listener such as MicListener or FileListener"""
     event_type: ClassVar[AudioEventType] = AudioEventType.audio_stop
 
+
+np.set_printoptions(threshold=50)
 @dataclass(kw_only=True)
 class AudioChunkEvent(AudioEvent):
     """ Emitted by audio source listener such as MicListener or FileListener"""
     event_type: ClassVar[AudioEventType] = AudioEventType.audio_chunk
-    data: np.ndarray  = field(repr=False) # float32, shape (samples, channels)
-    duration: float                       # seconds
-    sample_rate: int                      # actual sample rate of this chunk
-    channels: int                         # actual channel count
-    blocksize: int                        # this block size
-    datatype: str                         # string for numpy, "float15", "float32" etc.
-    in_speech: bool = False               # Marked as containing speech
-    meta_data: Any = None                 # optional metadata, depends on source of audio
+    data: np.ndarray = field(default_factory=lambda: np.array([]))
+    duration: float
+    sample_rate: int
+    channels: int
+    blocksize: int
+    datatype: str
+    in_speech: bool = False
+    meta_data: Any = None
+
 
 @dataclass(kw_only=True)
 class AudioSpeechStartEvent(AudioEvent):

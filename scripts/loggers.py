@@ -67,4 +67,7 @@ def get_loggers():
     res.append(logging.getLogger("DraftMaker"))
     res.append(logging.getLogger("WhisperWrapper"))
     res.append(logging.getLogger("ScribeCore"))
+    res.append(logging.getLogger("VTTServer"))
+    res.append(logging.getLogger("EventSender"))
+    res.append(logging.getLogger("EventNetServer"))
     return res
