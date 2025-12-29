@@ -158,11 +158,12 @@ class EventNetServer:
                  mode: Optional[ServerMode] = ServerMode.direct):
         self.audio_listener = audio_listener
         self.pipeline_config = pipeline_config
+        self.pipeline = None
         self.draft_recorder = draft_recorder
         self.port = port
         self.mode = mode
-        self.event_sender = EventSender(self.port)
         self.app = FastAPI(lifespan=self.lifespan)
+        self.event_sender = EventSender(self.port, self)
 
     def add_router(self, router):
         self.app.include_router(router)

@@ -6,6 +6,7 @@ from the audio pipeline to subscribed websocket clients with server-side filteri
 import asyncio
 import logging
 from typing import Any
+from dataclasses import asdict
 import socket
 
 import numpy as np
@@ -29,8 +30,9 @@ logger = logging.getLogger("EventSender")
 
 class EventSender:
 
-    def __init__(self, my_port):
+    def __init__(self, my_port, server):
         self.my_port = my_port
+        self.server = server
         self.hostname = socket.gethostname()
         self.ip_address = socket.gethostbyname(self.hostname)
         self.uri = f"http://{self.hostname}:{self.my_port}/scribe_events/v1-0"
@@ -104,5 +106,33 @@ class EventSender:
             finally:
                 await self.unregister_client(websocket)
 
+        @router.get("/health")
+        async def health_check() -> dict[str, str]:
+            """Basic health check endpoint.
+            
+            Returns:
+                Simple status message indicating server is running
+            """
+            return {"status": "healthy"}
+
+        @router.get("/status")
+        async def server_status() -> dict[str, Any]:
+            """Detailed server status endpoint.
+
+            Returns:
+                Dictionary with server status information including:
+                - Pipeline running state
+                - Connected client count
+                - Model path
+            """
+            pipeline_running = self.server.pipeline is not None
+            client_count = len(self.clients) 
+
+            return {
+                "status": "running",
+                "pipeline_active": pipeline_running,
+                "connected_clients": client_count,
+                "pipeline_config": asdict(self.server.pipeline_config),
+            }
         return router
 
