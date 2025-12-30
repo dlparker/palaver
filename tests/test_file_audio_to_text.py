@@ -95,7 +95,7 @@ async def _process_audio_file_test(audio_file: Path, expected_drafts: int):
     if recorder_dir.exists():
         shutil.rmtree(recorder_dir)
 
-    draft_recorder = SQLDraftRecorder(recorder_dir)
+    draft_recorder = SQLDraftRecorder(recorder_dir, enable_file_storage=True)
     logger.info(f"Draft recorder enabled: {recorder_dir}")
 
     async def main_task(model, file_path):

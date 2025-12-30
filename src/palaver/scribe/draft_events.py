@@ -19,6 +19,7 @@ class Draft:
     full_text: Optional[str] = field(default_factory=str)
     timestamp: float = field(default_factory=time.time)
     draft_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    parent_draft_id: Optional[str] = None
     # TextEvents that contain the start/end boundary phrases
     start_matched_events: Optional[list[TextEvent]] = field(default_factory=list)
     end_matched_events: Optional[list[TextEvent]] = field(default_factory=list)
@@ -114,7 +115,7 @@ class DraftChangeEvent(DraftEvent):
 
 @dataclass(kw_only=True)
 class DraftRescanEvent(DraftEvent):
-    original_draft: Draft
+    original_draft_id: str
     draft: Draft
     
     

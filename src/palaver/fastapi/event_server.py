@@ -208,7 +208,7 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
                 self.current_local_draft = None
 
     async def save_rescan(self, orig, new):
-        event = DraftRescanEvent(original_draft=orig, draft=new)
+        event = DraftRescanEvent(original_draft_id=orig.draft_id, draft=new)
         logger.info("Rescan result '%s'", event)
         self.current_draft = None
         self.last_chunk = None

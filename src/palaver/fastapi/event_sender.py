@@ -13,7 +13,6 @@ import socket
 import numpy as np
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from palaver.utils.serializers import serialize_event
 from palaver.scribe.audio_events import (
     AudioEvent,
     AudioStartEvent,
@@ -25,43 +24,31 @@ from palaver.scribe.audio_events import (
 )
 from palaver.scribe.text_events import TextEvent
 from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent, DraftRevisionEvent
+from palaver.fastapi.ws_managers import PipelineEventManager, DraftSubmissionManager
 
 
 logger = logging.getLogger("EventSender")
 
 class EventSender:
-
-    def __init__(self, my_port, server):
+    def __init__(self, my_port: int, server):
         self.my_port = my_port
         self.server = server
         self.hostname = socket.gethostname()
         self.ip_address = socket.gethostbyname(self.hostname)
-        self.uri = f"http://{self.hostname}:{self.my_port}/scribe_events/v1-0"
-        self.clients: Dict[Any, Set[str]] = {}
-        logger.info("Sender started with uri %s", self.uri)
+        self.uri = f"http://{self.hostname}:{self.my_port}/routes"
 
-    async def send_event(self, event: [AudioEvent | TextEvent | DraftEvent]):
+        self.event_manager = PipelineEventManager()
+        self.event_manager.uri = self.uri  # for author_uri stamping
+
+        self.draft_manager = DraftSubmissionManager()
+
+    async def send_event(self, event: AudioEvent | TextEvent | DraftEvent):
         if event.author_uri is None:
             event.author_uri = self.uri
-        event_dict = serialize_event(event)
-        event_type = str(event.__class__)
-        deleters = []
-        for websocket, subscribed_types in self.clients.items():
-            if event_type in subscribed_types:
-                try:
-                    await websocket.send_json(event_dict)
-                except:
-                    logger.error(traceback.format_exc())
-                    deleters.append(websocket)
-        for websocket in deleters:
-            logger.error("Removing client registration after error on %s", websocket)
-            del self.clients[websocket]
+        await self.event_manager.send_to_subscribers(event)
 
-            
-
-    async def register_client(self, websocket: Any, event_types: list[str]):
-        if 'all_but_chunks' in event_types or 'all' in event_types:
-            r_types = {
+    def expand_event_types(self, in_types: list):
+        main_types = {
                 str(AudioStartEvent),
                 str(AudioStopEvent),
                 str(AudioSpeechStartEvent),
@@ -71,79 +58,67 @@ class EventSender:
                 str(DraftStartEvent),
                 str(DraftEndEvent),
                 str(DraftRevisionEvent),
-                }
+        }
+        valid = set(main_types)
+        valid.add(str(AudioChunkEvent))
+
+        if 'all_but_chunks' in in_types or 'all' in in_types:
+            r_types = set(main_types)
             if not "all_but_chunks" in event_types:
                 r_types.add(str(AudioChunkEvent))
         else:
-            r_types = event_types
+            for in_type in in_types:
+                if in_type not in valid:
+                    raise Exception(f'invalid type requested {in_type}')
+            r_types = in_types
         r_types = set(r_types)
-        self.clients[websocket] = r_types
-        logger.info(f"Client registered for events: {r_types}")
-
-    async def unregister_client(self, websocket: Any):
-        if websocket in self.clients:
-            del self.clients[websocket]
-            logger.info("Client unregistered")
+        return r_types
 
     async def become_router(self):
         router = APIRouter()
 
         @router.websocket("/events")
-        async def websocket_endpoint(websocket: WebSocket):
+        async def pipeline_events(websocket: WebSocket):
             await websocket.accept()
-            logger.info("Client connected")
             try:
-                # Wait for subscription message
                 data = await websocket.receive_json()
                 event_types = set(data.get("subscribe", []))
-                logger.debug("Registering types %s", event_types)
-
                 if not event_types:
                     await websocket.close(code=1003, reason="No event types specified")
                     return
 
-                # Register client with shared event router
-                await self.register_client(websocket, event_types)
-                logger.info(f"Client subscribed to: {event_types}")
+                event_types = self.expand_event_types(event_types)
+                await self.event_manager.connect(websocket, event_types)
 
-                # Keep connection alive until client disconnects
+                # Keep alive
                 while True:
                     await asyncio.sleep(1)
-
             except WebSocketDisconnect:
-                logger.info("Client disconnected")
+                self.event_manager.disconnect(websocket)
             except Exception as e:
-                logger.error(f"Error in websocket handler: {e}", exc_info=True)
-            finally:
-                await self.unregister_client(websocket)
+                logger.error(f"Error in /events: {e}", exc_info=True)
+                self.event_manager.disconnect(websocket)
+
+        @router.websocket("/new_draft")
+        async def submit_draft(websocket: WebSocket):
+            await websocket.accept()
+            # You'll inject your actual processing logic here
+            await self.draft_manager.handle_client(
+                websocket,
+                draft_processor_callback=self.server.handle_incoming_draft  # define this method
+            )
 
         @router.get("/health")
-        async def health_check() -> dict[str, str]:
-            """Basic health check endpoint.
-            
-            Returns:
-                Simple status message indicating server is running
-            """
+        async def health_check():
             return {"status": "healthy"}
 
         @router.get("/status")
-        async def server_status() -> dict[str, Any]:
-            """Detailed server status endpoint.
-
-            Returns:
-                Dictionary with server status information including:
-                - Pipeline running state
-                - Connected client count
-                - Model path
-            """
-            pipeline_running = self.server.pipeline is not None
-            client_count = len(self.clients) 
-
+        async def server_status():
             return {
                 "status": "running",
-                "pipeline_active": pipeline_running,
-                "connected_clients": client_count,
-                "pipeline_config": asdict(self.server.pipeline_config),
+                "pipeline_active": self.server.pipeline is not None,
+                "event_clients": len(self.event_manager.active_connections),
+                "uri": self.uri,
             }
-        return router
 
+        return router            
