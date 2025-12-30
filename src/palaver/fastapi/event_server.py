@@ -174,7 +174,7 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
                 start_time = time.time()
                 async def bump():
                     # Whisper might be waiting to fill buffer, if so bump it
-                    if (self.last_chunk.timestamp >= event.audio_end_time and
+                    if (self.last_chunk.timestamp >= event.draft.audio_end_time and
                         self.pipeline.whisper_tool.sound_pending):
                         await self.pipeline.whisper_tool.flush_pending(timeout=0.1)
                         await bump()
