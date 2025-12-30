@@ -139,6 +139,7 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
         self.current_local_draft = None
         self.current_revision = None
         self.last_chunk = None
+        self.last_speech_stop = None
         self.texts = []
         self.pipeline = None
         self.logger = logging.getLogger("Rescanner")
@@ -166,6 +167,10 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
             
         if isinstance(event, DraftEndEvent):
             if self.current_local_draft:
+                if self.last_speech_stop:
+                    # emitter in CCSMix
+                    await self.emit_event(self.last_speech_stop)
+                    self.last_speech_stop = None
                 if self.current_local_draft.end_text:
                     # we already have completed local draft,
                     # unlikely, but possible
@@ -198,6 +203,7 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
                 self.texts = []
                 self.current_draft = None
                 self.last_chunk = None
+                self.last_speech_stop = None
                 self.texts = []
                 self.current_local_draft = None
 
@@ -206,6 +212,7 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
         logger.info("Rescan result '%s'", event)
         self.current_draft = None
         self.last_chunk = None
+        self.last_speech_stop = None
         self.texts = []
         self.current_local_draft = None
 
@@ -222,6 +229,7 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
             return
         if isinstance(event, AudioSpeechStopEvent):
             # block it so that we don't push whisper buffer
+            self.last_speech_stop = event
             logger.info("Got audio speech stop event, blocking %s", event)
         else:
             # emitter in CCSMix
