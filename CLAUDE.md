@@ -75,16 +75,16 @@ class TextEventListener(Protocol):
     async def on_text_event(self, TextEvent) -> None: ...
 ```
 
-Components are chained using `add_event_listener()`:
+Components are chained using `add_audio_event_listener()`:
 
 ```python
 listener = MicListener()
 downsampler = DownSampler(target_samplerate=16000, target_channels=1)
-listener.add_event_listener(downsampler)
+listener.add_audio_event_listener(downsampler)
 vadfilter = VADFilter(listener)
-downsampler.add_event_listener(vadfilter)
+downsampler.add_audio_event_listener(vadfilter)
 whisper = WhisperThread(model_path, error_callback)
-vadfilter.add_event_listener(whisper)
+vadfilter.add_audio_event_listener(whisper)
 ```
 
 ### Core Components

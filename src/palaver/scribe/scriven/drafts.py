@@ -359,7 +359,7 @@ class DraftMaker(TextEventListener, AudioEventListener):
         self.current_draft = None
         self.emitter = AsyncIOEventEmitter()
 
-    def add_event_listener(self, e_listener: DraftEventListener) -> None:
+    def add_draft_event_listener(self, e_listener: DraftEventListener) -> None:
         self.emitter.on(DraftEvent, e_listener.on_draft_event)
 
     async def on_text_event(self, event: TextEvent):

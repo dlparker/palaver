@@ -69,5 +69,5 @@ class AudioMerge(AudioEventListener):
         if not isinstance(event, AudioChunkEvent):
             await self.emitter.emit(AudioEvent, self._last_vad_event)
 
-    def add_event_listener(self, e_listener: AudioEventListener) -> None:
+    def add_audio_event_listener(self, e_listener: AudioEventListener) -> None:
         self.emitter.on(AudioEvent, e_listener.on_audio_event)

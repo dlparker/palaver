@@ -94,15 +94,15 @@ class ScribePipeline:
 
         # Attach to the selected point in the pipeline
         if to_merge:
-            self.audio_merge.add_event_listener(api_listener)
+            self.audio_merge.add_audio_event_listener(api_listener)
         elif to_VAD:
-            self.vadfilter.add_event_listener(api_listener)
+            self.vadfilter.add_audio_event_listener(api_listener)
         else:  # to_source
-            self.audio.add_event_listener(api_listener)
+            self.audio.add_audio_event_listener(api_listener)
 
         # Always add text and draft event listeners
         self.whisper_tool.add_text_event_listener(api_listener)
-        self.draft_maker.add_event_listener(api_listener)
+        self.draft_maker.add_draft_event_listener(api_listener)
         self._api_listeners.append(api_listener)
         
     async def setup_pipeline(self):
@@ -118,29 +118,29 @@ class ScribePipeline:
             target_samplerate=self.config.target_samplerate,
             target_channels=self.config.target_channels
         )
-        self.audio.add_event_listener(self.downsampler)
+        self.audio.add_audio_event_listener(self.downsampler)
 
         self.vadfilter = VADFilter(self.audio)
-        self.downsampler.add_event_listener(self.vadfilter)
+        self.downsampler.add_audio_event_listener(self.vadfilter)
         # setup the merge layer to emit VAD signals
         # but to send all original signals from listerner
         # for other audio_event types
         self.audio_merge = AudioMerge()
         full_shim, vad_shim = self.audio_merge.get_shims()
-        self.audio.add_event_listener(full_shim)
-        self.vadfilter.add_event_listener(vad_shim)
+        self.audio.add_audio_event_listener(full_shim)
+        self.vadfilter.add_audio_event_listener(vad_shim)
         # Create whisper transcription tool thread or process
         self.whisper_tool = WhisperWrapper(
             self.config.model_path,
             use_mp=self.config.use_multiprocessing
         )
-        self.vadfilter.add_event_listener(self.whisper_tool)
+        self.vadfilter.add_audio_event_listener(self.whisper_tool)
 
         self.draft_maker = DraftMaker()
         # Attach to the text listener
         self.whisper_tool.add_text_event_listener(self.draft_maker)
         # Attach to the audio listener
-        self.audio.add_event_listener(self.draft_maker)
+        self.audio.add_audio_event_listener(self.draft_maker)
         
         # Apply VAD configuration from PipelineConfig
         self.vadfilter.reset(

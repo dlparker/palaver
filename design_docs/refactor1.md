@@ -362,10 +362,10 @@ async def setup_pipeline(self):
         target_samplerate=self.config.target_samplerate,
         target_channels=self.config.target_channels
     )
-    self.listener.add_event_listener(self.downsampler)
+    self.listener.add_audio_event_listener(self.downsampler)
 
     self.vadfilter = VADFilter(self.listener)
-    self.downsampler.add_event_listener(self.vadfilter)
+    self.downsampler.add_audio_event_listener(self.vadfilter)
 
     # ... rest of setup ...
 

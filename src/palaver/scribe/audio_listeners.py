@@ -16,7 +16,7 @@ from palaver.scribe.audio_events import AudioEvent, AudioEventListener, AudioErr
 
 class AudioListener(Protocol):
 
-    def add_event_listener(self, e_listener: AudioEventListener) -> None: ...
+    def add_audio_event_listener(self, e_listener: AudioEventListener) -> None: ...
 
     async def emit_event(self, event: AudioEvent) -> None: ...
 
@@ -32,7 +32,7 @@ class AudioListenerCCSMixin:
         self.emitter = AsyncIOEventEmitter()
         self._logger = logging.getLogger(self.__class__.__name__)
 
-    def add_event_listener(self, e_listener: AudioEventListener) -> None:
+    def add_audio_event_listener(self, e_listener: AudioEventListener) -> None:
         self.emitter.on(AudioEvent, e_listener.on_audio_event)
 
     async def emit_event(self, event: AudioEvent) -> None:
