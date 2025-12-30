@@ -213,17 +213,18 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
         logger.info("incomming text event '%s'", event.text)
 
     async def on_audio_event(self, event: AudioEvent):
-        if isinstance(event, AudioStartEvent):
-            logger.info("Got audio start event %s", event)
-        elif isinstance(event, AudioStopEvent):
-            logger.info("Got audio stop event %s", event)
-        elif isinstance(event, AudioChunkEvent):
-            if not self.current_draft:
-                self.pre_draft_buffer.add(event)
-            else:
+        if not self.current_draft:
+            self.pre_draft_buffer.add(event)
+            if isinstance(event, AudioChunkEvent):
                 self.last_chunk = event
-        if self.current_draft:
-            # emitter in CCSMixin
+            else:
+                logger.info("Blocked audio event %s", event)
+            return
+        if isinstance(event, AudioSpeechStopEvent):
+            # block it so that we don't push whisper buffer
+            logger.info("Got audio speech stop event, blocking %s", event)
+        else:
+            # emitter in CCSMix
             await self.emit_event(event)
                 
     async def on_local_draft_event(self, event:DraftEvent):

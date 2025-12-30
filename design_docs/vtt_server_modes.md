@@ -104,7 +104,7 @@ server = EventNetServer(
 
 ✓ Basic verification completed using `scripts/vtt_server.py`
 
-## Rescan Mode (IN PROGRESS)
+## Rescan Mode (PHASE 1 COMPLETE)
 
 **Purpose**: Re-transcribe audio segments with higher-quality models after initial draft completion.
 
@@ -115,57 +115,81 @@ Remote Client (running Direct/Remote mode server)
     ↓ (sends ALL event types via WebSocket)
 NetListener (receives all event types)
     ↓
-RescanListener (buffers audio, responds to DraftEvents)
-    ↓
+Rescanner (buffers audio, responds to DraftEvents)
+    ↓ (feeds buffered + live audio)
 Standard Pipeline (with high-quality model config)
+    ↓ (local events)
+RescannerLocal (adapter for local pipeline events)
     ↓
-DraftRevisionEvent generation
+Rescanner.on_local_* methods
+    ↓
+DraftRescanEvent generation
     ↓
 Event Streaming (WebSocket)
 ```
 
 ### Characteristics
 
-- Audio source: `NetListener` configured to receive ALL event types (not just AudioEvents)
-- Special component: `RescanListener` acts as audio listener for the pipeline
+- Audio source: `NetListener` configured to receive ALL event types (AudioEvents, TextEvents, DraftEvents)
+- Special component: `Rescanner` wraps NetListener and acts as audio listener for the pipeline
 - Pipeline: Configured with higher-quality Whisper model and extended VAD parameters
-- Buffering: Uses `AudioRingBuffer` to maintain audio history
-- Event-driven triggering: Responds to `DraftStartEvent` and `DraftEndEvent`
+- Buffering: Uses `AudioRingBuffer` (30 second rolling window) to maintain audio history
+- Event-driven triggering: Responds to `DraftStartEvent` and `DraftEndEvent` from remote source
+- Dual event streams: Processes remote events AND local pipeline events separately
 
-### RescanListener Behavior
+### Rescanner Behavior
 
-The `RescanListener` component manages two operational states:
+The `Rescanner` component (src/palaver/fastapi/event_server.py:130-264) manages two operational states:
 
 #### 1. Buffering State (No Active Draft)
 
-- Collects incoming `AudioChunkEvent` instances into `AudioRingBuffer`
+- Collects incoming `AudioChunkEvent` instances into `AudioRingBuffer` (30 second window)
 - Ring buffer maintains rolling window of recent audio
-- Does NOT feed events to pipeline
-- Waits for `DraftStartEvent` to trigger processing
+- Does NOT feed events to local pipeline
+- Waits for `DraftStartEvent` from remote to trigger processing
 
 #### 2. Processing State (Active Draft)
 
-**Triggered by `DraftStartEvent`:**
+**Triggered by remote `DraftStartEvent`:**
 
-1. Examines `DraftStartEvent.start_matched_events` to identify audio stream boundaries
+1. Examines `draft.audio_start_time` from the remote draft
 2. Extracts relevant audio segment from `AudioRingBuffer`:
-   - Finds beginning of AudioStream from start_matched_events
-   - Retrieves buffered audio chunks from that point forward
-3. Feeds extracted AudioEvents to pipeline:
-   - Emits `AudioStartEvent` (if needed)
-   - Emits buffered `AudioChunkEvent` instances in sequence
+   - Calls `pre_draft_buffer.get_from(min_time)` to retrieve buffered chunks
+   - Starts from the draft's audio_start_time (includes pre-buffered audio)
+3. Feeds extracted AudioEvents to local pipeline:
+   - Emits all buffered `AudioChunkEvent` instances in sequence
+   - Clears the ring buffer after extraction
 4. Switches to pass-through mode:
-   - Continues feeding incoming `AudioChunkEvent` instances to pipeline
+   - Continues feeding incoming `AudioChunkEvent` instances to local pipeline
+   - Tracks `last_chunk` timestamp for completion detection
    - Maintains real-time processing until draft completion
 
-**Triggered by `DraftEndEvent`:**
+**Triggered by remote `DraftEndEvent`:**
 
-1. Stops feeding AudioEvents to pipeline
-2. Returns to buffering state
-3. Executes revision collection logic:
-   - Locates locally completed transcription
-   - Packages transcription into `DraftRevisionEvent`
-   - Emits event for streaming
+1. Waits for local draft completion (up to 15 seconds):
+   - Polls `current_local_draft.end_text` every 10ms
+   - Uses adaptive bump strategy: flushes Whisper buffer if needed
+   - Falls back to `force_end()` if timeout exceeded
+2. Creates `DraftRescanEvent`:
+   - Contains both `original_draft` (from remote) and `draft` (from local rescan)
+   - Logged but not yet persisted or streamed
+3. Returns to buffering state:
+   - Clears `current_draft`, `current_local_draft`, `texts`, `last_chunk`
+   - Resumes buffering incoming audio chunks
+
+### RescannerLocal Adapter
+
+The `RescannerLocal` class (event_server.py:106-129) separates local pipeline events from remote events:
+
+- Implements `ScribeAPIListener` to receive local pipeline events
+- Routes events to `Rescanner.on_local_*` methods:
+  - `on_local_draft_event`: Tracks local draft creation/completion
+  - `on_local_text_event`: Collects transcription results
+  - `on_local_audio_event`: Currently unused (placeholder)
+
+This separation allows the Rescanner to distinguish between:
+- **Remote events** from NetListener (original transcription)
+- **Local events** from local pipeline (rescan transcription)
 
 ### Configuration Differences
 
@@ -177,19 +201,29 @@ model = Path("models/multilang_whisper_large3_turbo.ggml")  # Larger model
 
 pipeline_config = PipelineConfig(
     model_path=model,
-    vad_silence_ms=3000,      # Extended silence threshold
-    vad_speech_pad_ms=1000,   # Extended speech padding
-    seconds_per_scan=15,      # Longer transcription windows
+    vad_silence_ms=3000,      # Extended silence threshold (vs 800ms default)
+    vad_speech_pad_ms=1000,   # Extended speech padding (vs 1500ms default)
+    seconds_per_scan=10,      # Longer transcription windows (vs 2s default)
     # ... other config
 )
 ```
 
 ### Current Implementation Status
 
-- ✗ `RescanListener` component: Not yet implemented
-- ✗ `AudioRingBuffer` integration: Not yet implemented
-- ✗ Draft revision collection logic: Not yet implemented
-- ? Additional steps: To be defined
+**Phase 1 Complete:**
+- ✓ `Rescanner` component implemented (event_server.py:130-264)
+- ✓ `AudioRingBuffer` integration working (30s rolling window)
+- ✓ Draft boundary detection and audio extraction working
+- ✓ Local pipeline integration via `RescannerLocal` adapter
+- ✓ `DraftRescanEvent` generation working
+- ✓ Test script working (scripts/rescan.py with BlockAudioRecorder)
+
+**Known Issues / Improvements Needed:**
+- DraftRescanEvent is created but not persisted to database
+- DraftRescanEvent is not streamed to remote clients
+- No error recovery if audio buffer doesn't contain full draft
+- Timeout handling in DraftEndEvent is functional but could be more robust
+- No metrics/logging for rescan quality comparison
 
 ### Use Case
 
@@ -231,27 +265,48 @@ The `scripts/vtt_server.py` script determines mode based on command-line argumen
 
 | Event Type | Direct Mode | Remote Mode | Rescan Mode |
 |------------|-------------|-------------|-------------|
-| AudioEvents | Generated locally | Received via WebSocket | Received via WebSocket, buffered by RescanListener |
-| TextEvents | Generated by local pipeline | Generated by local pipeline | Generated by local pipeline |
-| DraftEvents | Generated by pipeline/recorder | Generated by pipeline/recorder | **Consumed** by RescanListener to trigger processing |
-| DraftRevisionEvents | N/A | N/A | **Generated** by RescanListener after re-transcription |
+| AudioEvents | Generated locally | Received via WebSocket | Received via WebSocket, buffered by Rescanner |
+| TextEvents | Generated by local pipeline | Generated by local pipeline | Received from remote (ignored), Generated locally during rescan |
+| DraftEvents | Generated by pipeline/recorder | Generated by pipeline/recorder | Received from remote (**triggers** rescan), Generated locally during rescan |
+| DraftRescanEvents | N/A | N/A | **Generated** by Rescanner after re-transcription (Phase 1: logged only) |
 
 ## Implementation Files
 
 - Server implementation: `src/palaver/fastapi/event_server.py`
-- Mode enum: `ServerMode` in `event_server.py`
-- Script interface: `scripts/vtt_server.py`
-- NetListener: `src/palaver/scribe/audio/net_listener.py`
-- RescanListener: **Not yet implemented** (planned location TBD)
-- AudioRingBuffer: **Not yet implemented** (planned location TBD)
+  - `EventNetServer` class: Main server with mode selection (lines 281-352)
+  - `ServerMode` enum: Mode selection (lines 266-278)
+  - `Rescanner` class: Rescan mode implementation (lines 130-264)
+  - `RescannerLocal` class: Local event adapter (lines 106-129)
+  - `NormalListener` class: Direct/Remote mode implementation (lines 36-105)
+- Script interfaces:
+  - `scripts/vtt_server.py` - Direct/Remote mode server
+  - `scripts/rescan.py` - Rescan mode test script
+- Audio components:
+  - `src/palaver/scribe/audio/net_listener.py` - NetListener for remote audio
+  - `src/palaver/scribe/audio_events.py` - AudioRingBuffer class (lines 95-148)
+- Event definitions:
+  - `src/palaver/scribe/draft_events.py` - DraftRescanEvent (lines 116-118)
 
 ## Future Work
 
-Rescan mode completion requires:
+### Phase 2: Event Distribution & Persistence
 
-1. Implement `RescanListener` component with state machine (buffering vs processing)
-2. Implement or integrate `AudioRingBuffer` for audio history
-3. Implement draft revision collection logic
-4. Define and implement remaining rescan workflow steps
-5. Integration testing with multi-tier transcription workflow
-6. Performance tuning for buffer sizes and model switching
+1. Stream `DraftRescanEvent` to remote clients via EventSender
+2. Persist `DraftRescanEvent` to SQLDraftRecorder
+3. Add revision tracking/history to database schema
+4. Implement conflict resolution for multiple rescans of same draft
+
+### Phase 3: Robustness & Observability
+
+1. Add error recovery when audio buffer doesn't contain full draft
+2. Improve timeout handling and add configurable timeout values
+3. Add metrics for rescan quality comparison (WER, character diff, etc.)
+4. Add logging for rescan performance (latency, buffer usage, etc.)
+5. Handle edge cases: overlapping drafts, very long drafts (>30s buffer)
+
+### Phase 4: Production Hardening
+
+1. Integration testing with multi-tier transcription workflow (Direct→Rescan)
+2. Performance tuning for buffer sizes and model switching
+3. Add health checks and monitoring endpoints
+4. Document operational procedures and tuning guidelines
