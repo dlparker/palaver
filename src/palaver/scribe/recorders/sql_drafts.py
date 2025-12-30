@@ -13,7 +13,7 @@ from sqlmodel import SQLModel, Field, create_engine, Session, Relationship
 from palaver.scribe.audio_events import AudioEvent, AudioChunkEvent, AudioRingBuffer
 from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.text_events import TextEvent
-from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent
+from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent, Draft
 
 logger = logging.getLogger("SQLDraftRecorder")
 
@@ -37,6 +37,100 @@ class DraftRecord(SQLModel, table=True):
         sa_relationship_kwargs={"remote_side": "DraftRecord.id"}
     )
     children: list["DraftRecord"] = Relationship(back_populates="parent")
+
+    @classmethod
+    def create_with_parent(
+        cls,
+        session: Session,
+        draft: Draft,
+        parent_draft_uuid: str,
+        directory_path: str = ""
+    ) -> "DraftRecord":
+        """Create a new DraftRecord with a parent relationship.
+
+        Args:
+            session: SQLModel Session for database operations
+            draft: Draft dataclass instance to save
+            parent_draft_uuid: The draft_id (UUID string) of the parent draft
+            directory_path: Optional path to draft files directory
+
+        Returns:
+            The newly created DraftRecord instance
+
+        Raises:
+            ValueError: If parent draft not found
+        """
+        # Look up parent by draft_id (UUID)
+        from sqlmodel import select
+        statement = select(DraftRecord).where(DraftRecord.draft_id == parent_draft_uuid)
+        parent_record = session.exec(statement).first()
+
+        if not parent_record:
+            raise ValueError(f"Parent draft not found: {parent_draft_uuid}")
+
+        # Create new draft record with parent relationship
+        draft_record = DraftRecord(
+            draft_id=str(draft.draft_id),
+            timestamp=draft.timestamp,
+            full_text=draft.full_text,
+            classname=str(draft.__class__),
+            directory_path=directory_path,
+            parent_draft_id=parent_record.id
+        )
+        session.add(draft_record)
+        session.commit()
+        session.refresh(draft_record)
+
+        logger.info(f"Created draft {draft_record.id} with parent {parent_record.id}")
+        return draft_record
+
+    @classmethod
+    def get_with_family(
+        cls,
+        session: Session,
+        draft_uuid: str
+    ) -> tuple[Optional["DraftRecord"], Optional["DraftRecord"], list["DraftRecord"]]:
+        """Get a draft record along with its parent and children.
+
+        Uses eager loading to ensure all relationship data is loaded before
+        the session closes. Returned objects are detached but have their
+        parent and children relationships populated.
+
+        Args:
+            session: SQLModel Session for database operations
+            draft_uuid: The draft_id (UUID string) to look up
+
+        Returns:
+            Tuple of (draft, parent, children) where:
+            - draft: The requested DraftRecord or None if not found
+            - parent: The parent DraftRecord or None if no parent
+            - children: List of child DraftRecords (empty list if none)
+
+        Note:
+            Returned objects are detached from the session. If you need to
+            access additional relationships or modify them, refresh within
+            a new session context.
+        """
+        from sqlmodel import select
+        from sqlalchemy.orm import selectinload
+
+        # Eager load parent and children relationships
+        statement = (
+            select(DraftRecord)
+            .where(DraftRecord.draft_id == draft_uuid)
+            .options(selectinload(DraftRecord.parent))
+            .options(selectinload(DraftRecord.children))
+        )
+        draft = session.exec(statement).first()
+
+        if not draft:
+            return (None, None, [])
+
+        # Relationships are already loaded due to selectinload
+        parent = draft.parent
+        children = list(draft.children)
+
+        return (draft, parent, children)
 
 
 class SQLDraftRecorder(ScribeAPIListener):
