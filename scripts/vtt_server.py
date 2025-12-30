@@ -68,9 +68,9 @@ async def main():
     )
     parser.add_argument(
         '--rescan',
-        type=bool,
+        type=str,
         default=None,
-        help='Use multilang_whisper_large3_turbo.ggml and large window, requires --audio_url'
+        help='Listen for drafts from uri and use multilang_whisper_large3_turbo.ggml and large window to rescan'
     )
 
     args = parser.parse_args()
@@ -79,22 +79,24 @@ async def main():
     setup_logging(
         default_level=args.log_level,
         info_loggers=[],
-        debug_loggers=['EventNetServer', 'EventSender', "NetListener"],
+        debug_loggers=['EventNetServer', 'EventSender', 'Rescanner'],
     )
 
     draft_recorder = SQLDraftRecorder(args.output_dir)
     model = args.model
     if args.audio_url:
         audio_listener = NetListener(args.audio_url, chunk_duration=0.03)
+        mode = ServerMode.remote
     else:
         audio_listener = MicListener(chunk_duration=0.03)
+        mode = ServerMode.direct
     if args.rescan:
-        if not args.audio_url:
-            parser.error("Rescan mode requires --audio-url or it doesn't make sense")
+        mode = ServerMode.rescan
         if model == default_model:
             model = Path("models/multilang_whisper_large3_turbo.ggml")
         else:
             print("Warning, you specified --rescan but specified a non-default model, using your selection")
+        audio_listener = NetListener(args.rescan, audio_only=False, chunk_duration=0.03)
     
     pipeline_config = PipelineConfig(
         model_path=model,
@@ -104,15 +106,15 @@ async def main():
         use_multiprocessing=True,
     )
     if args.rescan:
-        pipeline_config.vad_silence_ms = 3000,
-        pipeline_config.vad_speech_pad_ms = 1000,
+        pipeline_config.vad_silence_ms = 3000
+        pipeline_config.vad_speech_pad_ms = 1000
         pipeline_config.seconds_per_scan = 15
 
     server = EventNetServer(audio_listener,
                             pipeline_config = pipeline_config,
                             draft_recorder=draft_recorder,
                             port=args.port,
-                            mode=ServerMode.direct)
+                            mode=mode)
     logger.info(f"Starting server on {args.host}:{args.port}")
 
 

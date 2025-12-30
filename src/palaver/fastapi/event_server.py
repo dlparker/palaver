@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from enum import Enum
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -12,11 +13,14 @@ import soundfile as sf
 from palaver.scribe.core import PipelineConfig, ScribePipeline
 from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.recorders.sql_drafts import SQLDraftRecorder
+from palaver.scribe.audio_listeners import AudioListenerCCSMixin
 from palaver.utils.top_error import TopErrorHandler, TopLevelCallback, ERROR_HANDLER
 from palaver.fastapi.event_sender import EventSender
 
 from palaver.scribe.audio_events import (
     AudioEvent,
+    AudioStartEvent,
+    AudioStopEvent,
     AudioChunkEvent,
     AudioSpeechStartEvent,
     AudioSpeechStopEvent,
@@ -24,7 +28,7 @@ from palaver.scribe.audio_events import (
 )
 from palaver.scribe.audio_listeners import AudioListener
 from palaver.scribe.text_events import TextEvent
-from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent
+from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent, DraftRescanEvent
 
 
 logger = logging.getLogger("EventNetServer")
@@ -99,43 +103,166 @@ class NormalListener(ScribeAPIListener):
         out_stream.close()
         sound_file.close()
 
-class RescanListener(ScribeAPIListener):
+class RescannerLocal(ScribeAPIListener):
+    """
+    Provide a target for the Rescanner for local events, since the Rescanner
+    listens to NetListener events. This makes it possible to keep them straight.
+    """
+
+    def __init__(self, rescanner):
+        self.rescanner = rescanner
+        
+    async def on_pipeline_ready(self, pipeline):
+        await self.rescanner.on_pipeline_ready(pipeline)
+    
+    async def on_pipeline_shutdown(self):
+        await self.rescanner.on_pipeline_shutdown()
+    
+    async def on_draft_event(self, event:DraftEvent):
+        await self.rescanner.on_local_draft_event(event)
+
+    async def on_text_event(self, event: TextEvent):
+        await self.rescanner.on_local_text_event(event)
+
+    async def on_audio_event(self, event):
+        await self.rescanner.on_local_audio_event(event)
+    
+class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
 
     def __init__(self, event_sender: EventSender, audio_listener, draft_recorder):
+        super().__init__(chunk_duration=0.03)
         self.event_sender = event_sender
         self.audio_listener = audio_listener
         self.draft_recorder = draft_recorder
         self.pre_draft_buffer = AudioRingBuffer(max_seconds=30)
         self.current_draft = None
+        self.current_local_draft = None
         self.current_revision = None
+        self.last_chunk = None
+        self.texts = []
+        self.pipeline = None
+        self.logger = logging.getLogger("Rescanner")
+        self.audio_listener.add_audio_event_listener(self)
+        self.audio_listener.add_text_event_listener(self)
+        self.audio_listener.add_draft_event_listener(self)
 
-    async def start_listener(self):
-        pass
-
+    async def on_pipeline_ready(self, pipeline):
+        self.pipeline = pipeline
+        
     async def on_draft_event(self, event: DraftEvent):
+        self.logger.info("Got draft event from remote %s", event)
         if isinstance(event, DraftStartEvent):
-            if event.author_uri is not None:
-                self.current_draft = event.draft
-                # prune the ring to the first time in the draft
-                self.pre_draft_buffer.print(event.draft.audio_start_time)
-                for buffered_event in self.pre_draft_buffer.get_all(clear=True):
-                    await self.draft_recorder.on_audio_event(buffered_event)
-            else:
-                self.current_revision = event.draft
+            self.current_draft = event.draft
+            min_time = self.current_draft.audio_start_time
+            first = last = None
+            for buffered_event in self.pre_draft_buffer.get_from(min_time):
+                # emitter in CCSMixin
+                if first is None:
+                    first = buffered_event
+                last = buffered_event
+                await self.emit_event(buffered_event)
+            self.logger.debug("Emitted buffered events from  %s to %s", first, last)
+            self.pre_draft_buffer.clear()
             
+        if isinstance(event, DraftEndEvent):
+            if self.current_local_draft:
+                if self.current_local_draft.end_text:
+                    # we already have completed local draft,
+                    # unlikely, but possible
+                    await self.save_rescan(event.draft, self.current_local_draft)
+                    return
+                start_time = time.time()
+                async def bump():
+                    # Whisper might be waiting to fill buffer, if so bump it
+                    if (self.last_chunk.timestamp >= event.audio_end_time and
+                        self.pipeline.whisper_tool.sound_pending):
+                        await self.pipeline.whisper_tool.flush_pending(timeout=0.1)
+                        await bump()
+                while not self.current_local_draft.end_text and time.time() - start_time < 15:
+                    await asyncio.sleep(0.01)
+                    await bump()
+                    
+                if self.current_local_draft.end_text:
+                    await self.save_rescan(event.draft, self.current_local_draft)
+                    return
+                # We failed to find an end but failed, so force it
+                await self.pipeline.draft_maker.force_end()
+                if not self.current_local_draft.end_text:
+                    raise Exception("logic error, force end of local draft failed")
+                
+                await self.save_rescan(event.draft, self.current_local_draft)
+                return
+            else:
+                logger.warning("Rescan of draft %s failed to create a local draft from %s",
+                               self.current_draft.draft_id, self.texts)
+                self.texts = []
+                self.current_draft = None
+                self.last_chunk = None
+                self.texts = []
+                self.current_local_draft = None
+
+    async def save_rescan(self, orig, new):
+        event = DraftRescanEvent(original_draft=orig, draft=new)
+        logger.info("Rescan result '%s'", event)
+        self.current_draft = None
+        self.last_chunk = None
+        self.texts = []
+        self.current_local_draft = None
+
     async def on_text_event(self, event: TextEvent):
-        logger.info("text event '%s'", event.text)
+        logger.info("incomming text event '%s'", event.text)
 
     async def on_audio_event(self, event: AudioEvent):
         if isinstance(event, AudioStartEvent):
-            pass
+            logger.info("Got audio start event %s", event)
         elif isinstance(event, AudioStopEvent):
             logger.info("Got audio stop event %s", event)
         elif isinstance(event, AudioChunkEvent):
-            if not self._current_draft:
-                self._pre_buffer.add(event)
+            if not self.current_draft:
+                self.pre_draft_buffer.add(event)
+            else:
+                self.last_chunk = event
+        if self.current_draft:
+            # emitter in CCSMixin
+            await self.emit_event(event)
                 
+    async def on_local_draft_event(self, event:DraftEvent):
+        logger.info("Got local draft event %s", event)
+        self.current_local_draft = event.draft
 
+    async def on_local_text_event(self, event: TextEvent):
+        logger.info("local text event '%s'", event.text)
+        self.texts.append(event)
+
+    async def on_local_audio_event(self, event):
+        pass
+
+    # AudioListener required:
+
+    async def set_in_speech(self, value):
+        pass
+
+    async def start_streaming(self):
+        await self.audio_listener.start_streaming()
+        
+    async def stop_streaming(self):
+        await self.audio_listener.stop_streaming()
+
+    
+    # ------------------------------------------------------------------
+    # Context manager support to ensure open files get closed
+    # ------------------------------------------------------------------
+    async def __aenter__(self) -> "NetListener":
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        await self.stop_streaming()  # always runs, even on exception/cancellation
+
+    # Optional: make it usable in sync `with` too (rare but nice)
+    def __enter__(self): raise TypeError("Use 'async with' with NetListener")
+    def __exit__(self, *args): ...
+    
+    
 class ServerMode(str, Enum):
     """
     There are three modes of operation
@@ -188,23 +315,25 @@ class EventNetServer:
             if self.mode in (ServerMode.direct, ServerMode.remote):
                 api_listener = NormalListener(self.event_sender)
             else:
-                # We attach the audio listener to the RescanListener,
-                # and then plug it into the pipeline as the audio_listener.
+                # We attach the audio listener to the Rescanner,
+                # and then plug that into the pipeline as the audio_listener.
                 # That way it delivers audio samples only when it is rescanning
                 # a draft, which means it can work even if something goes wrong
                 # with draft boundary detection and it has to reconstruct the
                 # actual draft from TextEvents.
-                api_listener = RescanListener(self.event_sender, self.audio_listener, self.draft_recorder)
-                self.config.audio_listener = api_listener
+                rescanner = Rescanner(self.event_sender, self.audio_listener, self.draft_recorder)
+                self.audio_listener = rescanner
+                local_api_listener = RescannerLocal(rescanner)
             # Start pipeline with nested context managers
             async with self.audio_listener:
                 async with ScribePipeline(self.audio_listener, self.pipeline_config) as pipeline:
                     self.pipeline = pipeline
 
-                    # to_VAD=True for 16kHz downsampled audio
-                    pipeline.add_api_listener(api_listener,  to_VAD=True)
-
-                    if self.mode != ServerMode.rescan:
+                    if self.mode == ServerMode.rescan:
+                        pipeline.add_api_listener(local_api_listener)
+                    else:
+                        # to_VAD=True for 16kHz downsampled audio
+                        pipeline.add_api_listener(api_listener,  to_VAD=True)
                         pipeline.add_api_listener(self.draft_recorder)
 
                     # Start listening

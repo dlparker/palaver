@@ -18,7 +18,7 @@ from palaver.scribe.audio_listeners import AudioListener, AudioListenerCCSMixin,
 from palaver.scribe.audio_events import AudioStartEvent, AudioChunkEvent, AudioStopEvent, AudioErrorEvent
 from palaver.scribe.audio_events import AudioEvent, AudioEventType, AudioSpeechStartEvent, AudioSpeechStopEvent
 from palaver.scribe.text_events import TextEvent, TextEventListener
-from palaver.scribe.draft_events import DraftEvent, DraftEventListener
+from palaver.scribe.draft_events import DraftEvent, DraftEventListener, DraftStartEvent, DraftEndEvent
 from palaver.utils.serializers import event_from_dict
 
 
@@ -56,10 +56,12 @@ class NetListener(AudioListenerCCSMixin, AudioListener):
         self._running = True
 
     def add_text_event_listener(self, e_listener: TextEventListener) -> None:
-        self._text_emitter.on(AudioEvent, e_listener.on_text_event)
+        logger.info("Registered text listener %s", e_listener)
+        self._text_emitter.on(TextEvent, e_listener.on_text_event)
         
     def add_draft_event_listener(self, e_listener: DraftEventListener) -> None:
-        self._draft_emitter.on(AudioEvent, e_listener.on_draft_event)
+        logger.info("Registered draft listener %s", e_listener)
+        self._draft_emitter.on(DraftEvent, e_listener.on_draft_event)
         
     async def _reader(self):
         # this gets wraped with get_error_handler so let the errors fly
@@ -77,7 +79,6 @@ class NetListener(AudioListenerCCSMixin, AudioListener):
                     events += [str(TextEvent),
                                str(DraftStartEvent),
                                str(DraftEndEvent),
-                               str(DraftRevisionEvent),
                                ]
                 subscription = {"subscribe": events}
                 await websocket.send(json.dumps(subscription))

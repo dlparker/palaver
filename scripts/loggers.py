@@ -70,4 +70,6 @@ def get_loggers():
     res.append(logging.getLogger("VTTServer"))
     res.append(logging.getLogger("EventSender"))
     res.append(logging.getLogger("EventNetServer"))
+    res.append(logging.getLogger("Rescanner"))
+    res.append(logging.getLogger("NetListener"))
     return res

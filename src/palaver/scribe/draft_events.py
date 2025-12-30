@@ -113,6 +113,12 @@ class DraftChangeEvent(DraftEvent):
 
 
 @dataclass(kw_only=True)
+class DraftRescanEvent(DraftEvent):
+    original_draft: Draft
+    draft: Draft
+    
+    
+@dataclass(kw_only=True)
 class DraftRevisionEvent(DraftEvent):
     """A revised version of a draft has been created
 

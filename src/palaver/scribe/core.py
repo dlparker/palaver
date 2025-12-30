@@ -141,7 +141,7 @@ class ScribePipeline:
         self.whisper_tool.add_text_event_listener(self.draft_maker)
         # Attach to the audio listener
         self.audio.add_audio_event_listener(self.draft_maker)
-        
+
         # Apply VAD configuration from PipelineConfig
         self.vadfilter.reset(
             silence_ms=self.config.vad_silence_ms,
