@@ -26,26 +26,4 @@ Let's work this out and then update this document
 
    
 
-** Knowing current code stages
-
-I would like to have some kind of source marking mechanism for identifying
-the Stage that I assign to a bit of code. I think the right granularity
-is the class or function level, as some source files will have a mixture
-of stages.
-
-I would like Claude's advice on this. One option that seems attractive
-is some sort of custom decorator, maybe using the Decorum library? I
-have no experience with this so I need advice. One thing that would
-be extra nice, but not necessary is if the decorator could be used
-to mark classes, methods or functions for coverage. That way I
-could get a quick estimate of how well I am testing code that I want
-to test and ignore the rest, avoiding a manual step. Nice to have but
-not required. Other suggestions are welcome.
-
-Whatever code marking method we end up using, I'll need to do it manually
-for the existing code, but as we build new code you can help me keep it
-in sync.
-
-
-
 
