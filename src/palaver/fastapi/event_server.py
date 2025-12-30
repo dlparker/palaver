@@ -103,10 +103,14 @@ class RescanListener(ScribeAPIListener):
 
     def __init__(self, event_sender: EventSender, audio_listener, draft_recorder):
         self.event_sender = event_sender
+        self.audio_listener = audio_listener
         self.draft_recorder = draft_recorder
         self.pre_draft_buffer = AudioRingBuffer(max_seconds=30)
         self.current_draft = None
         self.current_revision = None
+
+    async def start_listener(self):
+        pass
 
     async def on_draft_event(self, event: DraftEvent):
         if isinstance(event, DraftStartEvent):
@@ -116,7 +120,6 @@ class RescanListener(ScribeAPIListener):
                 self.pre_draft_buffer.print(event.draft.audio_start_time)
                 for buffered_event in self.pre_draft_buffer.get_all(clear=True):
                     await self.draft_recorder.on_audio_event(buffered_event)
-                
             else:
                 self.current_revision = event.draft
             
