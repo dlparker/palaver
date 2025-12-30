@@ -6,15 +6,20 @@ import os
 import time
 import logging
 import traceback
+import json
 from datetime import datetime
+import websockets
 import numpy as np
 import soundfile as sf
+from eventemitter import AsyncIOEventEmitter
 
 from palaver.utils.top_error import get_error_handler
 from palaver.scribe.audio_listeners import AudioListener, AudioListenerCCSMixin, create_source_id
-from palaver.scribe.audio_events import AudioEvent, AudioEventType
+from palaver.scribe.audio_events import AudioStartEvent, AudioChunkEvent, AudioStopEvent, AudioErrorEvent
+from palaver.scribe.audio_events import AudioEvent, AudioEventType, AudioSpeechStartEvent, AudioSpeechStopEvent
 from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.draft_events import DraftEvent, DraftEventListener
+from palaver.utils.serializers import event_from_dict
 
 
 logger = logging.getLogger("NetListener")
@@ -61,7 +66,7 @@ class NetListener(AudioListenerCCSMixin, AudioListener):
         if not self._running:
             return
         try:
-            async with websockets.connect(self.audio_url) as websocket:
+            async with websockets.connect(self._audio_url) as websocket:
                 events = [str(AudioStartEvent),
                           str(AudioStopEvent),
                           str(AudioChunkEvent),
@@ -76,16 +81,29 @@ class NetListener(AudioListenerCCSMixin, AudioListener):
                                ]
                 subscription = {"subscribe": events}
                 await websocket.send(json.dumps(subscription))
+                regy_reply = None
+                chunk_count = 0
                 while self._running:
                     async for message in websocket:
+                        if regy_reply is None:
+                            regy_reply = message
+                            continue
                         event_dict = json.loads(message)
                         event = event_from_dict(event_dict)
                         if "Audio" in event_dict['event_class']:
-                            self.emit_event(AudioEvent, event)
+                            if isinstance(event, AudioChunkEvent):
+                                if chunk_count % 1000 == 0:
+                                    logger.debug(event)
+                                chunk_count += 1
+                            else:
+                                logger.debug(event)
+                            await self.emit_event(event)
                         elif "TextEvent" in event_dict['event_class']:
-                            self._text_emitter.emit(TextEvent, event)
+                            logger.debug(event)
+                            await self._text_emitter.emit(TextEvent, event)
                         elif "Draft" in event_dict['event_class']:
-                            self._draft_emitter.emit(DraftEvent, event)
+                            logger.debug(event)
+                            await self._draft_emitter.emit(DraftEvent, event)
                             
         except websockets.exceptions.ConnectionClosed:
             print("\nConnection closed by server")

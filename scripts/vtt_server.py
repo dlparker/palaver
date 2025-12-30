@@ -79,7 +79,7 @@ async def main():
     setup_logging(
         default_level=args.log_level,
         info_loggers=[],
-        debug_loggers=['EventNetServer', 'EventSender'],
+        debug_loggers=['EventNetServer', 'EventSender', "NetListener"],
     )
 
     draft_recorder = SQLDraftRecorder(args.output_dir)

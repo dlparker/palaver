@@ -7,6 +7,7 @@ import asyncio
 import logging
 from typing import Any
 from dataclasses import asdict
+import traceback
 import socket
 
 import numpy as np
@@ -44,9 +45,19 @@ class EventSender:
             event.author_uri = self.uri
         event_dict = serialize_event(event)
         event_type = str(event.__class__)
+        deleters = []
         for websocket, subscribed_types in self.clients.items():
             if event_type in subscribed_types:
-                await websocket.send_json(event_dict)
+                try:
+                    await websocket.send_json(event_dict)
+                except:
+                    logger.error(traceback.format_exc())
+                    deleters.append(websocket)
+        for websocket in deleters:
+            logger.error("Removing client registration after error on %s", websocket)
+            del self.clients[websocket]
+
+            
 
     async def register_client(self, websocket: Any, event_types: list[str]):
         if 'all_but_chunks' in event_types or 'all' in event_types:

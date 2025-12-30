@@ -1,5 +1,6 @@
 from typing import Any
 import numpy as np
+
 from palaver.scribe.audio_events import (
     AudioEventType,
     AudioEvent,
@@ -49,7 +50,7 @@ for etype in [AudioStartEvent,
     
 def event_from_dict(event_dict: dict) -> [AudioEvent | TextEvent | DraftEvent]:
     event_class = event_type_map[event_dict['event_class']]
-    kwargs = event_dict
+    kwargs = dict(event_dict) # shallow
     del kwargs['event_class']
     if event_class in event_type_groups['audio']:
         aet = AudioEventType(kwargs['event_type'])
