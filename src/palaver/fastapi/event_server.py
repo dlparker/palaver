@@ -325,14 +325,13 @@ class EventNetServer:
                 rescanner = Rescanner(self.event_sender, self.audio_listener, self.draft_recorder)
                 self.audio_listener = rescanner
                 local_api_listener = RescannerLocal(rescanner)
+                self.pipeline_config.api_listener = local_api_listener 
             # Start pipeline with nested context managers
             async with self.audio_listener:
                 async with ScribePipeline(self.audio_listener, self.pipeline_config) as pipeline:
                     self.pipeline = pipeline
 
-                    if self.mode == ServerMode.rescan:
-                        pipeline.add_api_listener(local_api_listener)
-                    else:
+                    if self.mode != ServerMode.rescan:
                         # to_VAD=True for 16kHz downsampled audio
                         pipeline.add_api_listener(api_listener,  to_VAD=True)
                         pipeline.add_api_listener(self.draft_recorder)
