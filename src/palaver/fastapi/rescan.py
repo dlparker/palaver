@@ -70,6 +70,12 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
     async def on_pipeline_ready(self, pipeline):
         self.pipeline = pipeline
 
+    async def clean_shutdown(self):
+        await self.audio_listener.stop_streaming()
+        
+    async def on_pipeline_shutdown(self):
+        await self.audio_listener.stop_streaming()
+        
     async def on_draft_event(self, event: DraftEvent):
         self.logger.info("Got draft event from remote %s", event)
         if isinstance(event, DraftStartEvent):

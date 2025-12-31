@@ -195,5 +195,8 @@ class EventNetServer:
 
                     # Shutdown handled by context manager exit
                     logger.info("Shutting down audio pipeline...")
+                    if self.mode == ServerMode.rescan:
+                        await rescanner.clean_shutdown()
+                    
         finally:
             ERROR_HANDLER.reset(token)

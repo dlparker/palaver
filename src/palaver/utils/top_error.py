@@ -195,6 +195,9 @@ class TopErrorHandler:
         return task
 
     def _task_done_callback(self, task: asyncio.Task, future: asyncio.Future):
+        # Don't try to get exception from cancelled tasks
+        if future.cancelled():
+            return
         exc = future.exception()
         if exc:
             # Run the handler in the event loop to avoid blocking.

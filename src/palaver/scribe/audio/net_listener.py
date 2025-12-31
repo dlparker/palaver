@@ -43,6 +43,7 @@ class NetListener(AudioListenerCCSMixin, AudioListener):
         self._audio_only = audio_only
         self._text_emitter = AsyncIOEventEmitter()
         self._draft_emitter = AsyncIOEventEmitter()
+        self._websocket = None
 
     async def set_in_speech(self, value):
         # only used when 
@@ -72,6 +73,7 @@ class NetListener(AudioListenerCCSMixin, AudioListener):
             return
         try:
             async with websockets.connect(f"{self._audio_url}/events") as websocket:
+                self._websocket = websocket
                 events = [str(AudioStartEvent),
                           str(AudioStopEvent),
                           str(AudioChunkEvent),
@@ -108,22 +110,29 @@ class NetListener(AudioListenerCCSMixin, AudioListener):
                         elif "Draft" in event_dict['event_class']:
                             logger.debug(event)
                             await self._draft_emitter.emit(DraftEvent, event)
-                            
+
         except websockets.exceptions.ConnectionClosed:
-            print("\nConnection closed by server")
+            logger.info("Connection closed by server")
         except KeyboardInterrupt:
-            print("\nShutting down client...")
+            logger.info("Shutting down client...")
             await self.emit_event(AudioStopEvent(source_id=self.source_id,
                                                  timestamp=time.time(),
                                                  stream_start_time=time.time()))
         except asyncio.CancelledError:
-            pass
-        self._reader_task = None
+            logger.debug("NetListener reader task cancelled")
+        finally:
+            self._websocket = None
+            self._reader_task = None
 
     async def stop_streaming(self) -> None:
         if not self._running:
             return
         self._running = False
+
+        # Close the websocket to break out of the async for loop
+        if self._websocket:
+            await self._websocket.close()
+
         if self._reader_task:
             self._reader_task.cancel()
             try:
