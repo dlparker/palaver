@@ -35,7 +35,6 @@ async def test_send_file_to_server_example():
     event_count = await send_file_to_server(
         file_path=test_file,
         server_url=server_url,
-        simulate_timing=False  # Fast mode for tests
     )
 
     # Assert expected behavior
@@ -52,5 +51,4 @@ async def test_file_not_found():
         await send_file_to_server(
             file_path=nonexistent_file,
             server_url="ws://localhost:8000",
-            simulate_timing=False
         )
