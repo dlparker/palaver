@@ -23,9 +23,9 @@ from palaver.fastapi.ws_managers import PipelineEventManager, DraftSubmissionMan
 from palaver.utils.serializers import draft_from_dict
 
 
-logger = logging.getLogger("EventSender")
+logger = logging.getLogger("EventRouter")
 
-class EventSender:
+class EventRouter:
     def __init__(self, my_port: int, server):
         self.my_port = my_port
         self.server = server

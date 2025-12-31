@@ -17,7 +17,7 @@ from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.recorders.sql_drafts import SQLDraftRecorder
 from palaver.scribe.audio_listeners import AudioListenerCCSMixin
 from palaver.utils.top_error import TopErrorHandler, TopLevelCallback, ERROR_HANDLER
-from palaver.fastapi.event_sender import EventSender
+from palaver.fastapi.event_router import EventRouter
 from palaver.fastapi.catalog import WebCatalog
 
 from palaver.scribe.audio_events import (
@@ -40,10 +40,10 @@ logger = logging.getLogger("EventNetServer")
 class NormalListener(ScribeAPIListener):
     """
     Listens to pipeline generated events and emitts them
-    to any listeners via EventSender
+    to any listeners via EventRouter
     """
 
-    def __init__(self, event_sender: EventSender, play_signals:bool = True):
+    def __init__(self, event_sender: EventRouter, play_signals:bool = True):
         super().__init__()
         self.event_sender = event_sender
         self.play_signals = play_signals
@@ -133,7 +133,7 @@ class RescannerLocal(ScribeAPIListener):
     
 class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
 
-    def __init__(self, event_sender: EventSender, audio_listener, draft_recorder):
+    def __init__(self, event_sender: EventRouter, audio_listener, draft_recorder):
         super().__init__(chunk_duration=0.03)
         self.event_sender = event_sender
         self.audio_listener = audio_listener
@@ -313,7 +313,7 @@ class EventNetServer:
         self.port = port
         self.mode = mode
         self.app = FastAPI(lifespan=self.lifespan)
-        self.event_sender = EventSender(self.port, self)
+        self.event_sender = EventRouter(self.port, self)
         self.web_catalog = WebCatalog(self.port, self)
 
     def add_router(self, router):

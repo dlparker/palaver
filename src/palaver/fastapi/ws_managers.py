@@ -37,7 +37,7 @@ class PipelineEventManager:
         event_type = str(event.__class__)
         event_dict = serialize_event(event)
         if event.author_uri is None:
-            event.author_uri = self.uri  # Will be set on EventSender
+            event.author_uri = self.uri  # Will be set on EventRouter
 
         disconnected = []
         for ws, subscribed in self.active_connections.items():
