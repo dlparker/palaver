@@ -89,12 +89,13 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
                 last = buffered_event
                 await self.emit_event(buffered_event)
             # we want the draft start signal to get processed right away
-            await self.pipeline.whisper_tool.flush_pending(timeout=0.1)
+            await self.pipeline.whisper_tool.flush_pending()
             self.logger.debug("Emitted buffered events from  %s to %s", first, last)
             self.pre_draft_buffer.clear()
 
 
         if isinstance(event, DraftEndEvent):
+            await self.pipeline.whisper_tool.flush_pending()
             if self.current_local_draft:
                 if self.last_speech_stop:
                     # emitter in CCSMix

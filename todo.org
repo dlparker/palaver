@@ -1,7 +1,7 @@
 
 
 
-1. Complete websocket draft add logic
+1. [X] Complete websocket draft add logic
 2. Add "passive" mode to vtt_server.py where it expects to receive
    an url via web sockets to connect a NetListener to, then it
    initializes a NetListener and start is, tracks the calling
