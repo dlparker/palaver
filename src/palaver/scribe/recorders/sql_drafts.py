@@ -13,7 +13,7 @@ from sqlmodel import SQLModel, Field, create_engine, Session, Relationship
 from palaver.scribe.audio_events import AudioEvent, AudioChunkEvent, AudioRingBuffer
 from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.text_events import TextEvent
-from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent, Draft
+from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent, Draft, DraftRescanEvent
 
 logger = logging.getLogger("SQLDraftRecorder")
 
@@ -23,7 +23,7 @@ class DraftRecord(SQLModel, table=True):
     __tablename__ = "drafts"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    draft_id: str = Field(index=True)  # UUID for draft lookup
+    draft_id: str = Field(index=True, unique=True)  # UUID for draft lookup
     timestamp: float  # Original draft timestamp
     full_text: str
     classname: str
@@ -223,7 +223,55 @@ class SQLDraftRecorder(ScribeAPIListener):
                 directory = self._output_dir / f"draft-{timestr}"
                 directory.mkdir()
                 self._current_dir = directory
+        if isinstance(event, DraftRescanEvent):
+            await self.add_draft(event.draft)
 
+    async def add_draft(self, draft: Draft):
+        """Add a draft to the database with validation.
+
+        Args:
+            draft: Draft instance to save
+
+        Raises:
+            ValueError: If draft_id already exists or parent_draft_id is invalid
+        """
+        with Session(self._engine) as session:
+            from sqlmodel import select
+
+            # Check if draft_id already exists
+            existing = session.exec(
+                select(DraftRecord).where(DraftRecord.draft_id == str(draft.draft_id))
+            ).first()
+            if existing:
+                raise ValueError(
+                    f"Draft with draft_id '{draft.draft_id}' already exists in database (record id: {existing.id})"
+                )
+
+            # Validate parent_draft_id if present
+            parent_record_id = None
+            if draft.parent_draft_id:
+                parent_record = session.exec(
+                    select(DraftRecord).where(DraftRecord.draft_id == draft.parent_draft_id)
+                ).first()
+                if not parent_record:
+                    raise ValueError(
+                        f"Parent draft with draft_id '{draft.parent_draft_id}' not found in database"
+                    )
+                parent_record_id = parent_record.id
+
+            # Create draft record
+            draft_record = DraftRecord(
+                draft_id=str(draft.draft_id),
+                timestamp=draft.timestamp,
+                full_text=draft.full_text,
+                classname=str(draft.__class__),
+                directory_path=str(self._current_dir) if self._current_dir else "",
+                parent_draft_id=parent_record_id
+            )
+            session.add(draft_record)
+            session.commit()
+            logger.info(f"Saved draft {draft_record.id} to database")
+        
     async def on_text_event(self, event: TextEvent):
         pass
 

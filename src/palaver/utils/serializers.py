@@ -87,6 +87,7 @@ def draft_from_dict(in_dict: dict) -> [DraftEvent]:
                  full_text=in_dict['full_text'],
                  timestamp=in_dict['timestamp'],
                  draft_id=in_dict['draft_id'],
+                 parent_draft_id=in_dict['parent_draft_id'],
                  start_matched_events = s_texts,
                  end_matched_events = e_texts)
 

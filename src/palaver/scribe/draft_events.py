@@ -81,6 +81,12 @@ class DraftStartEvent(DraftEvent):
 class DraftEndEvent(DraftEvent):
     pass
 
+@dataclass(kw_only=True)
+class DraftRescanEvent(DraftEvent):
+    original_draft_id: str
+    draft: Draft
+    
+    
 
 class RevisionSource(Enum):
     """Source/method used to create a draft revision
@@ -113,12 +119,6 @@ class DraftChangeEvent(DraftEvent):
     llm_response_raw: str  # full JSON response for debugging/audit
 
 
-@dataclass(kw_only=True)
-class DraftRescanEvent(DraftEvent):
-    original_draft_id: str
-    draft: Draft
-    
-    
 @dataclass(kw_only=True)
 class DraftRevisionEvent(DraftEvent):
     """A revised version of a draft has been created

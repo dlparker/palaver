@@ -20,6 +20,7 @@ from palaver.scribe.audio_events import (
 from palaver.scribe.text_events import TextEvent
 from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent, DraftRevisionEvent
 from palaver.fastapi.ws_managers import PipelineEventManager, DraftSubmissionManager
+from palaver.utils.serializers import draft_from_dict
 
 
 logger = logging.getLogger("EventSender")
@@ -51,7 +52,7 @@ class EventSender:
                 str(AudioErrorEvent),
                 str(TextEvent),
                 str(DraftStartEvent),
-                str(DraftEndEvent),
+               str(DraftEndEvent),
                 str(DraftRevisionEvent),
         }
         valid = set(main_types)
@@ -91,15 +92,18 @@ class EventSender:
             except WebSocketDisconnect:
                 self.event_manager.disconnect(websocket)
             except Exception as e:
-                logger.error(f"Error in /events: {e}", exc_info=True)
+                logger.error(f"Disconnecting client on error in /events: {e}", exc_info=True)
                 self.event_manager.disconnect(websocket)
 
         @router.websocket("/new_draft")
         async def submit_draft(websocket: WebSocket):
             await websocket.accept()
-            # You'll inject your actual processing logic here
-            await self.draft_manager.handle_client(
-                websocket,
-                draft_processor_callback=self.server.handle_incoming_draft  # define this method
-            )
+            data = await websocket.receive_json()
+            draft = draft_from_dict(data)
+            logger.info("Received new draft %s with parent %s on websocket",
+                        draft.draft_id, draft.parent_draft_id)
+            await self.server.pipeline.draft_maker.import_draft(draft)
+            logger.info("Posted new draft to draft_maker")
+            return {'code': 'success'}
+        
         return router            

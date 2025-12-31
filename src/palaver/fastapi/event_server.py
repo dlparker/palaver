@@ -5,10 +5,12 @@ from enum import Enum
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional
+import json
 
 from fastapi import FastAPI
 import sounddevice as sd
 import soundfile as sf
+import websockets
 
 from palaver.scribe.core import PipelineConfig, ScribePipeline
 from palaver.scribe.api import ScribeAPIListener
@@ -30,6 +32,7 @@ from palaver.scribe.audio_events import (
 from palaver.scribe.audio_listeners import AudioListener
 from palaver.scribe.text_events import TextEvent
 from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent, DraftRescanEvent
+from palaver.utils.serializers import serialize_value
 
 
 logger = logging.getLogger("EventNetServer")
@@ -163,8 +166,11 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
                     first = buffered_event
                 last = buffered_event
                 await self.emit_event(buffered_event)
+            # we want the draft start signal to get processed right away
+            await self.pipeline.whisper_tool.flush_pending(timeout=0.1)
             self.logger.debug("Emitted buffered events from  %s to %s", first, last)
             self.pre_draft_buffer.clear()
+            
             
         if isinstance(event, DraftEndEvent):
             if self.current_local_draft:
@@ -209,8 +215,12 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
                 self.current_local_draft = None
 
     async def save_rescan(self, orig, new):
-        event = DraftRescanEvent(original_draft_id=orig.draft_id, draft=new)
-        logger.info("Rescan result '%s'", event)
+        url = self.audio_listener.get_audio_url() + "/new_draft"
+        async with websockets.connect(url) as websocket:
+            new.parent_draft_id = orig.draft_id
+            await websocket.send(json.dumps(serialize_value(new)))
+            data  = await websocket.recv()
+        logger.info("Rescan result original id %s new id %s '%s' ", new.parent_draft_id, new.draft_id, new.full_text)
         self.current_draft = None
         self.last_chunk = None
         self.last_speech_stop = None

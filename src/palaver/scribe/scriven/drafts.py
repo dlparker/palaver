@@ -18,6 +18,7 @@ from palaver.scribe.text_events import TextEvent, TextEventListener
 from palaver.scribe.draft_events import (DraftEvent,
                                          DraftStartEvent,
                                          DraftEndEvent,
+                                         DraftRescanEvent,
                                          DraftEventListener,
                                          Draft,
                                          TextMark)
@@ -405,3 +406,11 @@ class DraftMaker(TextEventListener, AudioEventListener):
             await self.emitter.emit(DraftEvent, new_event)
             logger.info("Emitted draft end on force_end")
         
+    async def import_draft(self, draft):
+        if draft.parent_draft_id:
+            new_event = DraftRescanEvent(original_draft_id=draft.parent_draft_id,
+                                         draft=draft, timestamp=draft.timestamp)
+            await self.emitter.emit(DraftEvent, new_event)
+            logger.info("Emitted imported draft as rescan event")
+            
+            

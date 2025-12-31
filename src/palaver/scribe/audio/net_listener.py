@@ -48,6 +48,9 @@ class NetListener(AudioListenerCCSMixin, AudioListener):
         # only used when 
         self._in_speech = value
 
+    def get_audio_url(self):
+        return self._audio_url
+    
     async def start_streaming(self) -> None:
         if self._running:
             return
@@ -68,7 +71,7 @@ class NetListener(AudioListenerCCSMixin, AudioListener):
         if not self._running:
             return
         try:
-            async with websockets.connect(self._audio_url) as websocket:
+            async with websockets.connect(f"{self._audio_url}/events") as websocket:
                 events = [str(AudioStartEvent),
                           str(AudioStopEvent),
                           str(AudioChunkEvent),
