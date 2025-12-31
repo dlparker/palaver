@@ -40,12 +40,12 @@ class PipelineEventManager:
             event.author_uri = self.uri  # Will be set on EventRouter
 
         disconnected = []
-        for ws, subscribed in self.active_connections.items():
+        for ws, subscribed in list(self.active_connections.items()):
             if event_type in subscribed:
                 try:
                     await ws.send_json(event_dict)
                 except Exception:
-                    logger.error("Error sending to client", exc_info=True)
+                    logger.error("Error sending to client", exc_info=False)
                     disconnected.append(ws)
 
         for ws in disconnected:

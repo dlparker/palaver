@@ -23,9 +23,10 @@ from palaver.scribe.text_events import TextEvent
 from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.audio.mic_listener import MicListener
 from palaver.scribe.core import PipelineConfig, ScribePipeline
-from palaver.scribe.recorders.sql_drafts import SQLDraftRecorder
+from palaver.scribe.recorders.sql_drafts import SQLDraftRecorder, DraftRecord
 from palaver.fastapi.event_server import EventNetServer, ServerMode
 from palaver.utils.top_error import TopErrorHandler, TopLevelCallback
+from sqlmodel import Session, select
 
 
 logger = logging.getLogger("test_direct_server")
@@ -235,7 +236,7 @@ async def test_event_server_with_mock_audio():
                 whisper_shutdown_timeout=1.0,
             )
 
-            draft_recorder = SQLDraftRecorder(recorder_dir, enable_file_storage=True)
+            draft_recorder = SQLDraftRecorder(recorder_dir, enable_file_storage=False)
             logger.info(f"Draft recorder enabled: {recorder_dir}")
 
             # Create EventNetServer in direct mode
@@ -317,14 +318,29 @@ async def test_event_server_with_mock_audio():
     assert api_wrapper.have_pipeline_ready
     assert api_wrapper.have_pipeline_shutdown
 
-    # Verify draft recorder output
-    out_dir = list(recorder_dir.glob("draft-*"))[0]
-    with open(out_dir / "first_draft.txt") as f:
-        file_text = f.read()
-
+    # Verify draft was saved to database
     dt = next(iter(api_wrapper.drafts.values()))
     draft = dt.draft
-    assert draft.full_text.strip() == file_text.strip()
+
+    # Query database directly using SQLModel
+    db_path = recorder_dir / "drafts.db"
+    assert db_path.exists(), f"Database file not found at {db_path}"
+
+    from sqlmodel import create_engine
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    with Session(engine) as session:
+        # Find the draft record by draft_id
+        statement = select(DraftRecord).where(DraftRecord.draft_id == str(draft.draft_id))
+        db_record = session.exec(statement).first()
+
+        assert db_record is not None, f"Draft {draft.draft_id} not found in database"
+        assert db_record.full_text == draft.full_text, f"Expected '{draft.full_text}' but got '{db_record.full_text}'"
+        assert db_record.timestamp == draft.timestamp
+        assert db_record.parent_draft_id is None  # First draft should have no parent
+        assert db_record.classname == str(draft.__class__)
+
+        logger.info(f"Verified draft in database: '{db_record.full_text}'")
 
     # Cleanup
     shutil.rmtree(recorder_dir)
