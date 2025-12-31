@@ -1,8 +1,3 @@
-"""Event routing component for streaming pipeline events to websocket clients.
-
-This module provides the EventRouter class, which routes audio/text/draft events
-from the audio pipeline to subscribed websocket clients with server-side filtering.
-"""
 import asyncio
 import logging
 from typing import Any
@@ -107,18 +102,4 @@ class EventSender:
                 websocket,
                 draft_processor_callback=self.server.handle_incoming_draft  # define this method
             )
-
-        @router.get("/health")
-        async def health_check():
-            return {"status": "healthy"}
-
-        @router.get("/status")
-        async def server_status():
-            return {
-                "status": "running",
-                "pipeline_active": self.server.pipeline is not None,
-                "event_clients": len(self.event_manager.active_connections),
-                "uri": self.uri,
-            }
-
         return router            

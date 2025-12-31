@@ -1,166 +1,27 @@
-Redux:
-
-Just need to get whisper/command to identify boundaries, not figure out
-commands or their relationships. Leave that to the LLM stage!!
-
-1. Bias whisper for the BoundarySignals
-2. Use fuzzy to identify them, using a big dictionary of equivalents (document:article, chapter:section)
-   1. Attention prefix
-   2. Boundary directive
-      1. New document, ends previous if any
-      2. New chapter, adds sub element to current
-      3. End chapter
-      4. End document
-3. Just put some directive stuff in the body, using "editor note" or "note to editor"
-4. Build a preamble text to ship to LLM with the document
-   1. Some instructions about recognizing editor notes
-   2. A glossary of document types for it to try to categorize the text
-   3. A definition of the JSON result wanted
-      1. Category with confidence
-      2. Markers for text ranges showing confidence that transcription was good.
-
-    
-
-Commands et al
-
-Currently mixing too many concepts. We have "alert" which is triggered by an attention phase. We also have "ScribeCommand"
-which is currently only used to trigger the start and stop of text blocks, an ill defined concept. We have
-recording blocks which are a capture window on audio data, other event data, and text, and are used to support
-"rescan" to retry transcription via a better, slower model.
-
-The "attention phrase" was introduced in order to avoid false positives in command phrase recognition. That is
-still a good idea, but it should be decoupled from the nebulous text block concept and not depend on being
-singular. In other words, you should be able to switch to command mode while inside a block, with these possible outcomes:
-
-1. No new block is started if the command is standalone.
-2. A new block is started otherwise, and the speaking context retains the fact
-   that the new block was started while the other block was in flight.
-3. A new blokc is started and it ends the previous block. This seems
-   problematic as if requires that each block type (command?) be defined
-   in a way that includes or precludes interleaving, subblocks, etc.
-   Can't just be post edit because we don't know what to do when the
-   nested block ends.
-4. This seems like a stack, so many commands to manage stack?
-    
- 
-The tension is between:
-
-1. Making it easy and natural to talk to the system and get organized results
-2. Making the code that does voice to text reliable and not excessively complex
-3. Being able to provide handling instructions to the LLM that get it in the
-   right frame of mind, which is probably specific to the point, focus, context,
-   topic of the text.
 
 
 
-Want a nested command logic, so probably a tree structure. Want some commands to have a block of text attached that
-followed the command voicing, some should be standalone. When command end events get issued they should encapsulate
-all the text blocks (if any) between the command start and end (if any). The start event should refer to a structure
-that can have children, and the end should refer back to the start. Probably just a single structure and different
-event types that refer to it, start event, end event, solo event .
+1. Complete websocket draft add logic
+2. Add "passive" mode to vtt_server.py where it expects to receive
+   an url via web sockets to connect a NetListener to, then it
+   initializes a NetListener and start is, tracks the calling
+   connection and shuts down the NetListener on disconnect.
+3. Build a test for vtt_server direct mode that works like
+   mic mode test.
+4. Update LLM review logic to work with new draft logic
+5. Add pipemap registry that self constructs and provides
+   urls for access to events and commands, extending existing catalog
+6. Add VTT events to whisper
+7. Maybe update all events to inlcude audio source info?
+   If I use multiple mics this will probably be needed
+   at some point. Easiest architecture for this is complete
+   mutli-node pipeline for each audio source, but once
+   draft is complete we still might want to know, might
+   event want to have mute buttons for each audio source.
 
-
-Try "tune out Rupert" 
-
-Action plan:
-
-1. Build better fuzz matching logic, partly done in cmd_tool.py`
-2. Build a match_phrase registry, so that we can generate initial_prompt on
-   the fly.
-3. Build a Command registry where all commands are registered
-   1. loads patch_phrase registry
-   2. each command can specify allowed subcommands, all others to ignore
-   3. Has a command_in_progress method
-   4. has a get_valid_commands that returns based on command_in_progress
-      allowed subcommands
-4. Build TextBock where:
-   1. The top one is no context for text, always exists, used to find others
-   2. Any "text handling" command starts a new one that goes on the stack,
-      child of the current one
-   3. Add "text free" commands to apply to previous or current
-      1. "Name last" for adding a lookup label to last block
-      2. "Name current" for adding a lookup label to current block.
-   4. Has logic to trim command start and end from text. 
-5. Build Blocker component that replaces current wire_commands.
-   1. Gets a list of valid alert signals for command start and stop, dynamic
-   2. Adds text to current TextBlock.
-   3. Runs command matching for current commands, issues events on found
-      commands, one start, one stop, allowed to start a new one
-      without stopping old. If that is undesired, other layers should
-      manipulalte current allowed subcommands list to prevent it.
-   4. Allows BlockEnd command to terminate TextBlock and pop from stack
-      
-      
    
-Example flow
+   
+   
+   
 
-1. "Wake up Rupert: new document"
-   1. New TextBlock - document
-      1. New TextBlock paragraph (child transition)
-         1. "Here is some interesting stuff. And some more interesting stuff, And more"
-         2. "Wake up Rupert: new paragraph" 
-      2. New TextBlock paragraph (Sibling transition)
-         1. "blathering on"
-         2. "break break break" (parent transition)
-2. Back to root TextBlock
-3. "Wake up Rupert: name last block":
-   1. New TextBlock - label
-      1. "Cool Document"
-      2. "break break break" (command end causes label to apply)
-4. "Wake up Rupert: new task item"
-   1. New TextBlock - task item
-      1. "have to do something, but forgot what"
-      2. "break break break"
-5. Back to root TextBlock
-6. "Wake up Rupert: delete last block":
-7. "Wake up Rupert: new memo"
-   1. New TextBlock - memo
-      1. "I heard this cool thing"
-      2. "Wake up Rupert: set topic"
-         1. New TextBlock topic
-            1. "doing coolness"
-            2. "Wake up Rupert: end topic"
-         2. back to memo text block
-      3. "More stuff"
-      4. "break break break"
-8. Back to root TextBlock
-9. "Wake up Rupert: new memo"
-   1. New TextBlock - memo
-      1. "Randy would like to know this"
-      2. "Break break break"
-10. "Wake up Rupert: add topic last last memo":
-    1. New TextBlock topic
-       1. "Texas History"
-       2. "break break break"
-11. Back to root TextBlock
-12. "Wake up Rupert: add topic last last memo" 
-    1. New TextBlock topic
-       1. "Stuff for Randy"
-       2. "break break break"
-    
-
-Main architecture
-1. [X] Move the recorder code out of the core and:
-   1. [X] make it configurable
-   2. [X] fix the listener name
-   3. [X] Change it to store text blocks in directory
-   4. [] Add logic to run_mic.py, playback.py, rescan.py ScribeAPIListener
-      implementations to strip out attention phrases, block start phrases
-      (needed info is in start block command) and end block phrases
-   5. [] Add dynamic command loading code and call it during startup
-   6. [] Add a DB for tracking, listing, deleteting, etc
-   7. [] Add a method to add text revisions by ID (maybe using the json meta data)
-
-
-
-OLD:
-
-1. [X] The command detection is too stupid for words. Only needs a match on a single word. May have
-   to use an actual prefix.
-
-
-1. [X] Find a way to issue an end block command if audio ends with no command match. Probably should
-   be in core, but implemented by command logic
-2. [X] Change "Note" stuff to "Block"
-3. [X] Build rescan support into recorder
-4. [X] Add rescan using new storage
+   

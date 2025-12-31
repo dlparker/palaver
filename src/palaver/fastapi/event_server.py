@@ -16,6 +16,7 @@ from palaver.scribe.recorders.sql_drafts import SQLDraftRecorder
 from palaver.scribe.audio_listeners import AudioListenerCCSMixin
 from palaver.utils.top_error import TopErrorHandler, TopLevelCallback, ERROR_HANDLER
 from palaver.fastapi.event_sender import EventSender
+from palaver.fastapi.catalog import WebCatalog
 
 from palaver.scribe.audio_events import (
     AudioEvent,
@@ -303,6 +304,7 @@ class EventNetServer:
         self.mode = mode
         self.app = FastAPI(lifespan=self.lifespan)
         self.event_sender = EventSender(self.port, self)
+        self.web_catalog = WebCatalog(self.port, self)
 
     def add_router(self, router):
         self.app.include_router(router)
@@ -316,8 +318,10 @@ class EventNetServer:
 
         error_handler = TopErrorHandler(top_level_callback=ErrorCallback(), logger=logger)
         token = ERROR_HANDLER.set(error_handler)
-        router = await self.event_sender.become_router()
-        self.app.include_router(router)
+        event_router = await self.event_sender.become_router()
+        self.app.include_router(event_router)
+        index_router = await self.web_catalog.become_router()
+        self.app.include_router(index_router)
         try:
             logger.info("Starting audio pipeline...")
             # if mode is remote, then audio_listerner is NetListener
