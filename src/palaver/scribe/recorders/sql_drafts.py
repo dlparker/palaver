@@ -30,13 +30,8 @@ class DraftRecord(SQLModel, table=True):
     directory_path: str  # Path to the draft-{timestamp} directory
     created_at: datetime = Field(default_factory=datetime.now)
 
-    # Parent draft relationship for tracking revisions (e.g., rescans)
-    parent_draft_id: Optional[int] = Field(default=None, foreign_key="drafts.id")
-    parent: Optional["DraftRecord"] = Relationship(
-        back_populates="children",
-        sa_relationship_kwargs={"remote_side": "DraftRecord.id"}
-    )
-    children: list["DraftRecord"] = Relationship(back_populates="parent")
+    # Parent draft UUID for tracking revisions (e.g., rescans)
+    parent_draft_id: Optional[str] = Field(default=None, index=True)
 
     @classmethod
     def create_with_parent(
@@ -60,7 +55,7 @@ class DraftRecord(SQLModel, table=True):
         Raises:
             ValueError: If parent draft not found
         """
-        # Look up parent by draft_id (UUID)
+        # Look up parent by draft_id (UUID) to validate it exists
         from sqlmodel import select
         statement = select(DraftRecord).where(DraftRecord.draft_id == parent_draft_uuid)
         parent_record = session.exec(statement).first()
@@ -68,20 +63,20 @@ class DraftRecord(SQLModel, table=True):
         if not parent_record:
             raise ValueError(f"Parent draft not found: {parent_draft_uuid}")
 
-        # Create new draft record with parent relationship
+        # Create new draft record with parent UUID
         draft_record = DraftRecord(
             draft_id=str(draft.draft_id),
             timestamp=draft.timestamp,
             full_text=draft.full_text,
             classname=str(draft.__class__),
             directory_path=directory_path,
-            parent_draft_id=parent_record.id
+            parent_draft_id=parent_draft_uuid
         )
         session.add(draft_record)
         session.commit()
         session.refresh(draft_record)
 
-        logger.info(f"Created draft {draft_record.id} with parent {parent_record.id}")
+        logger.info(f"Created draft {draft_record.id} with parent UUID {parent_draft_uuid}")
         return draft_record
 
     @classmethod
@@ -92,10 +87,6 @@ class DraftRecord(SQLModel, table=True):
     ) -> tuple[Optional["DraftRecord"], Optional["DraftRecord"], list["DraftRecord"]]:
         """Get a draft record along with its parent and children.
 
-        Uses eager loading to ensure all relationship data is loaded before
-        the session closes. Returned objects are detached but have their
-        parent and children relationships populated.
-
         Args:
             session: SQLModel Session for database operations
             draft_uuid: The draft_id (UUID string) to look up
@@ -105,30 +96,25 @@ class DraftRecord(SQLModel, table=True):
             - draft: The requested DraftRecord or None if not found
             - parent: The parent DraftRecord or None if no parent
             - children: List of child DraftRecords (empty list if none)
-
-        Note:
-            Returned objects are detached from the session. If you need to
-            access additional relationships or modify them, refresh within
-            a new session context.
         """
         from sqlmodel import select
-        from sqlalchemy.orm import selectinload
 
-        # Eager load parent and children relationships
-        statement = (
-            select(DraftRecord)
-            .where(DraftRecord.draft_id == draft_uuid)
-            .options(selectinload(DraftRecord.parent))
-            .options(selectinload(DraftRecord.children))
-        )
+        # Get the requested draft
+        statement = select(DraftRecord).where(DraftRecord.draft_id == draft_uuid)
         draft = session.exec(statement).first()
 
         if not draft:
             return (None, None, [])
 
-        # Relationships are already loaded due to selectinload
-        parent = draft.parent
-        children = list(draft.children)
+        # Get parent by UUID if it exists
+        parent = None
+        if draft.parent_draft_id:
+            parent_stmt = select(DraftRecord).where(DraftRecord.draft_id == draft.parent_draft_id)
+            parent = session.exec(parent_stmt).first()
+
+        # Get children by looking for records that reference this draft's UUID
+        children_stmt = select(DraftRecord).where(DraftRecord.parent_draft_id == draft.draft_id)
+        children = list(session.exec(children_stmt).all())
 
         return (draft, parent, children)
 
@@ -248,7 +234,6 @@ class SQLDraftRecorder(ScribeAPIListener):
                 )
 
             # Validate parent_draft_id if present
-            parent_record_id = None
             if draft.parent_draft_id:
                 parent_record = session.exec(
                     select(DraftRecord).where(DraftRecord.draft_id == draft.parent_draft_id)
@@ -257,7 +242,6 @@ class SQLDraftRecorder(ScribeAPIListener):
                     raise ValueError(
                         f"Parent draft with draft_id '{draft.parent_draft_id}' not found in database"
                     )
-                parent_record_id = parent_record.id
 
             # Create draft record
             draft_record = DraftRecord(
@@ -266,7 +250,7 @@ class SQLDraftRecorder(ScribeAPIListener):
                 full_text=draft.full_text,
                 classname=str(draft.__class__),
                 directory_path=str(self._current_dir) if self._current_dir else "",
-                parent_draft_id=parent_record_id
+                parent_draft_id=draft.parent_draft_id
             )
             session.add(draft_record)
             session.commit()
