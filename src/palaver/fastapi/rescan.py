@@ -128,8 +128,9 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
                 await self.save_rescan(event.draft, self.current_local_draft)
                 return
             else:
-                logger.warning("Rescan of draft %s failed to create a local draft from %s",
-                               self.current_draft.draft_id, self.texts)
+                if self.current_draft:
+                    logger.warning("Rescan of draft %s failed to create a local draft from %s",
+                                   self.current_draft.draft_id, self.texts)
                 self.texts = []
                 self.current_draft = None
                 self.last_chunk = None
