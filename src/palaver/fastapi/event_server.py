@@ -141,9 +141,36 @@ class EventNetServer:
         self.app = FastAPI(lifespan=self.lifespan)
         self.event_sender = EventRouter(self.port, self)
         self.web_catalog = WebCatalog(self.port, self)
+        self._shutdown_event = asyncio.Event()
 
     def add_router(self, router):
         self.app.include_router(router)
+
+    async def shutdown(self):
+        """
+        Trigger clean shutdown of the server.
+        Can be called from tests to initiate shutdown sequence.
+
+        Follows the same pattern as rescan mode's clean_shutdown():
+        stops the listener before context managers exit.
+        """
+        logger.info("Shutdown requested")
+        self._shutdown_event.set()
+
+        # Stop the listener (like rescan mode does)
+        if hasattr(self.audio_listener, 'stop_streaming'):
+            await self.audio_listener.stop_streaming()
+
+        # Give pipeline brief time to notice and wind down
+        await asyncio.sleep(0.1)
+
+    async def wait_for_shutdown(self) -> bool:
+        """
+        Wait for shutdown to be triggered.
+        Returns True when shutdown event is set.
+        """
+        await self._shutdown_event.wait()
+        return True
 
     @asynccontextmanager
     async def lifespan(self, app: FastAPI):
@@ -189,7 +216,16 @@ class EventNetServer:
                     logger.info("Audio pipeline started")
 
                     error_handler.wrap_task(pipeline.run_until_error_or_interrupt)
-                    
+
+                    # Add monitoring for shutdown event
+                    async def monitor_shutdown():
+                        """Watch for shutdown event and stop listener when triggered."""
+                        await self._shutdown_event.wait()
+                        logger.info("Shutdown event detected, stopping listener")
+                        await self.audio_listener.stop_streaming()
+
+                    error_handler.wrap_task(monitor_shutdown)
+
                     # Yield to run the app
                     yield
 
