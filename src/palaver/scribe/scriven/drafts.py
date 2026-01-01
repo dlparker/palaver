@@ -41,8 +41,8 @@ class MatchResult:
 default_draft_start_patterns = []
 default_draft_end_patterns = []
 
-for name in ['rupert', 'freddy',]:
-    pattern = f"{name} take this down now"
+for name in ['freddy', 'rupert', ]:
+    pattern = f"{name} take this down"
     pat = MatchPattern(pattern, [name,])
     default_draft_start_patterns.append(pat)
 
@@ -59,7 +59,7 @@ for name in ['rupert', 'freddy',]:
     pat = MatchPattern(pattern, [name,'stop'])
     default_draft_end_patterns.append(pat)
     for doc_name in ["draft",]:
-        for preamble in ['hey ', 'wake up ']:
+        for preamble in ['', 'hey ', 'wake up ']:
             for glue in ['', 'a ', 'the ', 'uh ']:
                 for start in ['start', 'new']:
                     pattern = f"{preamble}{name} {start} {glue}{doc_name}"
@@ -245,7 +245,7 @@ class DraftBuilder:
     async def new_text(self, text, text_event=None):
         """
         NOTE! Removes any sequences of multiple spaces collapsing them
-        to one space each. This is probable not something that will happen
+        to one space each. This is probably not something that will happen
         when the text is coming from whispercpp transcription, and it
         messes up the process of identifying the pattern matching source
         string, because rapid fuzz ignores them and returns bogus indices
@@ -265,8 +265,10 @@ class DraftBuilder:
 
         logger.debug("Adding %d bytes to working text, now '%s'",
                      len(text), self.working_text) 
-        patterns = self.draft_start_patterns + self.draft_end_patterns 
-        patterns += self.section_start_patterns + self.section_end_patterns 
+        if self.current_draft:
+            patterns =  self.draft_end_patterns + self.draft_start_patterns 
+        else:
+            patterns = self.draft_start_patterns + self.draft_end_patterns 
 
         last_draft = self.current_draft
         matched = match_first(patterns, self.working_text)
