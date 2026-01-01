@@ -6,7 +6,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from palaver.utils.serializers import serialize_event
 
-logger = logging.getLogger("WebSockets")
+logger = logging.getLogger("WSManagers")
 
 
 # websocket_managers.py
@@ -14,7 +14,6 @@ import logging
 from typing import Set, Dict
 from fastapi import WebSocket, WebSocketDisconnect
 
-logger = logging.getLogger(__name__)
 
 class PipelineEventManager:
     def __init__(self):

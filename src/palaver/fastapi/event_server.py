@@ -37,7 +37,7 @@ from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEve
 from palaver.utils.serializers import serialize_value
 
 
-logger = logging.getLogger("EventNetServer")
+logger = logging.getLogger('VTTServer')
 
 class NormalListener(ScribeAPIListener):
     """

@@ -59,8 +59,6 @@ def setup_logging(default_level="WARNING", info_loggers=None, debug_loggers=None
 def get_loggers():
     res  = []
     res.append(logging.getLogger("AudioMerge"))
-    res.append(logging.getLogger("BlockAudioRecorder"))
-    res.append(logging.getLogger("Commands"))
     res.append(logging.getLogger("DraftMaker"))
     res.append(logging.getLogger("DraftRouter"))
     res.append(logging.getLogger("EventNetServer"))
@@ -74,8 +72,9 @@ def get_loggers():
     res.append(logging.getLogger("ScribeCore"))
     res.append(logging.getLogger("VADFilter"))
     res.append(logging.getLogger("VTTServer"))
+    res.append(logging.getLogger("WSManagers"))
     res.append(logging.getLogger("WavAudioRecorder"))
-    res.append(logging.getLogger("WebSockets"))
     res.append(logging.getLogger("WhisperWrapper"))
     return res
+
 
