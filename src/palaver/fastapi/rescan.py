@@ -17,7 +17,7 @@ from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEve
 from palaver.utils.serializers import serialize_value
 
 
-logger = logging.getLogger("EventNetServer")
+logger = logging.getLogger("Rescanner")
 
 
 class RescannerLocal(ScribeAPIListener):
@@ -92,7 +92,7 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
                 await self.emit_event(buffered_event)
             # we want the draft start signal to get processed right away
             await self.pipeline.whisper_tool.flush_pending()
-            self.logger.debug("Emitted buffered events from  %s to %s", first, last)
+            self.logger.debug("Emitted buffered events from  %f to %f", first.timestamp, last.timestamp)
             self.pre_draft_buffer.clear()
 
 
