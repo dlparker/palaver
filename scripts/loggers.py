@@ -68,8 +68,10 @@ def get_loggers():
     res.append(logging.getLogger("WhisperWrapper"))
     res.append(logging.getLogger("ScribeCore"))
     res.append(logging.getLogger("VTTServer"))
-    res.append(logging.getLogger("EventRouter"))
     res.append(logging.getLogger("EventNetServer"))
+    res.append(logging.getLogger("IndexRouter"))
+    res.append(logging.getLogger("EventRouter"))
+    res.append(logging.getLogger("DraftRouter"))
     res.append(logging.getLogger("Rescanner"))
     res.append(logging.getLogger("NetListener"))
     return res

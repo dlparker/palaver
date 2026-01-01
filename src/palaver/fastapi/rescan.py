@@ -3,8 +3,6 @@ import logging
 import time
 import json
 
-import websockets
-
 from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.audio_listeners import AudioListenerCCSMixin
 from palaver.fastapi.event_router import EventRouter
@@ -49,9 +47,10 @@ class RescannerLocal(ScribeAPIListener):
 
 class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
 
-    def __init__(self, event_sender: EventRouter, audio_listener, draft_recorder):
+    def __init__(self, server, event_router: EventRouter, audio_listener, draft_recorder):
         super().__init__(chunk_duration=0.03)
-        self.event_sender = event_sender
+        self.server = server
+        self.event_router = event_router
         self.audio_listener = audio_listener
         self.draft_recorder = draft_recorder
         self.pre_draft_buffer = AudioRingBuffer(max_seconds=30)
@@ -72,7 +71,10 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
 
     async def clean_shutdown(self):
         await self.audio_listener.stop_streaming()
-        
+
+    def get_audio_url(self):
+        return self.audio_listener.get_audio_url()
+    
     async def on_pipeline_shutdown(self):
         await self.audio_listener.stop_streaming()
         
@@ -95,7 +97,11 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
 
 
         if isinstance(event, DraftEndEvent):
-            await self.pipeline.whisper_tool.flush_pending()
+            if not self.current_local_draft:
+                start_time = time.time()
+                while not self.current_local_draft and time.time() < 5:
+                    await self.pipeline.whisper_tool.flush_pending()
+                    await asyncio.sleep(0.01)
             if self.current_local_draft:
                 if self.last_speech_stop:
                     # emitter in CCSMix
@@ -139,11 +145,8 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
                 self.current_local_draft = None
 
     async def save_rescan(self, orig, new):
-        url = self.audio_listener.get_audio_url() + "/new_draft"
-        async with websockets.connect(url) as websocket:
-            new.parent_draft_id = orig.draft_id
-            await websocket.send(json.dumps(serialize_value(new)))
-            data  = await websocket.recv()
+        new.parent_draft_id = orig.draft_id
+        await self.server.draft_router.send_new_draft(new)
         logger.info("Rescan result original id %s new id %s '%s' ", new.parent_draft_id, new.draft_id, new.full_text)
         self.current_draft = None
         self.last_chunk = None

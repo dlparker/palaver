@@ -19,24 +19,21 @@ from palaver.scribe.audio_events import (
 )
 from palaver.scribe.text_events import TextEvent
 from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent, DraftRevisionEvent
-from palaver.fastapi.ws_managers import PipelineEventManager, DraftSubmissionManager
-from palaver.utils.serializers import draft_from_dict
+from palaver.fastapi.ws_managers import PipelineEventManager
 
 
 logger = logging.getLogger("EventRouter")
 
 class EventRouter:
-    def __init__(self, my_port: int, server):
-        self.my_port = my_port
+    def __init__(self, server):
         self.server = server
+        self.my_port = server.port
         self.hostname = socket.gethostname()
         self.ip_address = socket.gethostbyname(self.hostname)
         self.uri = f"http://{self.hostname}:{self.my_port}/routes"
 
         self.event_manager = PipelineEventManager()
         self.event_manager.uri = self.uri  # for author_uri stamping
-
-        self.draft_manager = DraftSubmissionManager()
 
     async def send_event(self, event: AudioEvent | TextEvent | DraftEvent):
         if event.author_uri is None:
@@ -52,7 +49,7 @@ class EventRouter:
                 str(AudioErrorEvent),
                 str(TextEvent),
                 str(DraftStartEvent),
-               str(DraftEndEvent),
+                str(DraftEndEvent),
                 str(DraftRevisionEvent),
         }
         valid = set(main_types)
@@ -95,15 +92,4 @@ class EventRouter:
                 logger.error(f"Disconnecting client on error in /events: {e}", exc_info=True)
                 self.event_manager.disconnect(websocket)
 
-        @router.websocket("/new_draft")
-        async def submit_draft(websocket: WebSocket):
-            await websocket.accept()
-            data = await websocket.receive_json()
-            draft = draft_from_dict(data)
-            logger.info("Received new draft %s with parent %s on websocket",
-                        draft.draft_id, draft.parent_draft_id)
-            await self.server.pipeline.draft_maker.import_draft(draft)
-            logger.info("Posted new draft to draft_maker")
-            return {'code': 'success'}
-        
         return router            

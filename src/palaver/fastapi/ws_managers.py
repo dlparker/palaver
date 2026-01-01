@@ -51,29 +51,3 @@ class PipelineEventManager:
         for ws in disconnected:
             self.disconnect(ws)
 
-class DraftSubmissionManager:
-    async def handle_submission(self, websocket: WebSocket, processor_callback):
-        try:
-            data = await websocket.receive_json()
-            draft_event = event_from_dict(data)
-
-            result = await processor_callback(draft_event)
-
-            await websocket.send_json({
-                "status": "success",
-                "event_id": draft_event.event_id,
-                "result": result or {}
-            })
-
-        except WebSocketDisconnect:
-            logger.info("Client disconnected during draft submission")
-        except Exception as e:
-            logger.error("Error processing submitted draft", exc_info=True)
-            try:
-                await websocket.send_json({
-                    "status": "error",
-                    "message": str(e)
-                })
-            except:
-                pass
-        # No need to disconnect() — FastAPI handles cleanup on return/exit

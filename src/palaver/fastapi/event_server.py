@@ -17,8 +17,9 @@ from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.recorders.sql_drafts import SQLDraftRecorder
 from palaver.scribe.audio_listeners import AudioListenerCCSMixin
 from palaver.utils.top_error import TopErrorHandler, TopLevelCallback, ERROR_HANDLER
+from palaver.fastapi.index_router import IndexRouter
 from palaver.fastapi.event_router import EventRouter
-from palaver.fastapi.catalog import WebCatalog
+from palaver.fastapi.draft_router import DraftRouter
 from palaver.fastapi.rescan import Rescanner, RescannerLocal
 
 from palaver.scribe.audio_events import (
@@ -44,9 +45,9 @@ class NormalListener(ScribeAPIListener):
     to any listeners via EventRouter
     """
 
-    def __init__(self, event_sender: EventRouter, play_signals:bool = True):
+    def __init__(self, event_router: EventRouter, play_signals:bool = True):
         super().__init__()
-        self.event_sender = event_sender
+        self.event_router = event_router
         self.play_signals = play_signals
         self._current_draft = None
 
@@ -57,7 +58,7 @@ class NormalListener(ScribeAPIListener):
         pass
 
     async def on_audio_event(self, event: AudioEvent):
-        await self.event_sender.send_event(event)
+        await self.event_router.send_event(event)
         
     async def on_draft_event(self, event: DraftEvent):
         if isinstance(event, DraftStartEvent):
@@ -71,11 +72,11 @@ class NormalListener(ScribeAPIListener):
             logger.info(event.draft.full_text)
             logger.info('-'*100)
             await self.play_draft_signal("end draft")
-        await self.event_sender.send_event(event)
+        await self.event_router.send_event(event)
             
     async def on_text_event(self, event: TextEvent):
         logger.info("text event '%s'", event.text)
-        await self.event_sender.send_event(event)
+        await self.event_router.send_event(event)
 
     async def play_draft_signal(self, kind: str):
         if not self.play_signals:
@@ -139,9 +140,11 @@ class EventNetServer:
         self.port = port
         self.mode = mode
         self.app = FastAPI(lifespan=self.lifespan)
-        self.event_sender = EventRouter(self.port, self)
-        self.web_catalog = WebCatalog(self.port, self)
+        self.web_catalog = None
         self._shutdown_event = asyncio.Event()
+        self.index_router = None
+        self.event_router = None
+        self.draft_router = None
 
     def add_router(self, router):
         self.app.include_router(router)
@@ -181,15 +184,13 @@ class EventNetServer:
 
         error_handler = TopErrorHandler(top_level_callback=ErrorCallback(), logger=logger)
         token = ERROR_HANDLER.set(error_handler)
-        event_router = await self.event_sender.become_router()
-        self.app.include_router(event_router)
-        index_router = await self.web_catalog.become_router()
-        self.app.include_router(index_router)
         try:
-            logger.info("Starting audio pipeline...")
+            self.index_router = IndexRouter(self)
+            self.event_router = EventRouter(self)
+            self.draft_router = DraftRouter(self)
             # if mode is remote, then audio_listerner is NetListener
             if self.mode in (ServerMode.direct, ServerMode.remote):
-                api_listener = NormalListener(self.event_sender)
+                api_listener = NormalListener(self.event_router)
             else:
                 # We attach the audio listener to the Rescanner,
                 # and then plug that into the pipeline as the audio_listener.
@@ -197,16 +198,25 @@ class EventNetServer:
                 # a draft, which means it can work even if something goes wrong
                 # with draft boundary detection and it has to reconstruct the
                 # actual draft from TextEvents.
-                rescanner = Rescanner(self.event_sender, self.audio_listener, self.draft_recorder)
+                rescanner = Rescanner(self, self.event_router, self.audio_listener, self.draft_recorder)
                 self.audio_listener = rescanner
                 local_api_listener = RescannerLocal(rescanner)
                 self.pipeline_config.api_listener = local_api_listener 
             # Start pipeline with nested context managers
+            logger.info("Starting audio pipeline...")
             async with self.audio_listener:
                 async with ScribePipeline(self.audio_listener, self.pipeline_config) as pipeline:
                     self.pipeline = pipeline
+                    self.app.include_router(await self.index_router.become_router())
+                    self.app.include_router(await self.event_router.become_router())
+                    self.app.include_router(await self.draft_router.become_router())
 
-                    if self.mode != ServerMode.rescan:
+                    if self.mode == ServerMode.rescan:
+                        my_url = self.index_router.ws_url_base
+                        audio_url = self.audio_listener.get_audio_url()
+                        logger.info("Registering as rescanner")
+                        await self.draft_router.register_rescanner()
+                    else:
                         # to_VAD=True for 16kHz downsampled audio
                         pipeline.add_api_listener(api_listener,  to_VAD=True)
                         pipeline.add_api_listener(self.draft_recorder)
@@ -236,3 +246,13 @@ class EventNetServer:
                     
         finally:
             ERROR_HANDLER.reset(token)
+
+
+    def get_ws_base_url(self):
+        return self.index_router.ws_url_base
+
+    def get_audio_url(self):
+        if hasattr(self.audio_listener, 'get_audio_url'):
+            return self.audio_listener.get_audio_url()
+        return None
+    
