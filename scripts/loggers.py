@@ -72,9 +72,8 @@ def get_loggers():
     res.append(logging.getLogger("ScribeCore"))
     res.append(logging.getLogger("VADFilter"))
     res.append(logging.getLogger("VTTServer"))
-    res.append(logging.getLogger("WSManagers"))
-    res.append(logging.getLogger("WavAudioRecorder"))
     res.append(logging.getLogger("WhisperWrapper"))
     return res
+
 
 

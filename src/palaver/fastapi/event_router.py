@@ -19,7 +19,7 @@ from palaver.scribe.audio_events import (
 )
 from palaver.scribe.text_events import TextEvent
 from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent, DraftRevisionEvent
-from palaver.fastapi.ws_managers import PipelineEventManager
+from palaver.utils.serializers import serialize_event
 
 
 logger = logging.getLogger("EventRouter")
@@ -32,13 +32,46 @@ class EventRouter:
         self.ip_address = socket.gethostbyname(self.hostname)
         self.uri = f"http://{self.hostname}:{self.my_port}/routes"
 
-        self.event_manager = PipelineEventManager()
-        self.event_manager.uri = self.uri  # for author_uri stamping
+        self.active_connections: dict[WebSocket, set[str]] = {}
 
     async def send_event(self, event: AudioEvent | TextEvent | DraftEvent):
         if event.author_uri is None:
             event.author_uri = self.uri
-        await self.event_manager.send_to_subscribers(event)
+        await self._send_to_subscribers(event)
+
+    async def _connect(self, websocket: WebSocket, event_types: set[str]):
+        """Register a websocket with its event type subscriptions."""
+        self.active_connections[websocket] = event_types
+        logger.info(f"Client connected and subscribed to: {event_types}")
+        logger.info(f"Total event clients: {len(self.active_connections)}")
+
+    def _disconnect(self, websocket: WebSocket):
+        """Remove a disconnected websocket."""
+        if websocket in self.active_connections:
+            del self.active_connections[websocket]
+            logger.info(f"Client disconnected. Remaining: {len(self.active_connections)}")
+
+    async def _send_to_subscribers(self, event):
+        """Send event to all subscribed websockets."""
+        if not self.active_connections:
+            return
+
+        event_type = str(event.__class__)
+        event_dict = serialize_event(event)
+        if event.author_uri is None:
+            event.author_uri = self.uri
+
+        disconnected = []
+        for ws, subscribed in list(self.active_connections.items()):
+            if event_type in subscribed:
+                try:
+                    await ws.send_json(event_dict)
+                except Exception:
+                    logger.error("Error sending to client", exc_info=False)
+                    disconnected.append(ws)
+
+        for ws in disconnected:
+            self._disconnect(ws)
 
     def expand_event_types(self, in_types: list):
         main_types = {
@@ -81,15 +114,15 @@ class EventRouter:
                     return
 
                 event_types = self.expand_event_types(event_types)
-                await self.event_manager.connect(websocket, event_types)
+                await self._connect(websocket, event_types)
 
                 # Keep alive
                 while True:
                     await asyncio.sleep(1)
             except WebSocketDisconnect:
-                self.event_manager.disconnect(websocket)
+                self._disconnect(websocket)
             except Exception as e:
                 logger.error(f"Disconnecting client on error in /events: {e}", exc_info=True)
-                self.event_manager.disconnect(websocket)
+                self._disconnect(websocket)
 
         return router            
