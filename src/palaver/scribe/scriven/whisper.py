@@ -145,22 +145,13 @@ BUFFER_SAMPLES = 5 * 16000
 
 class WhisperWrapper:
 
-    default_config = {'buffer_samples': BUFFER_SAMPLES,
-                      'require_speech': True,
-                      'model_path': None,
-                      'pre_buffer_seconds': 1.0,
-                      }
-    config_help = {'buffer_samples': "The number of samples that will be collected before sending to speech transcriber, max",
-                   'require_speech': "If true, then transcription will be turned on and off by audio events for speech start and stop",
-                   'model_path': "Required path to the whispercpp compatible speech transcription model, e.g. ggml-basic.en.bin",
-                   'pre_buffer_seconds': "If require_speech is true, extra samples will be pulled from pre-start history this far back in time",
-                   }
     
-    def __init__(self, model_path: os.PathLike[str], use_mp=False):
+    def __init__(self, model_path: os.PathLike[str], buffer_samples: int = BUFFER_SAMPLES, fast_mode: bool = True, use_mp=False):
         self._model_path = model_path
-        self._config = dict(self.default_config)
-        self._config['model_path'] = self._model_path
-        self._buffer = np.zeros(self._config['buffer_samples'], dtype=np.float32)
+        self._buffer_samples = buffer_samples
+        self._pre_buffer_seconds = 1.0
+        self._fast_mode = fast_mode
+        self._buffer = np.zeros(self._buffer_samples, dtype=np.float32)
         self._buffer_pos = 0
         self._pre_buffer = None
         self._in_speech = False
@@ -187,9 +178,6 @@ class WhisperWrapper:
         self._error_task = None
         self._audio_stop_event = None
         self._emitter = AsyncIOEventEmitter()
-
-    def get_config(self):
-        return dict(self._config)
 
     def set_initial_prompt(self, prompt):
         self._initial_prompt = prompt
@@ -219,12 +207,15 @@ class WhisperWrapper:
                     raise Exception("Timeout waiting for flushed job")
             
     async def set_buffer_samples(self, new_samples):
-        self._config['buffer_samples'] = new_samples
+        self._buffer_samples = new_samples
         self._buffer = np.zeros(new_samples, dtype=np.float32)
         
+    def set_fast_mode(self, value: bool):
+        self._fast_mode = value
+        
     async def start(self):
-        if self._config['pre_buffer_seconds']  > 0:
-            self._pre_buffer = AudioRingBuffer(max_seconds=self._config['pre_buffer_seconds'])
+        if self._pre_buffer_seconds  > 0:
+            self._pre_buffer = AudioRingBuffer(max_seconds=self._pre_buffer_seconds)
         else:
             self._pre_buffer = None
 
@@ -299,16 +290,16 @@ class WhisperWrapper:
         await self.stop()
         return
 
-    # This is called by audio event code when "require_speech" is true,
+    # This is called by audio event code 
     # or can be managed manually to turn transcription on and off
     async def set_in_speech(self, value):
         if self._in_speech != value:
             self._in_speech = value
             limit = 16000*0.03
-            if not value and self._buffer_pos > limit:
+            if not value and self._buffer_pos > limit and self._fast_mode:
                 await self._push_buffer_job()
             else:
-                self._buffer = np.zeros(self._config['buffer_samples'], dtype=np.float32)
+                self._buffer = np.zeros(self._buffer_samples, dtype=np.float32)
                 self._buffer_pos = 0
                 self._first_chunk = None
                 self._last_chunk = None
@@ -321,7 +312,7 @@ class WhisperWrapper:
         self._last_chunk = event
         # event.data is already np.ndarray, shape (N, 1), dtype=float32, 16kHz mono
         chunk = event.data.flatten()                # → shape (N,), makes life easier
-        samples_needed = self._config['buffer_samples'] - self._buffer_pos
+        samples_needed = self._buffer_samples - self._buffer_pos
         if len(chunk) <= samples_needed:
             # Whole chunk fits → just copy it in
             self._buffer[self._buffer_pos:self._buffer_pos + len(chunk)] = chunk
@@ -335,7 +326,7 @@ class WhisperWrapper:
             self._buffer[:len(leftover)] = leftover
             self._buffer_pos = len(leftover)
         # Every time the buffer becomes full → process immediately
-        if self._buffer_pos >= self._config['buffer_samples']:
+        if self._buffer_pos >= self._buffer_samples:
             await self._push_buffer_job()
         
     async def on_audio_event(self, event):
@@ -427,7 +418,7 @@ class WhisperWrapper:
                     logger.info("\n-- blank segment ---\n")
                 elif len(job.text_segments) > 0:
                     text = " ".join(segment.text for segment in job.text_segments)
-                    event = TextEvent(text=text,
+                    event = TextEvent(text=" ".join(text.split()),
                                       audio_source_id=job.first_chunk.source_id,
                                       audio_start_time=job.first_chunk.timestamp,
                                       audio_end_time=job.last_chunk.timestamp)

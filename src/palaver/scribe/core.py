@@ -38,6 +38,7 @@ class PipelineConfig:
 
     # Whisper buffer configuration
     whisper_buffer_samples: Optional[int] = None
+    whisper_fast_mode: Optional[bool] = True
     seconds_per_scan: Optional[float] = None  # Alternative to buffer_samples
 
     def __post_init__(self):
@@ -114,10 +115,8 @@ class ScribePipeline:
             return
 
         # Create downsampler
-        self.downsampler = DownSampler(
-            target_samplerate=self.config.target_samplerate,
-            target_channels=self.config.target_channels
-        )
+        self.downsampler = DownSampler(target_samplerate=self.config.target_samplerate,
+                                       target_channels=self.config.target_channels)
         self.audio.add_audio_event_listener(self.downsampler)
 
         self.vadfilter = VADFilter(self.audio)
@@ -130,10 +129,10 @@ class ScribePipeline:
         self.audio.add_audio_event_listener(full_shim)
         self.vadfilter.add_audio_event_listener(vad_shim)
         # Create whisper transcription tool thread or process
-        self.whisper_tool = WhisperWrapper(
-            self.config.model_path,
-            use_mp=self.config.use_multiprocessing
-        )
+        self.whisper_tool = WhisperWrapper(self.config.model_path,
+                                           fast_mode = self.config.whisper_fast_mode,
+                                           use_mp=self.config.use_multiprocessing)
+                                           
         self.vadfilter.add_audio_event_listener(self.whisper_tool)
 
         self.draft_maker = DraftMaker()
@@ -143,11 +142,9 @@ class ScribePipeline:
         self.audio.add_audio_event_listener(self.draft_maker)
 
         # Apply VAD configuration from PipelineConfig
-        self.vadfilter.reset(
-            silence_ms=self.config.vad_silence_ms,
-            speech_pad_ms=self.config.vad_speech_pad_ms,
-            threshold=self.config.vad_threshold
-        )
+        self.vadfilter.reset(silence_ms=self.config.vad_silence_ms,
+                             speech_pad_ms=self.config.vad_speech_pad_ms,
+                             threshold=self.config.vad_threshold)
 
         # Apply Whisper buffer configuration from PipelineConfig
         if self.config.whisper_buffer_samples is not None:

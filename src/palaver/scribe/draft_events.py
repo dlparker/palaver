@@ -20,50 +20,12 @@ class Draft:
     timestamp: float = field(default_factory=time.time)
     draft_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     parent_draft_id: Optional[str] = None
+    audio_start_time: Optional[float] = None
+    audio_end_time: Optional[float] = None
+    
     # TextEvents that contain the start/end boundary phrases
     start_matched_events: Optional[list[TextEvent]] = field(default_factory=list)
     end_matched_events: Optional[list[TextEvent]] = field(default_factory=list)
-
-    @property
-    def trimmed_text(self):
-        start = self.full_text.find(self.start_text.text) + len(self.start_text.text)
-        if self.end_text.text == '':
-            end = len(self.full_text)
-        else:
-            end = self.full_text.find(self.end_text.text)
-        return self.full_text[start:end]
-
-    @property
-    def audio_start_time(self) -> Optional[float]:
-        """Timestamp of first audio sample in draft (seconds since epoch).
-
-        Computed from the earliest audio_start_time in start_matched_events.
-        Returns None if no matched events or if events lack timing information.
-
-        This timestamp includes pre-buffered audio (typically 1 second before
-        VAD detection), ensuring the complete draft context is available for rescan.
-        """
-        if not self.start_matched_events:
-            return None
-        times = [e.audio_start_time for e in self.start_matched_events
-                 if e.audio_start_time is not None]
-        return min(times) if times else None
-
-    @property
-    def audio_end_time(self) -> Optional[float]:
-        """Timestamp of last audio sample in draft (seconds since epoch).
-
-        Computed from the latest audio_end_time in end_matched_events.
-        Returns None if no matched events or if events lack timing information.
-
-        For drafts without explicit end phrases (force_end or implicit close),
-        end_matched_events will be empty and this returns None.
-        """
-        if not self.end_matched_events:
-            return None
-        times = [e.audio_end_time for e in self.end_matched_events
-                 if e.audio_end_time is not None]
-        return max(times) if times else None
 
 
 @dataclass(kw_only=True)

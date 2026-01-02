@@ -9,6 +9,7 @@ from palaver.fastapi.event_router import EventRouter
 from palaver.scribe.audio_events import (
     AudioEvent,
     AudioChunkEvent,
+    AudioSpeechStartEvent,
     AudioSpeechStopEvent,
     AudioRingBuffer,
 )
@@ -82,6 +83,7 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
         self.logger.info("Got draft event from remote %s", event)
         if isinstance(event, DraftStartEvent):
             self.current_draft = event.draft
+            self.pipeline.whisper_tool.set_fast_mode(False)
             min_time = self.current_draft.audio_start_time
             first = last = None
             for buffered_event in self.pre_draft_buffer.get_from(min_time):
@@ -97,6 +99,7 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
 
 
         if isinstance(event, DraftEndEvent):
+            self.pipeline.whisper_tool.set_fast_mode(True)
             if not self.current_local_draft:
                 start_time = time.time()
                 while not self.current_local_draft and time.time() < 5:
@@ -159,19 +162,16 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
 
     async def on_audio_event(self, event: AudioEvent):
         if not self.current_draft:
-            self.pre_draft_buffer.add(event)
             if isinstance(event, AudioChunkEvent):
+                self.pre_draft_buffer.add(event)
                 self.last_chunk = event
             else:
                 logger.info("Blocked audio event %s", event)
             return
-        if isinstance(event, AudioSpeechStopEvent):
-            # block it so that we don't push whisper buffer
-            self.last_speech_stop = event
-            logger.info("Got audio speech stop event, blocking %s", event)
-        else:
-            # emitter in CCSMix
-            await self.emit_event(event)
+        if isinstance(event, AudioSpeechStopEvent) or isinstance(event, AudioSpeechStartEvent):
+            return
+        # emitter in CCSMix
+        await self.emit_event(event)
 
     async def on_local_draft_event(self, event:DraftEvent):
         logger.info("Got local draft event %s", event)

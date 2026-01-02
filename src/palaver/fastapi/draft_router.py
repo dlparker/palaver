@@ -35,6 +35,7 @@ class DraftRouter:
                         draft.draft_id, draft.parent_draft_id)
             await self.server.pipeline.draft_maker.import_draft(draft)
             logger.info("Posted new draft to draft_maker")
+            logger.debug("new draft text %s", draft.full_text)
             await fapi_ws.send_json({'code': 'success'})
         
         return router            

@@ -86,6 +86,8 @@ def draft_from_dict(in_dict: dict) -> [DraftEvent]:
                  end_text=end_text,
                  full_text=in_dict['full_text'],
                  timestamp=in_dict['timestamp'],
+                 audio_start_time=in_dict['audio_start_time'],
+                 audio_end_time=in_dict['audio_end_time'],
                  draft_id=in_dict['draft_id'],
                  parent_draft_id=in_dict['parent_draft_id'],
                  start_matched_events = s_texts,
