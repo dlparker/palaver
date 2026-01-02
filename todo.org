@@ -1,8 +1,8 @@
 
 Draft fixes
-1. [] Fix boundary problems
-2. [] Change TextMark to just matched.matched_text
-3. [] Remove matched texts from draft
+1. [X] Fix boundary problems
+2. [X] Change TextMark to just matched.matched_text
+3. [X] Remove matched texts from draft
 
 
 1. [X] Complete websocket draft add logic
@@ -10,7 +10,7 @@ Draft fixes
    an url via web sockets to connect a NetListener to, then it
    initializes a NetListener and starts it, tracks the calling
    connection and shuts down the NetListener on disconnect.
-3. [X} Build a test for vtt_server direct mode that works like
+3. [x] Build a test for vtt_server direct mode that works like
    mic mode test.
 4. Update LLM review logic to work with new draft logic
 5. [X] Add pipemap registry that self constructs and provides

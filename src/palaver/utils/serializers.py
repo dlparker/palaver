@@ -13,7 +13,7 @@ from palaver.scribe.audio_events import (
 )
     
 from palaver.scribe.text_events import TextEvent
-from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent, DraftRevisionEvent, Draft, TextMark
+from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent, DraftRevisionEvent, Draft
 
 event_type_groups = {
     'audio': [
@@ -67,33 +67,7 @@ def event_from_dict(event_dict: dict) -> [AudioEvent | TextEvent | DraftEvent]:
         
 
 def draft_from_dict(in_dict: dict) -> [DraftEvent]:
-    smd = in_dict['start_text']
-    start_text = TextMark(smd['start'], smd['end'], smd['text'])
-    if in_dict['end_text'] is not None:
-        emd = in_dict['start_text']
-        end_text = TextMark(emd['start'], emd['end'], emd['text'])
-    else:
-        end_text = None
-    s_texts = []
-    for tdict in in_dict['start_matched_events']:
-        kwargs = tdict.copy()
-        s_texts.append(TextEvent(**kwargs))
-    e_texts = []
-    for tdict in in_dict['end_matched_events']:
-        kwargs = tdict.copy()
-        e_texts.append(TextEvent(**kwargs))
-    return Draft(start_text=start_text,
-                 end_text=end_text,
-                 full_text=in_dict['full_text'],
-                 timestamp=in_dict['timestamp'],
-                 audio_start_time=in_dict['audio_start_time'],
-                 audio_end_time=in_dict['audio_end_time'],
-                 draft_id=in_dict['draft_id'],
-                 parent_draft_id=in_dict['parent_draft_id'],
-                 start_matched_events = s_texts,
-                 end_matched_events = e_texts)
-
-    
+    return Draft(**in_dict)
     
 def serialize_event(event: [AudioEvent | TextEvent | DraftEvent]) -> dict[str, Any]:
     event_class = str(event.__class__)

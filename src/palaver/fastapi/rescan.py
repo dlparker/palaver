@@ -59,7 +59,6 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
         self.current_local_draft = None
         self.current_revision = None
         self.last_chunk = None
-        self.last_speech_stop = None
         self.texts = []
         self.pipeline = None
         self.logger = logging.getLogger("Rescanner")
@@ -101,15 +100,12 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
         if isinstance(event, DraftEndEvent):
             self.pipeline.whisper_tool.set_fast_mode(True)
             if not self.current_local_draft:
+                self.logger.debug("Remote says draft done, but local has no draft, flusing and pushing")
                 start_time = time.time()
-                while not self.current_local_draft and time.time() < 5:
+                while not self.current_local_draft and time.time() - start_time < 5:
                     await self.pipeline.whisper_tool.flush_pending()
                     await asyncio.sleep(0.01)
             if self.current_local_draft:
-                if self.last_speech_stop:
-                    # emitter in CCSMix
-                    await self.emit_event(self.last_speech_stop)
-                    self.last_speech_stop = None
                 if self.current_local_draft.end_text:
                     # we already have completed local draft,
                     # unlikely, but possible
@@ -118,10 +114,10 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
                 start_time = time.time()
                 async def bump():
                     # Whisper might be waiting to fill buffer, if so bump it
-                    if (self.last_chunk.timestamp >= event.draft.audio_end_time and
-                        self.pipeline.whisper_tool.sound_pending):
-                        await self.pipeline.whisper_tool.flush_pending(timeout=0.1)
-                        await bump()
+                    if self.pipeline.whisper_tool.sound_pending():
+                        await self.pipeline.whisper_tool.flush_pending()
+                    
+                self.logger.debug("Remote says draft done, but local hasing finished, flusing and pushing")
                 while not self.current_local_draft.end_text and time.time() - start_time < 15:
                     await asyncio.sleep(0.01)
                     await bump()
@@ -143,7 +139,6 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
                 self.texts = []
                 self.current_draft = None
                 self.last_chunk = None
-                self.last_speech_stop = None
                 self.texts = []
                 self.current_local_draft = None
 
@@ -153,7 +148,6 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
         logger.info("Rescan result original id %s new id %s '%s' ", new.parent_draft_id, new.draft_id, new.full_text)
         self.current_draft = None
         self.last_chunk = None
-        self.last_speech_stop = None
         self.texts = []
         self.current_local_draft = None
 

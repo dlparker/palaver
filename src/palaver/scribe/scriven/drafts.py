@@ -21,8 +21,7 @@ from palaver.scribe.draft_events import (DraftEvent,
                                          DraftEndEvent,
                                          DraftRescanEvent,
                                          DraftEventListener,
-                                         Draft,
-                                         TextMark)
+                                         Draft)
                                          
 logger = logging.getLogger('DraftMaker')
 
@@ -336,9 +335,7 @@ class DraftBuilder:
             if self.current_draft:
                 # 1.a and 1.b
                 # the positions aren't useful, legacy, but the text is
-                end_mark = TextMark(0, 0, matched.matched_text)
-                self.current_draft.end_text = end_mark
-                #self.current_draft.end_matched_events = matched_texts
+                self.current_draft.end_text = matched.matched_text
                 self.current_draft.full_text = keep_text
                 self.current_draft.audio_end_time = use_teis[-1].text_event.audio_end_time
                 logger.info("Ending draft on signal match '%s' score %f audio_start = %f audio_end = %f",
@@ -359,8 +356,7 @@ class DraftBuilder:
             if matched.match_pattern in self.draft_start_patterns:
                 # 1.a and 2.a
                 # the positions aren't useful, legacy, but the text is
-                text_mark = TextMark(0, 0,  matched.matched_text)
-                self.current_draft = Draft(start_text=text_mark,
+                self.current_draft = Draft(start_text=matched.matched_text,
                                    audio_start_time = use_teis[0].text_event.audio_start_time)
                 logger.info("New draft starting on pattern '%s' score %f",
                             matched.match_pattern.pattern, matched.score)
@@ -418,9 +414,7 @@ class DraftBuilder:
     async def end_of_text(self):
         if self.current_draft:
             logger.info("Ending current draft on call to end_of_text")
-            end_mark = TextMark(0, 0, "forced end")
-            self.current_draft.end_text = end_mark
-            #self.current_draft.end_matched_events = 
+            self.current_draft.end_text = "forced end"
             self.current_draft.full_text = self.search_text
             self.current_draft.audio_end_time = self.search_text_events[-1].text_event.audio_end_time
             logger.debug("Draft is '%s' from texts '%s'", pformat(self.current_draft),

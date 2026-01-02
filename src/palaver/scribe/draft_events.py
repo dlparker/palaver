@@ -7,15 +7,9 @@ import uuid
 
 
 @dataclass
-class TextMark:
-    start: int
-    end: int
-    text: str
-
-@dataclass
 class Draft:
-    start_text: TextMark
-    end_text: Optional[TextMark] = None
+    start_text: str
+    end_text: Optional[str] = None
     full_text: Optional[str] = field(default_factory=str)
     timestamp: float = field(default_factory=time.time)
     draft_id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -23,10 +17,6 @@ class Draft:
     audio_start_time: Optional[float] = None
     audio_end_time: Optional[float] = None
     
-    # TextEvents that contain the start/end boundary phrases
-    start_matched_events: Optional[list[TextEvent]] = field(default_factory=list)
-    end_matched_events: Optional[list[TextEvent]] = field(default_factory=list)
-
 
 @dataclass(kw_only=True)
 class DraftEvent:
