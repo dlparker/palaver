@@ -43,6 +43,10 @@ async def real1():
     pprint(draft)
     
 
+async def real2():
+
+    builder = DraftBuilder()
+
     tstart = 10.0
     tend = tstart + 6
     double_1 = """Freddy take this down! Here is body one. Freddy break break! Freddy Take this down. This is body two. Freddy break break."""
@@ -53,6 +57,9 @@ async def real1():
     pprint(draft)
     draft = drafts[1]
     pprint(draft)
+
+async def real4():
+    builder = DraftBuilder()
 
     long_text_1 = """Freddy new draft. This is a long text to make sure that it works
     Four score and seven years ago our fathers brought forth on this continent, a new nation, conceived in Liberty, and dedicated to the proposition that all men are created equal.
@@ -72,8 +79,10 @@ Freddy break break
     draft = drafts[0]
     pprint(draft)
 
-async def real2():
+async def real5():
 
+    builder = DraftBuilder()
+    
     long_text_2 = """Freddy new draft. This is a long text to make sure that it works
     Four score and seven years ago our fathers brought forth on this continent, a new nation, conceived in Liberty, and dedicated to the proposition that all men are created equal.
 
@@ -95,7 +104,6 @@ But, in a larger sense, we can not dedicate—we can not consecrate—we can not
     pprint(draft)
     return
 
-
 async def real3():
 
     builder = DraftBuilder()
@@ -103,10 +111,10 @@ async def real3():
     
     tstart = 1.0
     tend = tstart + 1
-    text = """Freddy take this down and here is some more stuff freddy break break break. Freddy take this down. Oh good. Freddy Take this down"""
+    text = """Freddy take this down and here is some more stuff freddy break break break. Freddy take this down. Oh good. Freddy Take this down foo bar"""
     text1 = TextEvent(text, audio_start_time=tstart, audio_end_time=tend)
     drafts = await builder.new_text_event(text1)
-    
+    await builder.end_of_text()
     pprint(drafts)
     
         
@@ -117,8 +125,17 @@ setup_logging(default_level="WARNING",
 
 async def main_loop():
     #await real1()
-    #await real1()
+    #await real3()
+    print("*"*80 + "  Real1()")
+    await real1()
+    print("*"*80 + "  Real2()")
+    await real2()
+    print("*"*80 + "  Real3()")
     await real3()
+    print("*"*80 + "  Real4()")
+    await real4()
+    print("*"*80 + "  Real5()")
+    await real5()
     
 async def main():
     background_error_dict = None

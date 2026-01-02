@@ -1,4 +1,8 @@
 
+Draft fixes
+1. [] Fix boundary problems
+2. [] Change TextMark to just matched.matched_text
+3. [] Remove matched texts from draft
 
 
 1. [X] Complete websocket draft add logic

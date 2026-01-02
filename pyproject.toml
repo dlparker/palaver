@@ -17,7 +17,6 @@ authors = [
 
 dependencies = [
     "aiomqtt>=2.0.0",
-    "faker>=39.0.0",
     "fastapi>=0.115.0",
     "langchain>=1.2.0",
     "nicegui>=3.3.1",

@@ -9,6 +9,7 @@ from pathlib import Path
 from enum import Enum
 import time
 import uuid
+from pprint import pformat
 
 from eventemitter import AsyncIOEventEmitter
 from rapidfuzz import fuzz
@@ -191,22 +192,26 @@ def match_first(patterns: list[MatchPattern], text: str, ratio_min: float = 85.0
 class TextEventJob:
     text_event: TextEvent
     drafts: list[Draft] = field(default_factory=list[Draft])
+
+@dataclass
+class TextEventIndex:
+    # Tracking which text event provided the text for one of the
+    # string buffers. The buffer may contain all or part of the
+    # text in the event, since draft boudaries control the buffers
+    # but may span multiple text_events with words before or
+    # after the boundary signal
+    text_event: TextEvent
+    start_pos: int # index into search text
+    end_pos: int # index into search text
     
 class DraftBuilder:
 
     def __init__(self, load_defaults=True):
-        self.working_text = ""
-        self.search_text = ""
-        self.input_text = ""
-        self.search_pos = 0
-        self.draft_text = ""
+        self.search_text = "" # all text that should be searched, constructed from outer text and state
+        self.search_text_events = [] # the text events that built the search text
         self.draft_start_patterns = []
         self.draft_end_patterns = []
         self.current_draft = None
-        self.section_start_patterns = []
-        self.section_end_patterns = []
-        self.current_section = None
-        self.roll_size = 100
         self.job_queue = asyncio.Queue()
         self.result_queue = asyncio.Queue()
         self.text_event_map = []  # [(TextEvent, start_pos_in_buffer, end_pos_in_buffer), ...]
@@ -223,37 +228,6 @@ class DraftBuilder:
     def add_draft_end_pattern(self, pattern: MatchPattern):
         self.draft_end_patterns.append(pattern)
 
-    def find_events_for_match(self, match_start, match_end=None):
-        """Find TextEvent(s) that overlap with the matched position range.
-
-        If match_end is None, finds event containing match_start (the first character).
-        Returns list of TextEvents ordered by position in buffer.
-        """
-        if match_end is None:
-            match_end = match_start + 1
-
-        events = []
-        for event, start, end in self.text_event_map:
-            if start < match_end and end > match_start:
-                events.append((event, start, end))
-
-        if len(events) == 0:
-            breakpoint()
-        return [e[0] for e in sorted(events, key=lambda x: x[1])]
-
-    def _trim_event_map_from_start(self, trim_to):
-        """Adjust text_event_map when trimming characters from start of buffer.
-
-        Args:
-            trim_to: Position in buffer up to which we're trimming (exclusive)
-        """
-        new_map = []
-        for event, start, end in self.text_event_map:
-            if end > trim_to:  # Event extends beyond trim point
-                new_start = max(0, start - trim_to)
-                new_end = end - trim_to
-                new_map.append((event, new_start, new_end))
-        self.text_event_map = new_map
 
     async def job_runner(self):
         try:
@@ -267,6 +241,7 @@ class DraftBuilder:
             return
                 
     async def new_text_event(self, text_event):
+        # make sure they serialize
         job = TextEventJob(text_event)
         await self.job_queue.put(job)
         #logger.debug("Queued job %s", job)
@@ -275,13 +250,16 @@ class DraftBuilder:
         return result.drafts
     
     async def new_text_event_op(self,  text_event):
-        start_pos = len(self.input_text)
-        if start_pos > 0 and self.input_text[-1] != ' ' and text_event.text[0] != ' ':
-            self.input_text += ' ' 
-        self.input_text += text_event.text
-        end_pos = len(self.input_text)
-        self.text_event_map.append((text_event, start_pos, end_pos))
+        start_pos = len(self.search_text)
+        if start_pos > 0 and not self.search_text[-1].isspace() and not text_event.text[0].isspace():
+            self.search_text += ' '
+        logger.debug("Adding text '%s' to search '%s'", text_event.text, self.search_text)
+        self.search_text += text_event.text
+        end_pos = len(self.search_text)
+        tei = TextEventIndex(text_event, start_pos, end_pos)
+        self.search_text_events.append(tei)
 
+        # make the search a little more efficient by ordering the match patterns
         if self.current_draft:
             patterns =  self.draft_end_patterns + self.draft_start_patterns 
         else:
@@ -289,18 +267,64 @@ class DraftBuilder:
 
         last_draft = self.current_draft
         drafts = []
-        matched = match_first(patterns, self.input_text[self.search_pos:])
+        matched = match_first(patterns, self.search_text)
         if not matched:
-            if self.current_draft:
-                self.draft_text += self.input_text[start_pos:]
-            # we don't update the search position because the current
-            # text might be part of the next signal, so we need to keep
-            # it
+            logger.debug("No match triggered by '%s', on search_text '%s'",
+                                text_event.text, self.search_text)
             return []
 
         while matched:
+            # figure out where it is in the search string, really
             actual_start, actual_end = self.find_real_range(matched)
-            matched_texts = self.find_events_for_match(actual_start, actual_end)
+            logger.debug('-'*80)
+            logger.debug("matched = %s", matched)
+            logger.debug("Actuals = %d to %d",actual_start, actual_end)
+            logger.debug("on search text '%s'", self.search_text)
+            logger.debug('-'*80)
+
+            # Need to find the audio start and stop times.
+            # This logic is deliberately laborious because
+            # the algorithm is not easy to grok, so efficient
+            # code would be hard to understand, an the
+            # total cost is tiny
+
+            start_tei = end_tei = None
+            for tei in self.search_text_events:
+                if tei.end_pos >= actual_start:
+                    start_tei = tei
+                    break
+            if not start_tei:
+                raise Exception(f"can't find starting text event index for match {matched}")
+            for tei in self.search_text_events:
+                if tei.end_pos >= actual_end:
+                    end_tei = tei
+                    break
+            if not end_tei:
+                logger.error('-'*80)
+                logger.error('all events')
+                for tei in self.search_text_events:
+                    logger.error("%s", pformat(tei))
+                logger.error('search text %s', self.search_text_events)
+                logger.error('-'*80)
+                raise Exception(f"can't find ending text event index for match {matched}")
+
+            use_teis = []
+            remaining_teis = []
+            for tei in self.search_text_events:
+                if tei.start_pos >= start_tei.start_pos and tei.end_pos <= end_tei.end_pos:
+                    use_teis.append(tei)
+                if tei.start_pos >= end_tei.start_pos:
+                    remaining_teis.append(tei)
+            # We do some trimming at this point, don't really care if signal
+            # is draft start or draft end, for trimming what matters is
+            # the state
+            
+            if self.current_draft:
+                keep_text = self.search_text[:actual_start]
+                self.current_draft.full_text = keep_text[:]
+            else:
+                keep_text = self.search_text[actual_end:]
+                self.search_text = keep_text[:]
 
             # The possibilites are:
             # 1. We have a current draft, and :
@@ -309,128 +333,99 @@ class DraftBuilder:
             # 2. We have no current draft and:
             #    a. This is a start match, so we start one
             #    b. This is an end match, so the user's a moron and we ingore everything he said till now
-            if matched.match_pattern in self.draft_end_patterns and not self.current_draft:
-                # 2.b. from above
-                self._trim_event_map_from_start(actual_end)
-                self.input_text = self.input_text[actual_end:]
-                self.search_pos = 0
-                logger.warning("Got end of draft signal %s when no current draft! truncating input to %d",
-                               matched.matched_text,
-                               len(self.input_text))
-                logger.debug("Input after out of sync match '%s' now '%s'", 
-                               matched.matched_text,
-                               self.input_text)
-            elif self.current_draft:
-                # 1.a or 1.b. from above
-                # either and end or a new start, either way we copy new text up to the match
-                draft = self.finish_current_draft(matched)
-                new_drafts = []
-                found = False
-                for dr in drafts:
-                    if dr.draft_id == draft.draft_id:
-                        new_drafts.append(draft)
-                        found = True
-                        continue
-                    new_drafts.append(dr)
-                if not found:
-                    new_drafts.append(draft)
-                drafts = new_drafts
+            if self.current_draft:
+                # 1.a and 1.b
+                # the positions aren't useful, legacy, but the text is
+                end_mark = TextMark(0, 0, matched.matched_text)
+                self.current_draft.end_text = end_mark
+                #self.current_draft.end_matched_events = matched_texts
+                self.current_draft.full_text = keep_text
+                self.current_draft.audio_end_time = use_teis[-1].text_event.audio_end_time
+                logger.info("Ending draft on signal match '%s' score %f audio_start = %f audio_end = %f",
+                            matched.matched_text, matched.score,
+                            self.current_draft.audio_start_time,
+                            self.current_draft.audio_end_time)
+                logger.debug("Draft is '%s' from texts '%s'", pformat(self.current_draft), pformat(use_teis))
+                if self.current_draft not in drafts:
+                    drafts.append(self.current_draft)
+                self.current_draft = None
+                self.search_text_events = remaining_teis
+                self.search_text = self.search_text[actual_end:]
+            elif matched.match_pattern in self.draft_end_patterns:
+                # 2.b
+                self.search_text_events = remaining_teis
+                logger.info("Draft end signal '%s' detected when no draft current, ignoring",
+                            matched.matched_text)
             if matched.match_pattern in self.draft_start_patterns:
-                next_matched = match_first(patterns, self.input_text[actual_end:])
-                # 1.b. or 2.a. from above
-                if next_matched:
-                    next_pos = next_matched.match_start + actual_end
-                else:
-                    next_pos = None
-                self.current_draft = self.make_new_draft(matched, next_pos)
+                # 1.a and 2.a
+                # the positions aren't useful, legacy, but the text is
+                text_mark = TextMark(0, 0,  matched.matched_text)
+                self.current_draft = Draft(start_text=text_mark,
+                                   audio_start_time = use_teis[0].text_event.audio_start_time)
+                logger.info("New draft starting on pattern '%s' score %f",
+                            matched.match_pattern.pattern, matched.score)
                 drafts.append(self.current_draft)
-            # stuff above messes with the input text, so search again
-            matched = match_first(patterns, self.input_text[self.search_pos:])
+                
+                self.search_text_events = use_teis
+                for tei in remaining_teis:
+                    if tei not in use_teis:
+                        self.search_text_events.append(tei)
+            matched = match_first(patterns, self.search_text)
         return drafts
-    
-    def finish_current_draft(self, matched):
-        logger.info("Ending current draft on pattern %s score %f", matched.match_pattern, matched.score)
-        
-        actual_start, actual_end = self.find_real_range(matched)
-        draft_pos = len(self.draft_text)
-        if actual_start > draft_pos:
-            self.draft_text += self.input_text[draft_pos:actual_start]
-        self.current_draft.full_text = self.draft_text
-        # the positions aren't useful, legacy, but the text is
-        end_mark = TextMark(actual_start, actual_end, matched.matched_text)
-        self.current_draft.end_text = end_mark
-        matched_texts = self.find_events_for_match(actual_start, actual_end)
-        self.current_draft.end_matched_events = matched_texts
-        self.current_draft.audio_end_time = matched_texts[0].audio_end_time
-        # cleanup
-        self.draft_text = ''
-        # trim till after the match
-        self.input_text = self.input_text[actual_end:]
-        self.search_pos = 0
-        self._trim_event_map_from_start(actual_end)
-        logger.debug("closed draft, input_text now '%s'", self.input_text)
-        res = self.current_draft
-        self.current_draft = None
-        return res
-
-    def make_new_draft(self, matched, next_match_pos=None):
-        actual_start, actual_end = self.find_real_range(matched)
-        
-        if not next_match_pos:
-            self.draft_text += self.input_text[actual_end:]
-        else:
-            self.draft_text += self.input_text[actual_end:next_match_pos]
-            
-        self.input_text = self.input_text[actual_end:]
-        self.search_pos = 0
-        # the positions aren't useful, legacy, but the text is
-        text_mark = TextMark(actual_start, actual_end,  matched.matched_text)
-        matched_texts = self.find_events_for_match(actual_start, actual_end)
-        self.current_draft = Draft(start_text=text_mark,
-                                   audio_start_time = matched_texts[0].audio_start_time)
-        #self._trim_event_map_from_start(matched.match_end)
-        logger.info("New draft starting on pattern '%s' score %f",
-                     matched.match_pattern.pattern, matched.score)
-        logger.debug("input_text now '%s'", self.input_text)
-        return self.current_draft
         
     def find_real_range(self, matched):
+        # figure out where in the searched text the actual pattern
+        # was, since the fuzzy search mangles the text removing
+        # extra whitespace and punctuation.
         # Find the first word in matched starting at the index
-        # it says.
-        adj_start = matched.match_start  + self.search_pos
-        adj_end = matched.match_end  + self.search_pos
+        # it says in the search text, which should be close
+        # enough to let us zoom in, and not likely to 
+        # let us stumble upon a different match
+        adj_start = matched.match_start
+        adj_end = matched.match_end 
         msplit = matched.matched_text.lower().rstrip().split(' ')
-        buff = self.input_text[adj_start:].lower()
+        buff = self.search_text[adj_start:].lower()
         index = buff.find(msplit[0])
         if index == -1:
             # the input text might have some extra spaces
             # before the match which will get stripped out
-            # during match. Take a swing at it.
+            # during match. Take a swing at it backing up some
+            # to catch it. The number 5 is air pulled
             start = max(0, adj_start-5)
             index = buff.find(msplit[0])
             if index == -1:
-                substr = self.input_text[start:]
-                breakpoint()
-                raise Exception(f"Can't find matched text '{matched.matched_text}' in '{substr}'")
-        actual_start = index
-        last = msplit[-1]
-        index = self.input_text[actual_start:].lower().find(last.lower())
-        if index == -1:
-            substr = self.input_text[actual_start:]
-            raise Exception(f"Can't find matched text '{matched.matched_text}' in '{substr}'")
-        actual_end = index
-        # need to advance till space or end
-        while actual_end < len(self.input_text) and not self.input_text[actual_end].isspace():
+                raise Exception(f"Can't find matched text '{matched.matched_text}' in '{self.search_text}'")
+        actual_start = adj_start + index
+        # This is a bit tricky. We use "break break" or "break break break" in
+        # some end patterns, so we need to find each of the words in the match string, not
+        # just the last one.
+        cursor = actual_start
+        for nw in msplit[1:]:
+            index = self.search_text[cursor:].lower().find(nw.lower())
+            if index == -1:
+                raise Exception(f"Can't find matched text '{matched.matched_text}' in '{self.search_text}'")
+            cursor += index + len(nw)
+        actual_end = cursor
+        # need to advance till space or end so that we capture punctuation at the end
+        while actual_end < len(self.search_text) and not self.search_text[actual_end].isspace():
             actual_end += 1
-        logger.debug("find_real_range says '%s' is at %d:%d of '%s' so '%s'",
-                     matched.matched_text, actual_start, actual_end, self.input_text,
-                     self.input_text[actual_start:actual_end])
+        logger.debug("find_real_range says '%s' is at %d:%d of search text so '%s'",
+                     matched.matched_text, actual_start, actual_end, 
+                     self.search_text[actual_start:actual_end])
         return actual_start, actual_end
+
 
     async def end_of_text(self):
         if self.current_draft:
             logger.info("Ending current draft on call to end_of_text")
-            draft = self.finish_current_draft(matched)
+            end_mark = TextMark(0, 0, "forced end")
+            self.current_draft.end_text = end_mark
+            #self.current_draft.end_matched_events = 
+            self.current_draft.full_text = self.search_text
+            self.current_draft.audio_end_time = self.search_text_events[-1].text_event.audio_end_time
+            logger.debug("Draft is '%s' from texts '%s'", pformat(self.current_draft),
+                         pformat(self.search_text_events))
+            draft = self.current_draft
             self.current_draft = None
             return draft
         return None
