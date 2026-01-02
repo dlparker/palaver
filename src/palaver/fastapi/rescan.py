@@ -68,6 +68,7 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
 
     async def on_pipeline_ready(self, pipeline):
         self.pipeline = pipeline
+        self.pipeline.whisper_tool.set_fast_mode(False)
 
     async def clean_shutdown(self):
         await self.audio_listener.stop_streaming()
@@ -82,7 +83,6 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
         self.logger.info("Got draft event from remote %s", event)
         if isinstance(event, DraftStartEvent):
             self.current_draft = event.draft
-            self.pipeline.whisper_tool.set_fast_mode(False)
             min_time = self.current_draft.audio_start_time
             first = last = None
             for buffered_event in self.pre_draft_buffer.get_from(min_time):
@@ -96,9 +96,9 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
             self.logger.debug("Emitted buffered events from  %f to %f", first.timestamp, last.timestamp)
             self.pre_draft_buffer.clear()
 
-
         if isinstance(event, DraftEndEvent):
-            self.pipeline.whisper_tool.set_fast_mode(True)
+            await self.pipeline.whisper_tool.flush_pending()
+            #self.pipeline.whisper_tool.set_fast_mode(True)
             if not self.current_local_draft:
                 self.logger.debug("Remote says draft done, but local has no draft, flusing and pushing")
                 start_time = time.time()
