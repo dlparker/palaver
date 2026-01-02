@@ -62,6 +62,7 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
         self.texts = []
         self.pipeline = None
         self.logger = logging.getLogger("Rescanner")
+        self._heartbeat_task = None
         self.audio_listener.add_audio_event_listener(self)
         self.audio_listener.add_text_event_listener(self)
         self.audio_listener.add_draft_event_listener(self)
@@ -69,14 +70,42 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
     async def on_pipeline_ready(self, pipeline):
         self.pipeline = pipeline
         self.pipeline.whisper_tool.set_fast_mode(False)
+        # Start heartbeat to maintain registration
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+        self.logger.info("Started rescanner heartbeat task")
+
+    async def _heartbeat_loop(self):
+        """Background task that sends registration heartbeat every second."""
+        try:
+            while True:
+                try:
+                    await self.server.draft_router.register_rescanner()
+                except Exception as e:
+                    self.logger.warning(f"Heartbeat registration failed: {e}")
+                await asyncio.sleep(1.0)
+        except asyncio.CancelledError:
+            self.logger.info("Heartbeat task cancelled")
+            raise
 
     async def clean_shutdown(self):
+        if self._heartbeat_task:
+            self._heartbeat_task.cancel()
+            try:
+                await self._heartbeat_task
+            except asyncio.CancelledError:
+                pass
         await self.audio_listener.stop_streaming()
 
     def get_audio_url(self):
         return self.audio_listener.get_audio_url()
     
     async def on_pipeline_shutdown(self):
+        if self._heartbeat_task:
+            self._heartbeat_task.cancel()
+            try:
+                await self._heartbeat_task
+            except asyncio.CancelledError:
+                pass
         await self.audio_listener.stop_streaming()
         
     async def on_draft_event(self, event: DraftEvent):

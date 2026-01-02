@@ -19,7 +19,7 @@ from ollama import AsyncClient
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from palaver.scribe.recorders.sql_drafts import SQLDraftRecorder, DraftRecord
-from palaver.scribe.draft_events import Draft, DraftStartEvent, DraftEndEvent, TextMark
+from palaver.scribe.draft_events import Draft, DraftStartEvent, DraftEndEvent
 
 
 # Test draft with common transcription errors
@@ -36,16 +36,10 @@ async def generate_test_draft(db_dir: Path) -> int:
     recorder = SQLDraftRecorder(output_dir=db_dir)
 
     # Create a draft with test text containing errors
-    start_mark = TextMark(start=0, end=4, text="now.")
-    end_mark = TextMark(
-        start=len(TEST_DRAFT_TEXT) - 6,
-        end=len(TEST_DRAFT_TEXT),
-        text="break."
-    )
-
+    tail = TEST_DRAFT_TEXT[len(TEST_DRAFT_TEXT) - 6:]
     draft = Draft(
-        start_text=start_mark,
-        end_text=end_mark,
+        start_text="now.",
+        end_text=tail,
         full_text=TEST_DRAFT_TEXT,
         timestamp=time.time()
     )
@@ -82,20 +76,23 @@ async def load_latest_draft(db_dir: Path) -> DraftRecord:
     return latest
 
 
-def load_prompt_preamble(version: str = 'v3_concise') -> str:
+def load_prompt_preamble(version: str = 'v4') -> str:
     """Load the editing prompt preamble.
 
     Args:
         version: 'v2' for detailed format with positions,
-                 'v3_concise' for simplified format without positions (default)
+                 'v3_concise' for simplified format without positions,
+                 'v4' for focused artifact detection (default)
     """
-    if version == 'v3_concise':
+    if version == 'v4':
+        prompt_path = Path(__file__).parent.parent / "src/palaver/scribe/llm_edit/prompt_v4.org"
+    elif version == 'v3_concise':
         prompt_path = Path(__file__).parent.parent / "src/palaver/scribe/llm_edit/prompt_v3_concise.org"
     elif version == 'v2':
         prompt_path = Path(__file__).parent.parent / "src/palaver/scribe/llm_edit/prompt_v2.org"
     else:
-        print(f"WARNING: Unknown prompt version '{version}', using v3_concise")
-        prompt_path = Path(__file__).parent.parent / "src/palaver/scribe/llm_edit/prompt_v3_concise.org"
+        print(f"WARNING: Unknown prompt version '{version}', using v4")
+        prompt_path = Path(__file__).parent.parent / "src/palaver/scribe/llm_edit/prompt_v4.org"
 
     if not prompt_path.exists():
         print(f"WARNING: Prompt file not found at {prompt_path}")
@@ -109,7 +106,7 @@ Output your analysis as JSON with the structure shown in the examples.
         return f.read()
 
 
-async def send_to_llm(draft_text: str, ollama_host: str, model: str, prompt_version: str = 'v3_concise') -> dict:
+async def send_to_llm(draft_text: str, ollama_host: str, model: str, prompt_version: str = 'v4') -> dict:
     """Send draft text with prompt to ollama and return the response."""
     client = AsyncClient(host=ollama_host)
 
@@ -172,9 +169,9 @@ async def main():
     )
     parser.add_argument(
         '--prompt-version',
-        default='v3_concise',
-        choices=['v2', 'v3_concise'],
-        help='Prompt version: v2 (detailed with positions) or v3_concise (simplified, default)'
+        default='v4',
+        choices=['v2', 'v3_concise', 'v4'],
+        help='Prompt version: v2 (detailed), v3_concise (simplified), or v4 (focused artifacts, default)'
     )
 
     args = parser.parse_args()

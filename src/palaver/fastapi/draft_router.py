@@ -1,8 +1,9 @@
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Optional
 import traceback
 import json
+import time
 
 import websockets
 
@@ -15,11 +16,12 @@ from palaver.utils.serializers import draft_from_dict, serialize_value
 logger = logging.getLogger("DraftRouter")
 
 class DraftRouter:
-    
+
     def __init__(self, server):
         self.server = server
         self.ws_base_url = None
         self.audio_url = None
+        self.last_rescanner_registration: Optional[float] = None
 
     async def become_router(self):
         router = APIRouter()
