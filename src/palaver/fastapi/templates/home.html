@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}Palaver - Home{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    <h1 class="text-4xl font-bold mb-8">Welcome to Palaver</h1>
+
+    <!-- Status Card with auto-refresh -->
+    <div class="card bg-base-200 shadow-xl mb-6">
+        <div class="card-body">
+            <h2 class="card-title">System Status</h2>
+            <div
+                id="status-display"
+                hx-get="/ui/status-partial"
+                hx-trigger="load, every 2s"
+                hx-swap="innerHTML"
+            >
+                <!-- Status info will be loaded here -->
+                <div class="flex justify-center p-8">
+                    <span class="loading loading-spinner loading-lg"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="card bg-base-200 shadow-xl">
+        <div class="card-body">
+            <h2 class="card-title">Quick Actions</h2>
+            <div class="flex gap-4">
+                <button class="btn btn-primary" disabled>Start Recording</button>
+                <button class="btn btn-secondary" disabled>View Drafts</button>
+                <button class="btn btn-accent" disabled>Settings</button>
+            </div>
+            <p class="text-sm text-base-content/70 mt-2">Coming soon...</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

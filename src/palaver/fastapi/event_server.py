@@ -20,6 +20,7 @@ from palaver.utils.top_error import TopErrorHandler, TopLevelCallback, ERROR_HAN
 from palaver.fastapi.index_router import IndexRouter
 from palaver.fastapi.event_router import EventRouter
 from palaver.fastapi.draft_router import DraftRouter
+from palaver.fastapi.ui_router import UIRouter
 from palaver.fastapi.rescan import Rescanner, RescannerLocal
 
 from palaver.scribe.audio_events import (
@@ -188,6 +189,7 @@ class EventNetServer:
             self.index_router = IndexRouter(self)
             self.event_router = EventRouter(self)
             self.draft_router = DraftRouter(self)
+            self.ui_router = UIRouter(self)
             # if mode is remote, then audio_listerner is NetListener
             if self.mode in (ServerMode.direct, ServerMode.remote):
                 api_listener = NormalListener(self.event_router)
@@ -210,6 +212,7 @@ class EventNetServer:
                     self.app.include_router(await self.index_router.become_router())
                     self.app.include_router(await self.event_router.become_router())
                     self.app.include_router(await self.draft_router.become_router())
+                    self.app.include_router(await self.ui_router.become_router())
 
                     if self.mode == ServerMode.rescan:
                         my_url = self.index_router.ws_url_base

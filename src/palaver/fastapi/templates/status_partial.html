@@ -1,0 +1,52 @@
+<div class="space-y-3">
+    <!-- Server Status -->
+    <div class="flex items-center justify-between">
+        <span class="font-semibold">Server Status:</span>
+        <span class="badge badge-success">{{ status.status }}</span>
+    </div>
+
+    <!-- Pipeline Status -->
+    <div class="flex items-center justify-between">
+        <span class="font-semibold">Pipeline Active:</span>
+        {% if status.pipeline_active %}
+            <span class="badge badge-success">Yes</span>
+        {% else %}
+            <span class="badge badge-error">No</span>
+        {% endif %}
+    </div>
+
+    <!-- Event Clients -->
+    <div class="flex items-center justify-between">
+        <span class="font-semibold">Event Clients:</span>
+        <span class="badge badge-info">{{ status.event_clients }}</span>
+    </div>
+
+    <!-- Rescanner Availability -->
+    <div class="flex items-center justify-between">
+        <span class="font-semibold">Rescanner Available:</span>
+        {% if status.rescanner_available %}
+            <span class="badge badge-success">Available</span>
+        {% else %}
+            <span class="badge badge-warning">Unavailable</span>
+        {% endif %}
+    </div>
+
+    {% if status.last_rescanner_ping %}
+    <div class="flex items-center justify-between">
+        <span class="font-semibold text-sm">Last Rescanner Ping:</span>
+        <span class="text-sm text-base-content/70">
+            {{ status.last_rescanner_ping|time_ago }} ({{ status.last_rescanner_ping|format_timestamp }})
+        </span>
+    </div>
+    {% endif %}
+
+    <!-- URLs -->
+    <div class="divider"></div>
+    <div class="text-sm space-y-1">
+        <div><span class="font-semibold">HTTP:</span> <code class="text-xs">{{ status.url }}</code></div>
+        <div><span class="font-semibold">WebSocket:</span> <code class="text-xs">{{ status.ws_url }}</code></div>
+        {% if status.rescanner_url %}
+        <div><span class="font-semibold">Rescanner:</span> <code class="text-xs">{{ status.rescanner_url }}</code></div>
+        {% endif %}
+    </div>
+</div>
