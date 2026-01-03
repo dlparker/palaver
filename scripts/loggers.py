@@ -61,7 +61,6 @@ def get_loggers():
     res.append(logging.getLogger("AudioMerge"))
     res.append(logging.getLogger("DraftMaker"))
     res.append(logging.getLogger("DraftRouter"))
-    res.append(logging.getLogger("Rescanner"))
     res.append(logging.getLogger("EventRouter"))
     res.append(logging.getLogger("FileListener"))
     res.append(logging.getLogger("IndexRouter"))
@@ -70,10 +69,12 @@ def get_loggers():
     res.append(logging.getLogger("Rescanner"))
     res.append(logging.getLogger("SQLDraftRecorder"))
     res.append(logging.getLogger("ScribeCore"))
+    res.append(logging.getLogger("UIRouter"))
     res.append(logging.getLogger("VADFilter"))
     res.append(logging.getLogger("VTTServer"))
     res.append(logging.getLogger("WhisperWrapper"))
     return res
+
 
 
 
