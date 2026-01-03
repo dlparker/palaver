@@ -5,6 +5,13 @@
 {% block extra_head %}
 <!-- HTMX SSE Extension for HTMX 2.x -->
 <script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
+<style>
+      /* Hide speech events when parent has hide-speech class */
+      .hide-speech [data-event-type="speech-start"],
+      .hide-speech [data-event-type="speech-stop"] {
+          display: none;
+      }
+</style>
 {% endblock %}
 
 {% block content %}
@@ -23,6 +30,15 @@
             <p class="text-sm text-base-content/70 mb-4">
                 Real-time feed of speech detection, transcription, and draft events
             </p>
+            <div class="flex gap-2 mb-4">
+              <label class="label cursor-pointer gap-2">
+
+                <input type="checkbox" class="checkbox checkbox-sm" 
+                       checked 
+                       onchange="document.getElementById('event-feed').parentElement.classList.toggle('hide-speech')">
+                <span class="label-text">Show Speech Events</span>
+              </label>
+            </div>
 
             <!-- SSE-connected event feed -->
             <div hx-ext="sse" sse-connect="/ui/events-stream" class="space-y-1 max-h-[600px] overflow-y-auto">
