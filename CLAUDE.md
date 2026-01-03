@@ -2,6 +2,26 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## System Context
+
+**Palaver is the voice input component of a larger Assistant system.**
+
+The complete system architecture:
+- **Palaver** (this project): Voice → Draft text (VAD + Whisper → SQLite)
+- **Gibbon** (separate project): Intent detection & action routing (Draft → Intent → Action)
+- **Assistant**: The overall system (Palaver + Gibbon + future components)
+
+**Palaver's scope and boundaries:**
+- ✅ Palaver handles: Audio capture, VAD, transcription, draft storage
+- ❌ Palaver does NOT handle: Intent detection, action routing, or managing todos/lists
+- 🔄 Interface: Drafts stored in SQLite database at `vtt_results/`
+
+**Downstream consumer:**
+Gibbon reads completed drafts from Palaver and handles all intent detection and action routing. Gibbon uses "intent trees" (context-aware command structures) to determine user intent and route to appropriate actions (todo lists, shopping lists, research questions, etc.).
+
+**When working on Palaver:**
+Focus on the voice→text pipeline quality. Intent detection and action routing are out of scope - they happen in Gibbon. Palaver's job is to produce high-quality draft transcriptions.
+
 ## Project Overview
 
 **Palaver** is an experimental voice-controlled toolset for LLM interaction. This is a personal exploration project focused on trying techniques rather than building a stable product. Code is expected to undergo extensive modification or replacement as experiments evolve.
