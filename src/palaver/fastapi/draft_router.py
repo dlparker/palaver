@@ -46,7 +46,8 @@ class DraftRouter:
             since: Optional[str] = Query(None, description="Unix timestamp or ISO datetime string"),
             limit: int = Query(100, ge=1, le=1000, description="Max results (1-1000)"),
             offset: int = Query(0, ge=0, description="Results to skip"),
-            order: str = Query("desc", pattern="^(asc|desc)$", description="Sort by timestamp")
+            order: str = Query("desc", pattern="^(asc|desc)$", description="Sort by timestamp"),
+            summary: bool = Query(False,  description="Return draft summary only")
         ):
             """List drafts with optional time filtering and pagination.
 
@@ -55,6 +56,7 @@ class DraftRouter:
             - limit: Maximum results (default 100, max 1000)
             - offset: Results to skip (default 0)
             - order: Sort order 'asc' or 'desc' by timestamp (default 'desc')
+            - summary: return only id and timestamp
             """
             try:
                 # Get drafts from recorder
@@ -78,7 +80,15 @@ class DraftRouter:
                     )
 
                 # Serialize drafts
-                draft_dicts = [draft_record_to_dict(d) for d in drafts]
+                if summary:
+                    def summary(d):
+                        return {'draft_id': d.draft_id,
+                         'timestamp': d.timestamp,
+                         'parent_draft_id': d.parent_draft_id} 
+                    draft_dicts = [summary(d) for d in drafts]
+                else:
+                    draft_dicts = [draft_record_to_dict(d) for d in drafts]
+                    
 
                 return {
                     "drafts": draft_dicts,
