@@ -3,8 +3,6 @@
 {% block title %}Palaver - Events{% endblock %}
 
 {% block extra_head %}
-<!-- HTMX SSE Extension for HTMX 2.x -->
-<script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
 <style>
       /* Hide speech events when parent has hide-speech class */
       .hide-speech [data-event-type="speech-start"],
@@ -12,6 +10,20 @@
           display: none;
       }
 </style>
+<script>
+    // Track last seen event sequence
+    let lastEventSeq = 0;
+
+    // Update sequence from response headers
+    document.body.addEventListener('htmx:afterRequest', function(evt) {
+        if (evt.detail.pathInfo.requestPath === '/ui/events-poll') {
+            const seq = evt.detail.xhr.getResponseHeader('X-Event-Sequence');
+            if (seq) {
+                lastEventSeq = parseInt(seq);
+            }
+        }
+    });
+</script>
 {% endblock %}
 
 {% block content %}
@@ -40,11 +52,13 @@
               </label>
             </div>
 
-            <!-- SSE-connected event feed -->
-            <div hx-ext="sse" sse-connect="/ui/events-stream" class="space-y-1 max-h-[600px] overflow-y-auto">
+            <!-- Polling-based event feed -->
+            <div class="space-y-1 max-h-[600px] overflow-y-auto">
                 <div
                     id="event-feed"
-                    sse-swap="message"
+                    hx-get="/ui/events-poll"
+                    hx-trigger="load, every 1s"
+                    hx-vals="js:{since: lastEventSeq}"
                     hx-swap="afterbegin"
                 >
                     <!-- Events will appear here, newest first -->

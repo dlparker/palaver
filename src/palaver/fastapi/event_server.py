@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+import signal
 from enum import Enum
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -209,7 +210,7 @@ class EventNetServer:
                 # actual draft from TextEvents.
                 rescanner = Rescanner(self, self.event_router, self.audio_listener, self.draft_recorder)
                 self.audio_listener = rescanner
-                local_api_listener = RescannerLocal(rescanner)
+                local_api_listener = RescannerLocal(rescanner, self.ui_router)
                 self.pipeline_config.api_listener = local_api_listener 
             # Start pipeline with nested context managers
             logger.info("Starting audio pipeline...")

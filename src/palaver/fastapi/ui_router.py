@@ -3,9 +3,11 @@ from pathlib import Path
 from datetime import datetime
 import time
 import asyncio
+from collections import deque
+from typing import Optional
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from palaver.scribe.audio_events import AudioSpeechStartEvent, AudioSpeechStopEvent
@@ -48,8 +50,9 @@ class UIRouter:
         # Add custom filters
         self.templates.env.filters['format_timestamp'] = format_timestamp
         self.templates.env.filters['time_ago'] = time_ago
-        # Event queues for SSE clients
-        self.event_queues = []
+        # Event buffer for polling (stores recent events with sequence numbers)
+        self.event_buffer = deque(maxlen=100)  # Keep last 100 events
+        self.event_sequence = 0
 
     async def become_router(self):
         """Create and configure the UI router."""
@@ -81,16 +84,27 @@ class UIRouter:
                 {"request": request, "status": status_data}
             )
 
-        @router.get("/ui/events-stream")
-        async def events_stream(request: Request):
-            """SSE endpoint for real-time event updates."""
-            return StreamingResponse(
-                self._event_generator(request),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                }
+        @router.get("/ui/events-poll", response_class=HTMLResponse)
+        async def events_poll(request: Request, since: int = 0):
+            """Polling endpoint for event updates. Returns HTML for events since given sequence number."""
+            new_events = [e for e in self.event_buffer if e['seq'] > since]
+
+            if not new_events:
+                # Return empty response with current sequence number
+                return HTMLResponse(
+                    content="",
+                    headers={"X-Event-Sequence": str(self.event_sequence)}
+                )
+
+            # Render events as HTML
+            html_parts = []
+            for event_data in new_events:
+                html = self._format_event_html(event_data['event'])
+                html_parts.append(html)
+
+            return HTMLResponse(
+                content="\n".join(html_parts),
+                headers={"X-Event-Sequence": str(self.event_sequence)}
             )
 
         return router
@@ -112,49 +126,21 @@ class UIRouter:
             "last_rescanner_ping": index_router.last_rescanner_registration
         }
 
-    async def _event_generator(self, request: Request):
-        """Generate SSE events for a client connection."""
-        # Create a queue for this client
-        queue = asyncio.Queue()
-        self.event_queues.append(queue)
-
-        try:
-            while True:
-                # Check if client disconnected
-                if await request.is_disconnected():
-                    break
-
-                # Wait for next event (with timeout to check disconnect)
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=1.0)
-                    html = self._format_event_html(event)
-                    # SSE requires single line or properly formatted multi-line data
-                    # Replace newlines with space to ensure single-line HTML
-                    html_single_line = html.replace('\n', ' ').replace('\r', '')
-                    logger.debug(f"Yielding SSE event: {html_single_line[:100]}...")
-                    yield f"data: {html_single_line}\n\n"
-                except asyncio.TimeoutError:
-                    # Send keepalive
-                    yield ": keepalive\n\n"
-        finally:
-            # Clean up when client disconnects
-            self.event_queues.remove(queue)
-
     async def broadcast_event(self, event):
-        """Broadcast event to all SSE clients."""
-        # Only broadcast events we care about
+        """Add event to buffer for polling clients."""
+        # Only store events we care about
         if not isinstance(event, (AudioSpeechStartEvent, AudioSpeechStopEvent,
                                  TextEvent, DraftStartEvent, DraftEndEvent)):
             return
 
-        logger.info(f"Broadcasting {event.__class__.__name__} to {len(self.event_queues)} SSE clients")
-
-        # Send to all connected SSE clients
-        for queue in self.event_queues:
-            try:
-                await queue.put(event)
-            except Exception:
-                logger.warning("Failed to queue event for SSE client", exc_info=True)
+        # Increment sequence and add to buffer
+        self.event_sequence += 1
+        self.event_buffer.append({
+            'seq': self.event_sequence,
+            'event': event,
+            'timestamp': time.time()
+        })
+        logger.debug(f"Added {event.__class__.__name__} to event buffer (seq={self.event_sequence})")
 
     def _format_event_html(self, event):
         """Format an event as HTML fragment."""

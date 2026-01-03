@@ -27,8 +27,9 @@ class RescannerLocal(ScribeAPIListener):
     listens to NetListener events. This makes it possible to keep them straight.
     """
 
-    def __init__(self, rescanner):
+    def __init__(self, rescanner, ui_router=None):
         self.rescanner = rescanner
+        self.ui_router = ui_router
 
     async def on_pipeline_ready(self, pipeline):
         await self.rescanner.on_pipeline_ready(pipeline)
@@ -37,12 +38,18 @@ class RescannerLocal(ScribeAPIListener):
         await self.rescanner.on_pipeline_shutdown()
 
     async def on_draft_event(self, event:DraftEvent):
+        if self.ui_router:
+            await self.ui_router.broadcast_event(event)
         await self.rescanner.on_local_draft_event(event)
 
     async def on_text_event(self, event: TextEvent):
+        if self.ui_router:
+            await self.ui_router.broadcast_event(event)
         await self.rescanner.on_local_text_event(event)
 
     async def on_audio_event(self, event):
+        if self.ui_router:
+            await self.ui_router.broadcast_event(event)
         await self.rescanner.on_local_audio_event(event)
 
 
