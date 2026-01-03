@@ -68,7 +68,30 @@ def event_from_dict(event_dict: dict) -> [AudioEvent | TextEvent | DraftEvent]:
 
 def draft_from_dict(in_dict: dict) -> [DraftEvent]:
     return Draft(**in_dict)
-    
+
+def draft_record_to_dict(record) -> dict:
+    """Convert DraftRecord SQLModel to JSON-serializable dict.
+
+    Args:
+        record: DraftRecord instance (or None)
+
+    Returns:
+        Dictionary with all fields, datetime converted to ISO string.
+        Returns None if record is None.
+    """
+    if record is None:
+        return None
+
+    return {
+        "draft_id": record.draft_id,
+        "timestamp": record.timestamp,
+        "full_text": record.full_text,
+        "classname": record.classname,
+        "directory_path": record.directory_path,
+        "parent_draft_id": record.parent_draft_id,
+        "created_at": record.created_at.isoformat() if record.created_at else None,
+    }
+
 def serialize_event(event: [AudioEvent | TextEvent | DraftEvent]) -> dict[str, Any]:
     event_class = str(event.__class__)
     event_dict = {"event_class": event_class}

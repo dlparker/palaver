@@ -324,3 +324,88 @@ class SQLDraftRecorder(ScribeAPIListener):
             from sqlmodel import select
             statement = select(DraftRecord).where(DraftRecord.draft_id == draft_uuid)
             return session.exec(statement).first()
+
+    def get_drafts_since(
+        self,
+        since_timestamp: float,
+        limit: int = 100,
+        offset: int = 0,
+        order: str = "desc"
+    ) -> tuple[list[DraftRecord], int]:
+        """Query drafts with timestamp >= since_timestamp.
+
+        Args:
+            since_timestamp: Unix timestamp to filter from
+            limit: Maximum number of results
+            offset: Number of results to skip
+            order: "asc" or "desc" for timestamp ordering
+
+        Returns:
+            Tuple of (drafts, total_count)
+        """
+        with Session(self._engine) as session:
+            from sqlmodel import select, func, desc, asc
+
+            # Build base query with filter
+            base_query = select(DraftRecord).where(
+                DraftRecord.timestamp >= since_timestamp
+            )
+
+            # Get total count
+            count_query = select(func.count()).select_from(base_query.subquery())
+            total = session.exec(count_query).one()
+
+            # Apply ordering
+            order_func = desc if order == "desc" else asc
+            query = base_query.order_by(order_func(DraftRecord.timestamp))
+
+            # Apply pagination
+            query = query.limit(limit).offset(offset)
+
+            drafts = list(session.exec(query).all())
+            return (drafts, total)
+
+    def get_all_drafts_paginated(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        order: str = "desc"
+    ) -> tuple[list[DraftRecord], int]:
+        """Query all drafts with pagination.
+
+        Args:
+            limit: Maximum number of results
+            offset: Number of results to skip
+            order: "asc" or "desc" for timestamp ordering
+
+        Returns:
+            Tuple of (drafts, total_count)
+        """
+        with Session(self._engine) as session:
+            from sqlmodel import select, func, desc, asc
+
+            # Get total count
+            count_query = select(func.count()).select_from(DraftRecord)
+            total = session.exec(count_query).one()
+
+            # Build query with ordering
+            order_func = desc if order == "desc" else asc
+            query = select(DraftRecord).order_by(order_func(DraftRecord.timestamp))
+
+            # Apply pagination
+            query = query.limit(limit).offset(offset)
+
+            drafts = list(session.exec(query).all())
+            return (drafts, total)
+
+    def get_draft_with_family(self, draft_uuid: str) -> tuple[Optional[DraftRecord], Optional[DraftRecord], list[DraftRecord]]:
+        """Get draft with parent and children.
+
+        Args:
+            draft_uuid: The draft_id (UUID string) to look up
+
+        Returns:
+            Tuple of (draft, parent, children)
+        """
+        with Session(self._engine) as session:
+            return DraftRecord.get_with_family(session, draft_uuid)
