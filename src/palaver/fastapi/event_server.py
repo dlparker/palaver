@@ -46,9 +46,10 @@ class NormalListener(ScribeAPIListener):
     to any listeners via EventRouter
     """
 
-    def __init__(self, event_router: EventRouter, play_signals:bool = True):
+    def __init__(self, event_router: EventRouter, ui_router=None, play_signals:bool = True):
         super().__init__()
         self.event_router = event_router
+        self.ui_router = ui_router
         self.play_signals = play_signals
         self._current_draft = None
 
@@ -60,7 +61,9 @@ class NormalListener(ScribeAPIListener):
 
     async def on_audio_event(self, event: AudioEvent):
         await self.event_router.send_event(event)
-        
+        if self.ui_router:
+            await self.ui_router.broadcast_event(event)
+
     async def on_draft_event(self, event: DraftEvent):
         if isinstance(event, DraftStartEvent):
             logger.info("New draft")
@@ -74,10 +77,14 @@ class NormalListener(ScribeAPIListener):
             logger.info('-'*100)
             await self.play_draft_signal("end draft")
         await self.event_router.send_event(event)
-            
+        if self.ui_router:
+            await self.ui_router.broadcast_event(event)
+
     async def on_text_event(self, event: TextEvent):
         logger.info("text event '%s'", event.text)
         await self.event_router.send_event(event)
+        if self.ui_router:
+            await self.ui_router.broadcast_event(event)
 
     async def play_draft_signal(self, kind: str):
         if not self.play_signals:
@@ -192,7 +199,7 @@ class EventNetServer:
             self.ui_router = UIRouter(self)
             # if mode is remote, then audio_listerner is NetListener
             if self.mode in (ServerMode.direct, ServerMode.remote):
-                api_listener = NormalListener(self.event_router)
+                api_listener = NormalListener(self.event_router, self.ui_router)
             else:
                 # We attach the audio listener to the Rescanner,
                 # and then plug that into the pipeline as the audio_listener.

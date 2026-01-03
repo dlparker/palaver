@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Palaver - Events{% endblock %}
+
+{% block extra_head %}
+<!-- HTMX SSE Extension for HTMX 2.x -->
+<script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-4xl font-bold">Live Events</h1>
+        <button class="btn btn-sm btn-outline" onclick="document.getElementById('event-feed').innerHTML = ''">
+            Clear
+        </button>
+    </div>
+
+    <!-- Event Feed Card -->
+    <div class="card bg-base-200 shadow-xl">
+        <div class="card-body">
+            <h2 class="card-title">Pipeline Events</h2>
+            <p class="text-sm text-base-content/70 mb-4">
+                Real-time feed of speech detection, transcription, and draft events
+            </p>
+
+            <!-- SSE-connected event feed -->
+            <div hx-ext="sse" sse-connect="/ui/events-stream" class="space-y-1 max-h-[600px] overflow-y-auto">
+                <div
+                    id="event-feed"
+                    sse-swap="message"
+                    hx-swap="afterbegin"
+                >
+                    <!-- Events will appear here, newest first -->
+                    <div class="text-center text-base-content/50 py-8">
+                        Waiting for events...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Info Card -->
+    <div class="alert alert-info mt-6">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        <div>
+            <div class="font-bold">Event Types</div>
+            <div class="text-sm">
+                <span class="badge badge-info badge-sm">Speech Start</span>
+                <span class="badge badge-error badge-sm">Speech Stop</span>
+                <span class="badge badge-accent badge-sm">Text</span>
+                <span class="badge badge-primary badge-sm">Draft Start</span>
+                <span class="badge badge-secondary badge-sm">Draft End</span>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

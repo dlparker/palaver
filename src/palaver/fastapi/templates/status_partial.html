@@ -2,14 +2,14 @@
     <!-- Server Status -->
     <div class="flex items-center justify-between">
         <span class="font-semibold">Server Status:</span>
-        <span class="badge badge-success">{{ status.status }}</span>
+        <span class="badge badge-info">{{ status.status }}</span>
     </div>
 
     <!-- Pipeline Status -->
     <div class="flex items-center justify-between">
         <span class="font-semibold">Pipeline Active:</span>
         {% if status.pipeline_active %}
-            <span class="badge badge-success">Yes</span>
+            <span class="badge badge-info">Yes</span>
         {% else %}
             <span class="badge badge-error">No</span>
         {% endif %}
@@ -18,14 +18,14 @@
     <!-- Event Clients -->
     <div class="flex items-center justify-between">
         <span class="font-semibold">Event Clients:</span>
-        <span class="badge badge-info">{{ status.event_clients }}</span>
+        <span class="badge badge-accent">{{ status.event_clients }}</span>
     </div>
 
     <!-- Rescanner Availability -->
     <div class="flex items-center justify-between">
         <span class="font-semibold">Rescanner Available:</span>
         {% if status.rescanner_available %}
-            <span class="badge badge-success">Available</span>
+            <span class="badge badge-info">Available</span>
         {% else %}
             <span class="badge badge-warning">Unavailable</span>
         {% endif %}
