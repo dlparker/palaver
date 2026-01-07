@@ -9,7 +9,7 @@ import websockets
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Path, HTTPException
 
-from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent, DraftRevisionEvent
+from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent
 from palaver.utils.serializers import draft_from_dict, serialize_value, draft_record_to_dict
 from palaver.utils.time_utils import parse_timestamp
 

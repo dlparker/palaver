@@ -18,7 +18,7 @@ from palaver.scribe.audio_events import (
     AudioErrorEvent,
 )
 from palaver.scribe.text_events import TextEvent
-from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent, DraftRevisionEvent
+from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent
 from palaver.utils.serializers import serialize_event
 
 
@@ -83,7 +83,6 @@ class EventRouter:
                 str(TextEvent),
                 str(DraftStartEvent),
                 str(DraftEndEvent),
-                str(DraftRevisionEvent),
         }
         valid = set(main_types)
         valid.add(str(AudioChunkEvent))

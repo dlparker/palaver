@@ -64,7 +64,6 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
         self.pre_draft_buffer = AudioRingBuffer(max_seconds=30)
         self.current_draft = None
         self.current_local_draft = None
-        self.current_revision = None
         self.last_chunk = None
         self.texts = []
         self.pipeline = None

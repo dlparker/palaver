@@ -13,7 +13,7 @@ from palaver.scribe.audio_events import (
 )
     
 from palaver.scribe.text_events import TextEvent
-from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent, DraftRevisionEvent, Draft
+from palaver.scribe.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent, Draft
 
 event_type_groups = {
     'audio': [
@@ -28,7 +28,6 @@ event_type_groups = {
     'draft': [
         DraftStartEvent,
         DraftEndEvent,
-        DraftRevisionEvent,
     ]
 }
 
@@ -42,7 +41,6 @@ for etype in [AudioStartEvent,
               TextEvent,
               DraftStartEvent,
               DraftEndEvent,
-              DraftRevisionEvent,
               ]:
     event_type_map[str(etype)] = etype
     
