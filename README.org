@@ -31,86 +31,17 @@ based on command prefixes. The techniques uses are preliminary:
 
 1. VAD based sound segment recording
 2. Whisper.cpp file based segment transcription
-3. A trivial TUI based on textual that lets user record multiple notes.
+3. Text collected into "drafts" based on detection of boundary phrases
+4. Database storage of "drafts" (SqlModel/SQLAlchemy/Sqlite)
+5. Websocket event streaming
+6. A multi-server mechansim for listening to a microphone on one machine
+   and doing transcription on another.
+7. A "rescan" mechanism where one server uses the normal transcription
+   tuning for responsiveness and a second uses better quality but
+   slower transcription tuning. The rescan server listens to the
+   "audio server" event stream and sends completed rescanned drafts
+   to the audio server for storage.
+8. A basic HTTP interface to stored "drafts"
+9. A trivial HTMX UI
 
 
-* Longer term aspirations for project
-
-** Voice to text (Stage 1)
-
-1. Supports voice driven note taking with command prefixes to
-   control disposition of note.
-2. Supports simple note catalog management to collect notes into
-   taxonomies (maybe only one, but maybe multiple, not sure)
-3. Supports the process of prompt engineering for prompting LLMs directly
-   to review generated text and provide further processing.
-4. Supports dictate/review/edit cycles to let human speak freely but
-   still avoid LLM context polution.
-
-** Text to speech (Stage 1)
-
-1. Supports basic playback controls of generated speech, pause, rewind, fast rewind/forward.
-2. Supports voice to text annotation of original text
-3. Supports display of text with tracking ball during speech, ala sing along with Mitch.
-
-** Supports basic history functions (Stage 1)
-
-1. On command save of input artifacts (audio, converted-edited text)
-2. On command save of output artifacts (result text, annotations)
-3. On command grouping for saved artifacts in file system hierarchy fashion
-4. On command tagging of saved artifacts and groups with words or short phrases
-
-** Supports voice commands for managing tool use workflows (Stage 2)
-
-Command recognition and execution for all stage 1 features.
-
-
-** Supports history taxonomy (Stage 2)
-
-1. Voice interactive marking of history artifacts with trees of tags
-2. Voice interactive expansion/refinement of tag trees into Topic Trees
-
-   
-** Supports structured RAG creation from history (Stage 3)
-
-1. Using typeagent-py, driven by the history Topic Trees, voice interaction
-   to construct data collections with mutliple taxonomies.
-2. Basic structured RAG augmentation of prompting tools, allowing
-   voice interaction loops to identify relevant topics and add
-   context to prompts RAG style.
-
-** Strucuted RAG updates via voice driven MCP interaction (Stage 4)
-
-1. Provide taxonomy meta data in prompts when S-RAG used
-2. Voice interaction for appoval/refinement/rejection of data and taxonomy updates
-3. Updates through tool into typeagent-py database.
-
-** Background
-
-This is part of a larger set of projects. Some preliminary thoughts:
-
-I am looking to build custom assistants for various tasks including
-normal daily living tasks where note taking and todo list management
-are central but access to personal records and historical preferences
-and other experienced based guidance likely needed. Another area is
-similar but focused on real world project activities in my workshop,
-building and maintaining boats, cars, and microprocessor based
-electronics projects. Another is software development both for
-building the infrastructure for the other tasks, and for other
-purposes.
-
-I would like all of this to function via a voice interface
-that I can train to understand my specific habits of thought, and
-access this via a device I wear on my body to provide full time two
-way voice interaction. Building this device will be one of the
-microprocessor based projects, and will probably go through many
-versions.
-
-I have some experience with esp32 boards and even some experience
-doing a voice recorder using an esp32 based watch and a python server
-process. I also have some experience with Raspberry PI based projects
-for boat systems integration. For the on-body project my current
-thinking is that I will use an esp32 board, or if that is inadequate
-I'll use an Onion IO Omega 2 as I have some experience with those and
-really like them. Or possibly a combination if that helps address the
-on-body configuration issues.

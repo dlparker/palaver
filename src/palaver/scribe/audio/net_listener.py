@@ -36,6 +36,7 @@ class NetListener(AudioListenerCCSMixin, AudioListener):
         self.source_id = create_source_id("net", datetime.utcnow(), 10000)
         self._buffer_size = 44,000 * self.chunk_duration
         self._running = False
+        self._paused = False
         self._reader_task = None
         self._event_queue = asyncio.Queue()
         self._client = None
@@ -46,12 +47,52 @@ class NetListener(AudioListenerCCSMixin, AudioListener):
         self._websocket = None
 
     async def set_in_speech(self, value):
-        # only used when 
+        # only used when
         self._in_speech = value
 
     def get_audio_url(self):
         return self._audio_url
-    
+
+    async def pause_streaming(self) -> None:
+        """Pause event emission without closing the connection.
+
+        The WebSocket connection remains open and continues receiving events,
+        but they are not emitted to the pipeline.
+        """
+        if not self._running:
+            logger.warning("Cannot pause: streaming not started")
+            return
+        if self._paused:
+            logger.debug("Already paused")
+            return
+
+        self._paused = True
+        logger.info("Network streaming paused")
+
+    async def resume_streaming(self) -> None:
+        """Resume event emission after pause.
+
+        Restarts emitting events to the pipeline. Connection must have been
+        started first via start_streaming().
+        """
+        if not self._running:
+            logger.warning("Cannot resume: streaming not started")
+            return
+        if not self._paused:
+            logger.debug("Already running")
+            return
+
+        self._paused = False
+        logger.info("Network streaming resumed")
+
+    def is_paused(self) -> bool:
+        """Check if streaming is currently paused."""
+        return self._paused
+
+    def is_streaming(self) -> bool:
+        """Check if streaming is currently active (started and not stopped)."""
+        return self._running
+
     async def start_streaming(self) -> None:
         if self._running:
             return
@@ -96,6 +137,12 @@ class NetListener(AudioListenerCCSMixin, AudioListener):
                             continue
                         event_dict = json.loads(message)
                         event = event_from_dict(event_dict)
+
+                        # Skip emitting events when paused, but keep receiving
+                        # to maintain the connection
+                        if self._paused:
+                            continue
+
                         if "Audio" in event_dict['event_class']:
                             if isinstance(event, AudioChunkEvent):
                                 if chunk_count % 1000 == 0:

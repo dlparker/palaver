@@ -29,11 +29,19 @@
         <div class="card-body">
             <h2 class="card-title">Quick Actions</h2>
             <div class="flex gap-4">
-                <button class="btn btn-primary" disabled>Start Recording</button>
+                <div
+                    id="recording-button-container"
+                    hx-get="/ui/recording-button"
+                    hx-trigger="load"
+                    hx-swap="innerHTML"
+                >
+                    <!-- Recording button will be loaded here -->
+                    <button class="btn btn-ghost loading">Loading...</button>
+                </div>
                 <button class="btn btn-secondary" disabled>View Drafts</button>
                 <button class="btn btn-accent" disabled>Settings</button>
             </div>
-            <p class="text-sm text-base-content/70 mt-2">Coming soon...</p>
+            <p class="text-sm text-base-content/70 mt-2">Recording control is now active. Other features coming soon...</p>
         </div>
     </div>
 </div>

@@ -30,6 +30,7 @@ class MicListener(AudioListenerCCSMixin, AudioListener):
     def __init__(self, chunk_duration: float = 0.03):
         super().__init__(chunk_duration)
         self._running = False
+        self._paused = False
         self._reader_task = None
         self._blocksize = BLOCKSIZE
         self._channels = CHANNELS
@@ -43,7 +44,47 @@ class MicListener(AudioListenerCCSMixin, AudioListener):
 
     async def set_in_speech(self, value):
         self._in_speech = value
-        
+
+    async def pause_streaming(self) -> None:
+        """Pause audio event emission without stopping the stream.
+
+        The audio stream continues running to avoid device issues,
+        but events are not emitted to the pipeline.
+        """
+        if not self._running:
+            logger.warning("Cannot pause: streaming not started")
+            return
+        if self._paused:
+            logger.debug("Already paused")
+            return
+
+        self._paused = True
+        logger.info("Audio streaming paused")
+
+    async def resume_streaming(self) -> None:
+        """Resume audio event emission after pause.
+
+        Restarts emitting events to the pipeline. Stream must have been
+        started first via start_streaming().
+        """
+        if not self._running:
+            logger.warning("Cannot resume: streaming not started")
+            return
+        if not self._paused:
+            logger.debug("Already running")
+            return
+
+        self._paused = False
+        logger.info("Audio streaming resumed")
+
+    def is_paused(self) -> bool:
+        """Check if streaming is currently paused."""
+        return self._paused
+
+    def is_streaming(self) -> bool:
+        """Check if streaming is currently active (started and not stopped)."""
+        return self._running
+
     async def start_streaming(self) -> None:
         if self._running:
             return
@@ -86,6 +127,12 @@ class MicListener(AudioListenerCCSMixin, AudioListener):
                         await self.emit_event(event)
                         await self.stop()
                         return
+
+                    # Skip emitting events when paused, but keep draining the queue
+                    # to prevent buffer overruns
+                    if self._paused:
+                        continue
+
                     event = AudioChunkEvent(
                         source_id=self.source_id,
                         stream_start_time=self._stream_start_time,

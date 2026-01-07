@@ -225,6 +225,17 @@ class Rescanner(AudioListenerCCSMixin, ScribeAPIListener):
     async def stop_streaming(self):
         await self.audio_listener.stop_streaming()
 
+    async def pause_streaming(self):
+        pass
+
+    async def resume_streaming(self):
+        pass
+
+    def is_streaming(self):
+        return True
+
+    def is_paused(self):
+        return False
 
     # ------------------------------------------------------------------
     # Context manager support to ensure open files get closed

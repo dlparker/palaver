@@ -45,7 +45,23 @@ class FileListener(AudioListenerCCSMixin, AudioListener):
 
     async def set_in_speech(self, value):
         self._in_speech = value
-        
+
+    async def pause_streaming(self) -> None:
+        """Pause not supported for file playback - stub for protocol compliance."""
+        logger.warning("Pause not supported for FileListener")
+
+    async def resume_streaming(self) -> None:
+        """Resume not supported for file playback - stub for protocol compliance."""
+        logger.warning("Resume not supported for FileListener")
+
+    def is_paused(self) -> bool:
+        """FileListener does not support pause - always returns False."""
+        return False
+
+    def is_streaming(self) -> bool:
+        """Check if file playback is currently active."""
+        return self._running
+
     async def start_streaming(self) -> None:
         if self._running:
             return

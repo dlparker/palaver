@@ -6,8 +6,8 @@ import asyncio
 from collections import deque
 from typing import Optional
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from palaver.scribe.audio_events import AudioSpeechStartEvent, AudioSpeechStopEvent
@@ -106,6 +106,68 @@ class UIRouter:
                 content="\n".join(html_parts),
                 headers={"X-Event-Sequence": str(self.event_sequence)}
             )
+
+        @router.get("/ui/recording-button", response_class=HTMLResponse)
+        async def recording_button(request: Request):
+            """Return recording button HTML based on current state."""
+            audio_listener = self.server.audio_listener
+            is_streaming = audio_listener.is_streaming() if hasattr(audio_listener, 'is_streaming') else False
+            is_paused = audio_listener.is_paused() if hasattr(audio_listener, 'is_paused') else False
+            recording = is_streaming and not is_paused
+
+            return self.templates.TemplateResponse(
+                "recording_button.html",
+                {"request": request, "recording": recording}
+            )
+
+        @router.post("/ui/recording/pause", response_class=HTMLResponse)
+        async def pause_recording(request: Request):
+            """Pause audio recording."""
+            audio_listener = self.server.audio_listener
+            if not hasattr(audio_listener, 'pause_streaming'):
+                raise HTTPException(status_code=400, detail="Pause not supported by this audio listener")
+
+            if not audio_listener.is_streaming():
+                raise HTTPException(status_code=400, detail="Recording is not active")
+
+            await audio_listener.pause_streaming()
+
+            # Return updated button
+            return self.templates.TemplateResponse(
+                "recording_button.html",
+                {"request": request, "recording": False}
+            )
+
+        @router.post("/ui/recording/resume", response_class=HTMLResponse)
+        async def resume_recording(request: Request):
+            """Resume audio recording."""
+            audio_listener = self.server.audio_listener
+            if not hasattr(audio_listener, 'resume_streaming'):
+                raise HTTPException(status_code=400, detail="Resume not supported by this audio listener")
+
+            if not audio_listener.is_streaming():
+                raise HTTPException(status_code=400, detail="Recording is not active")
+
+            await audio_listener.resume_streaming()
+
+            # Return updated button
+            return self.templates.TemplateResponse(
+                "recording_button.html",
+                {"request": request, "recording": True}
+            )
+
+        @router.get("/ui/recording/status")
+        async def get_recording_status():
+            """Get current recording status."""
+            audio_listener = self.server.audio_listener
+            is_streaming = audio_listener.is_streaming() if hasattr(audio_listener, 'is_streaming') else False
+            is_paused = audio_listener.is_paused() if hasattr(audio_listener, 'is_paused') else False
+
+            return JSONResponse({
+                "streaming": is_streaming,
+                "paused": is_paused,
+                "recording": is_streaming and not is_paused
+            })
 
         return router
 
