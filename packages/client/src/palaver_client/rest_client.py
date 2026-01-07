@@ -2,6 +2,7 @@
 import logging
 from typing import Optional
 import httpx
+from palaver_shared.serializers import draft_from_draft_record_dict
 
 logger = logging.getLogger("PalaverRestClient")
 
@@ -9,7 +10,7 @@ logger = logging.getLogger("PalaverRestClient")
 class PalaverRestClient:
     """Client for palaver's REST API to fetch drafts."""
 
-    def __init__(self, base_url: str = "http://localhost:8000"):
+    def __init__(self, base_url):
         """
         Initialize palaver REST client.
 
@@ -30,13 +31,12 @@ class PalaverRestClient:
             await self._client.aclose()
             self._client = None
 
-    async def fetch_drafts_since(
-        self,
-        since_timestamp: float,
-        limit: int = 100,
-        offset: int = 0,
-        order: str = "desc"
-    ) -> tuple[list[dict], int]:
+    async def fetch_drafts_since(self,
+                                 since_timestamp: float,
+                                 limit: int = 100,
+                                 offset: int = 0,
+                                 order: str = "desc"
+                                 ) -> tuple[list[dict], int]:
         """
         Fetch drafts created after a specific timestamp.
 
@@ -68,18 +68,18 @@ class PalaverRestClient:
         response.raise_for_status()
 
         data = response.json()
-        drafts = data["drafts"]
+        drafts = []
+        for d_dict in data["drafts"]:
+            drafts.append(draft_from_draft_record_dict(d_dict))
         total = data["total"]
 
         logger.info(f"Fetched {len(drafts)} drafts (total: {total})")
         return drafts, total
 
-    async def fetch_all_drafts(
-        self,
-        limit: int = 100,
-        offset: int = 0,
-        order: str = "desc"
-    ) -> tuple[list[dict], int]:
+    async def fetch_all_drafts(self,
+                               limit: int = 100,
+                               offset: int = 0,
+                               order: str = "desc") -> tuple[list[dict], int]:
         """
         Fetch all drafts with pagination.
 
@@ -109,18 +109,18 @@ class PalaverRestClient:
         response.raise_for_status()
 
         data = response.json()
-        drafts = data["drafts"]
+        drafts = []
+        for d_dict in data["drafts"]:
+            drafts.append(draft_from_draft_record_dict(d_dict))
         total = data["total"]
 
         logger.info(f"Fetched {len(drafts)} drafts (total: {total})")
         return drafts, total
 
-    async def fetch_draft_by_id(
-        self,
-        draft_id: str,
-        include_parent: bool = False,
-        include_children: bool = False
-    ) -> dict:
+    async def fetch_draft_by_id(self,
+                                draft_id: str,
+                                include_parent: bool = False,
+                                include_children: bool = False) -> dict:
         """
         Fetch a specific draft by UUID.
 
@@ -150,45 +150,3 @@ class PalaverRestClient:
 
         return response.json()
 
-    async def fetch_all_drafts_paginated(
-        self,
-        since_timestamp: Optional[float] = None,
-        limit: int = 100,
-        order: str = "desc"
-    ) -> list[dict]:
-        """
-        Fetch all drafts, handling pagination automatically.
-
-        Args:
-            since_timestamp: Optional Unix timestamp to fetch drafts after
-            limit: Page size (1-1000, default 100)
-            order: Sort order "asc" or "desc" (default "desc")
-
-        Returns:
-            List of all draft dicts
-
-        Raises:
-            httpx.HTTPError: If any request fails
-        """
-        all_drafts = []
-        offset = 0
-
-        while True:
-            if since_timestamp is not None:
-                drafts, total = await self.fetch_drafts_since(
-                    since_timestamp, limit=limit, offset=offset, order=order
-                )
-            else:
-                drafts, total = await self.fetch_all_drafts(
-                    limit=limit, offset=offset, order=order
-                )
-
-            all_drafts.extend(drafts)
-            offset += len(drafts)
-
-            # Check if we've fetched all
-            if offset >= total:
-                break
-
-        logger.info(f"Fetched all {len(all_drafts)} drafts")
-        return all_drafts

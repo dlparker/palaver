@@ -7,11 +7,20 @@ authors = [
 ]
 
 dependencies = [
-    "httpx",  # For REST clients
-    "websockets",  # For WebSocket handling
+    "httpx", # For REST clients
+    "websockets", # For WebSocket handling
     "fire",
     "palaver-shared",
+    "numpy>=2.4.0",
 ]
+[dependency-groups]
+dev = [
+    "ipdb>=0.13.13",
+    "pytest>=8.4.2",
+    "pytest-asyncio>=0.25.2",
+    "pytest-cov>=7.0.0",
+]
+
 [tool.uv.sources]
 palaver-shared= { path = "../shared" , editable = true }
 

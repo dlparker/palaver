@@ -62,10 +62,18 @@ def event_from_dict(event_dict: dict) -> [AudioEvent | TextEvent | DraftEvent]:
         draft = draft_from_dict(kwargs['draft'])
         kwargs['draft'] = draft
         return event_class(**kwargs)
-        
 
 def draft_from_dict(in_dict: dict) -> [DraftEvent]:
-    return Draft(**in_dict)
+    kwargs = dict(in_dict)
+    return Draft(**kwargs)
+
+def draft_from_draft_record_dict(in_dict: dict) -> [DraftEvent]:
+    return Draft(start_text="",
+                 end_text="",
+                 full_text=in_dict['full_text'],
+                 draft_id=in_dict['draft_id'],
+                 parent_draft_id=in_dict['parent_draft_id'])
+
 
 def draft_record_to_dict(record) -> dict:
     """Convert DraftRecord SQLModel to JSON-serializable dict.
