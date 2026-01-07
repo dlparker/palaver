@@ -1,0 +1,17 @@
+[project]
+name = "palaver-shared"
+version = "0.1.0"
+requires-python = ">=3.12"
+authors = [
+    { name = "Dennis Parker", email = "dennis@windhavengroup.com" }
+]
+dependencies = [
+    "websockets>=14.1",
+    "httpx>=0.28.1",
+]
+
+[build-system]
+requires = ["hatchling"]  # Or flit, setuptools; UV works with any
+build-backend = "hatchling.build"
+[tool.hatch.build.targets.wheel]
+packages=["src/palaver_shared"]
