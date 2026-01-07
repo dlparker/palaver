@@ -25,6 +25,7 @@ from palaver.scribe.draft_events import (DraftEvent,
                                          
 logger = logging.getLogger('DraftMaker')
 
+
 @dataclass
 class MatchPattern:
     pattern: str

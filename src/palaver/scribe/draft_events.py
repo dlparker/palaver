@@ -37,7 +37,7 @@ class DraftEndEvent(DraftEvent):
 class DraftRescanEvent(DraftEvent):
     original_draft_id: str
     draft: Draft
-    
+
 
 class DraftEventListener(Protocol):
 
