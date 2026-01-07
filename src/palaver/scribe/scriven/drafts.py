@@ -227,6 +227,47 @@ class DraftBuilder:
     def add_draft_end_pattern(self, pattern: MatchPattern):
         self.draft_end_patterns.append(pattern)
 
+    async def _cleanup_old_text_event(self, target_tei: TextEventIndex):
+        """Background task to clean up old text events after 20 seconds if no draft started.
+
+        Args:
+            target_tei: The TextEventIndex that triggered this cleanup task
+        """
+        await asyncio.sleep(20.0)
+
+        # Check if the TextEvent is still in the list
+        if target_tei not in self.search_text_events:
+            logger.debug("Cleanup task: TextEvent already removed, skipping")
+            return  # Already removed
+
+        # Check if a draft is now active
+        if self.current_draft is not None:
+            logger.debug("Cleanup task: Draft is active, keeping text")
+            return  # Draft is active, keep the text
+
+        # Find the index of the target TextEvent
+        target_index = self.search_text_events.index(target_tei)
+
+        # Log what we're removing
+        removed_count = target_index + 1
+        logger.info(f"Cleaning up {removed_count} old text event(s) (>20s without draft)")
+
+        # Remove all events up to and including the target
+        self.search_text_events = self.search_text_events[target_index + 1:]
+
+        # Reconstruct search_text from remaining events
+        self.search_text = ""
+        for tei in self.search_text_events:
+            start_pos = len(self.search_text)
+            if start_pos > 0 and not self.search_text[-1].isspace() and not tei.text_event.text[0].isspace():
+                self.search_text += ' '
+            self.search_text += tei.text_event.text
+            end_pos = len(self.search_text)
+            # Update the positions in the TextEventIndex
+            tei.start_pos = start_pos
+            tei.end_pos = end_pos
+
+        logger.debug(f"After cleanup: search_text now has {len(self.search_text_events)} events, {len(self.search_text)} chars")
 
     async def job_runner(self):
         try:
@@ -257,6 +298,12 @@ class DraftBuilder:
         end_pos = len(self.search_text)
         tei = TextEventIndex(text_event, start_pos, end_pos)
         self.search_text_events.append(tei)
+
+        # If no draft is currently active, create a cleanup task for this text event
+        # that will remove it after 20 seconds if no draft has started
+        if not self.current_draft:
+            get_error_handler().wrap_task(lambda: self._cleanup_old_text_event(tei))
+            logger.debug("Created cleanup task for text event (will expire in 20s if no draft)")
 
         # make the search a little more efficient by ordering the match patterns
         if self.current_draft:
