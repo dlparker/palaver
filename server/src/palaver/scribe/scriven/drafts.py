@@ -13,7 +13,7 @@ from pprint import pformat
 
 from eventemitter import AsyncIOEventEmitter
 from rapidfuzz import fuzz
-from palaver.utils.top_error import get_error_handler
+from palaver_shared.top_error import get_error_handler
 from palaver_shared.audio_events import AudioEvent, AudioStopEvent, AudioEventListener
 from palaver_shared.text_events import TextEvent, TextEventListener
 from palaver_shared.draft_events import (DraftEvent,

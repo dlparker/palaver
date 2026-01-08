@@ -31,7 +31,7 @@ from palaver_shared.audio_events import (AudioEvent,
                                          AudioChunkEvent,
                                          AudioEventListener,
                                          )
-from palaver.utils.top_error import TopErrorHandler, TopLevelCallback
+from palaver_shared.top_error import TopErrorHandler, TopLevelCallback
 from palaver_shared.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent, Draft
 from palaver.scribe.recorders.sql_drafts import SQLDraftRecorder
 from palaver_shared.text_events import TextEvent

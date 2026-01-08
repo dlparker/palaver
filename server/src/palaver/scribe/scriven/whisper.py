@@ -14,7 +14,7 @@ import subprocess
 import numpy as np
 from pywhispercpp.model import Model
 from eventemitter import AsyncIOEventEmitter
-from palaver.utils.top_error import get_error_handler
+from palaver_shared.top_error import get_error_handler
 from palaver_shared.audio_events import (AudioEvent,
                                          AudioStartEvent,
                                          AudioStopEvent,

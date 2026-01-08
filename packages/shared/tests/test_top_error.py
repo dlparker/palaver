@@ -7,16 +7,16 @@ Test VAD recorder with pre-recorded audio files
 import pytest
 import asyncio
 import logging
-from palaver.utils.top_error import (TopErrorHandler,
-                                     TopLevelCallback,
-                                     CleanShutdown,
-                                     ForcedShutdown,
-                                     TopLevelCallbackSync,
-                                     CleanShutdownSync,
-                                     ForcedShutdownSync,
-                                     ErrorHandlingException,
-                                     get_error_handler,
-                                     )
+from palaver_shared.top_error import (TopErrorHandler,
+                                      TopLevelCallback,
+                                      CleanShutdown,
+                                      ForcedShutdown,
+                                      TopLevelCallbackSync,
+                                      CleanShutdownSync,
+                                      ForcedShutdownSync,
+                                      ErrorHandlingException,
+                                      get_error_handler,
+                                      )
                                      
 
 

@@ -16,7 +16,7 @@ from palaver.scribe.audio.mic_listener import MicListener
 from palaver.scribe.core import PipelineConfig, ScribePipeline
 from palaver.scribe.recorders.sql_drafts import SQLDraftRecorder, DraftRecord
 from palaver.fastapi.event_server import EventNetServer, ServerMode
-from palaver.utils.top_error import TopErrorHandler, TopLevelCallback
+from palaver_shared.top_error import TopErrorHandler, TopLevelCallback
 from sqlmodel import Session, select
 from tests.test_utils import MockStream, APIWrapper
 

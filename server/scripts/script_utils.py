@@ -3,7 +3,7 @@
 from pathlib import Path
 import argparse
 from contextlib import asynccontextmanager
-from palaver.utils.top_error import TopErrorHandler, TopLevelCallback
+from palaver_shared.top_error import TopErrorHandler, TopLevelCallback
 
 from palaver.scribe.core import ScribePipeline
 

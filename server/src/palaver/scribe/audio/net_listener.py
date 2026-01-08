@@ -13,7 +13,7 @@ import numpy as np
 import soundfile as sf
 from eventemitter import AsyncIOEventEmitter
 
-from palaver.utils.top_error import get_error_handler
+from palaver_shared.top_error import get_error_handler
 from palaver.scribe.audio_listeners import AudioListener, AudioListenerCCSMixin, create_source_id
 from palaver_shared.audio_events import AudioStartEvent, AudioChunkEvent, AudioStopEvent, AudioErrorEvent
 from palaver_shared.audio_events import AudioEvent, AudioEventType, AudioSpeechStartEvent, AudioSpeechStopEvent

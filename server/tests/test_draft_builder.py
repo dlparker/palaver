@@ -1,6 +1,6 @@
 import pytest
 import logging
-from palaver.utils.top_error import TopErrorHandler, TopLevelCallback
+from palaver_shared.top_error import TopErrorHandler, TopLevelCallback
 from palaver.scribe.scriven.drafts import DraftBuilder
 from palaver_shared.text_events import TextEvent
 logger = logging.getLogger('test_code')

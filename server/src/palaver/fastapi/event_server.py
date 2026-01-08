@@ -17,7 +17,7 @@ from palaver.scribe.core import PipelineConfig, ScribePipeline
 from palaver.scribe.api import ScribeAPIListener
 from palaver.scribe.recorders.sql_drafts import SQLDraftRecorder
 from palaver.scribe.audio_listeners import AudioListenerCCSMixin
-from palaver.utils.top_error import TopErrorHandler, TopLevelCallback, ERROR_HANDLER
+from palaver_shared.top_error import TopErrorHandler, TopLevelCallback, ERROR_HANDLER
 from palaver.fastapi.index_router import IndexRouter
 from palaver.fastapi.event_router import EventRouter
 from palaver.fastapi.draft_router import DraftRouter

@@ -17,7 +17,6 @@ echo ""
 
 # Array of test files to run
 TEST_FILES=(
-    "tests/test_top_error.py"
     "tests/test_draft_builder.py"
     "tests/test_file_audio_to_text.py"
     "tests/test_mic_mock_to_text.py"

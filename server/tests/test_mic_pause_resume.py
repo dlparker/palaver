@@ -4,7 +4,7 @@ import pytest
 import logging
 from palaver.scribe.audio.mic_listener import MicListener
 from palaver_shared.audio_events import AudioChunkEvent
-from palaver.utils.top_error import TopErrorHandler, TopLevelCallback
+from palaver_shared.top_error import TopErrorHandler, TopLevelCallback
 
 logger = logging.getLogger("test_mic_pause_resume")
 

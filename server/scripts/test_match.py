@@ -1,7 +1,7 @@
 import asyncio
 from rapidfuzz import fuzz
 from pprint import pprint
-from palaver.utils.top_error import TopErrorHandler, TopLevelCallback
+from palaver_shared.top_error import TopErrorHandler, TopLevelCallback
 from palaver.scribe.scriven.drafts import DraftBuilder, logger, MatchResult, MatchPattern
 from palaver.scribe.scriven.drafts import default_draft_start_patterns, default_draft_end_patterns
 from palaver.scribe.scriven.drafts import clean_text_with_mapping, match_first

@@ -16,7 +16,7 @@ from dataclasses import asdict
 import websockets
 import numpy as np
 
-from palaver.utils.top_error import TopErrorHandler, TopLevelCallback
+from palaver_shared.top_error import TopErrorHandler, TopLevelCallback
 from palaver.scribe.audio.file_listener import FileListener
 from palaver_shared.audio_events import (
     AudioEvent,
