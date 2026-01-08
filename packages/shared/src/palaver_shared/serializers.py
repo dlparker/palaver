@@ -68,8 +68,8 @@ def draft_from_dict(in_dict: dict) -> [DraftEvent]:
     return Draft(**kwargs)
 
 def draft_from_draft_record_dict(in_dict: dict) -> [DraftEvent]:
-    return Draft(start_text="",
-                 end_text="",
+    return Draft(start_text=in_dict['start_text'],
+                 end_text=in_dict.get('end_text'),
                  full_text=in_dict['full_text'],
                  draft_id=in_dict['draft_id'],
                  parent_draft_id=in_dict['parent_draft_id'])
@@ -91,6 +91,8 @@ def draft_record_to_dict(record) -> dict:
     return {
         "draft_id": record.draft_id,
         "timestamp": record.timestamp,
+        "start_text": record.start_text,
+        "end_text": record.end_text,
         "full_text": record.full_text,
         "classname": record.classname,
         "directory_path": record.directory_path,

@@ -25,6 +25,8 @@ class DraftRecord(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     draft_id: str = Field(index=True, unique=True)  # UUID for draft lookup
     timestamp: float  # Original draft timestamp
+    start_text: str
+    end_text: Optional[str] = None
     full_text: str
     classname: str
     directory_path: str  # Path to the draft-{timestamp} directory
@@ -67,6 +69,8 @@ class DraftRecord(SQLModel, table=True):
         draft_record = DraftRecord(
             draft_id=str(draft.draft_id),
             timestamp=draft.timestamp,
+            start_text=draft.start_text,
+            end_text=draft.end_text,
             full_text=draft.full_text,
             classname=str(draft.__class__),
             directory_path=directory_path,
@@ -247,6 +251,8 @@ class SQLDraftRecorder(ScribeAPIListener):
             draft_record = DraftRecord(
                 draft_id=str(draft.draft_id),
                 timestamp=draft.timestamp,
+                start_text=draft.start_text,
+                end_text=draft.end_text,
                 full_text=draft.full_text,
                 classname=str(draft.__class__),
                 directory_path=str(self._current_dir) if self._current_dir else "",
@@ -298,6 +304,8 @@ class SQLDraftRecorder(ScribeAPIListener):
             draft_record = DraftRecord(
                 draft_id=str(self._current_draft.draft_id),
                 timestamp=self._current_draft.timestamp,
+                start_text=self._current_draft.start_text,
+                end_text=self._current_draft.end_text,
                 full_text=self._current_draft.full_text,
                 classname=str(self._current_draft.__class__),
                 directory_path=str(self._current_dir) if self._current_dir else ""
