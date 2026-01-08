@@ -3,6 +3,7 @@ from pprint import pprint
 from palaver_client.api import PalaverEventListener
 from palaver_client.rest_client import PalaverRestClient
 from palaver_client.websocket_client import PalaverWebSocketClient
+from palaver_shared.top_error import TopErrorHandler, TopLevelCallback
 from palaver_shared.audio_events import AudioEvent, AudioStartEvent, AudioStopEvent, AudioChunkEvent
 from palaver_shared.audio_events import AudioSpeechStartEvent, AudioSpeechStopEvent
 from palaver_shared.text_events import TextEvent
@@ -31,7 +32,7 @@ class Listener(PalaverEventListener):
         else:
             print(event)
     
-async def main():
+async def main(use_error_handler=True):
 
     rest_cli = PalaverRestClient(base_url)
     async with PalaverRestClient("http://localhost:8000") as client:
@@ -40,11 +41,25 @@ async def main():
             print(drafts[0])
         else:
             print("No draft found")
-        async with PalaverWebSocketClient(listener=Listener(),
-                                          palaver_url="http://localhost:8000") as ws_client:
-            ws_client.start_listening()
-            while True:
-                await asyncio.sleep(1)
 
+        async def main_loop():
+            async with PalaverWebSocketClient(listener=Listener(),
+                                              palaver_url="http://localhost:8000") as ws_client:
+                ws_client.start_listening()
+                while True:
+                    await asyncio.sleep(1)
+        if not use_error_handler:
+            await main_loop()
+            return
+        background_error_dict = None
+        
+        class ErrorCallback(TopLevelCallback):
+            async def on_error(self, error_dict: dict):
+                nonlocal background_error_dict
+                background_error_dict = error_dict
+                
+        handler = TopErrorHandler(top_level_callback=ErrorCallback())
+        await handler.async_run(main_loop)
+        
 if __name__ == "__main__":
     asyncio.run(main())

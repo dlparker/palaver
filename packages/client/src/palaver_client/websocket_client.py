@@ -105,7 +105,13 @@ class PalaverWebSocketClient:
         logger.info("Stopped listening for events")
 
     def start_listening(self) -> asyncio.Task:
-        self._listen_task = asyncio.create_task(self.listen())
+        try:
+            from palaver_shared.top_error import get_error_handler
+            self._listen_task = get_error_handler().wrap_task(self.listen)
+        except ImportError:
+            self._listen_task = asyncio.create_task(self.listen())
+        except RuntimeError:
+            self._listen_task = asyncio.create_task(self.listen())
         return self._listen_task
 
     async def __aenter__(self):
