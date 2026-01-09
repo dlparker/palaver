@@ -78,7 +78,7 @@ async def main():
     # Set logging level
     setup_logging(
         default_level=args.log_level,
-        info_loggers=[],
+        info_loggers=['MicListener',],
         debug_loggers=['VTTServer', 'EventRouter', 'Rescanner', 'DraftRouter', 'DraftMaker','UIRouter'],
     )
 

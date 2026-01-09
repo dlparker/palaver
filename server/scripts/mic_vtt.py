@@ -82,7 +82,7 @@ def main():
             # Run pipeline with automatic context management
             async with scribe_pipeline_context(mic_listener, config) as pipeline:
                 if args.wav:
-                    pipeline.add_api_listener(wav_recorder)
+                    await pipeline.add_api_listener(wav_recorder)
                 await pipeline.start_listener()
                 try:
                     await pipeline.run_until_error_or_interrupt()

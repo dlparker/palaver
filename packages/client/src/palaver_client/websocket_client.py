@@ -12,12 +12,6 @@ from palaver_shared.draft_events import DraftEvent
 from palaver_client.api import PalaverEventListener
 logger = logging.getLogger("PalaverWebSocketClient")
 
-# Logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
 class PalaverWebSocketClient:
     
     def __init__(self,

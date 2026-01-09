@@ -46,34 +46,10 @@ class MicListener(AudioListenerCCSMixin, AudioListener):
         self._in_speech = value
 
     async def pause_streaming(self) -> None:
-        """Pause audio event emission without stopping the stream.
-
-        The audio stream continues running to avoid device issues,
-        but events are not emitted to the pipeline.
-        """
-        if not self._running:
-            logger.warning("Cannot pause: streaming not started")
-            return
-        if self._paused:
-            logger.debug("Already paused")
-            return
-
         self._paused = True
         logger.info("Audio streaming paused")
 
     async def resume_streaming(self) -> None:
-        """Resume audio event emission after pause.
-
-        Restarts emitting events to the pipeline. Stream must have been
-        started first via start_streaming().
-        """
-        if not self._running:
-            logger.warning("Cannot resume: streaming not started")
-            return
-        if not self._paused:
-            logger.debug("Already running")
-            return
-
         self._paused = False
         logger.info("Audio streaming resumed")
 

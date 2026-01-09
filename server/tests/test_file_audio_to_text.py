@@ -121,7 +121,7 @@ async def _process_audio_file_test(audio_file: Path, expected_drafts: int):
         # Run pipeline with automatic context management
         async with file_listener:
             async with ScribePipeline(file_listener, config) as pipeline:
-                pipeline.add_api_listener(draft_recorder)
+                await pipeline.add_api_listener(draft_recorder)
                 await pipeline.start_listener()
                 await pipeline.run_until_error_or_interrupt()
 

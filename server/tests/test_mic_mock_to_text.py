@@ -251,7 +251,7 @@ async def test_process_note1_mic_mock():
             # Run pipeline with automatic context management
             async with mic_listener:
                 async with ScribePipeline(mic_listener, config) as pipeline:
-                    pipeline.add_api_listener(draft_recorder)
+                    await pipeline.add_api_listener(draft_recorder)
                     await pipeline.start_listener()
 
                     # Monitor mock and stop listener when done feeding data

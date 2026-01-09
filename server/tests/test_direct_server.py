@@ -91,7 +91,7 @@ async def test_event_server_with_mock_audio():
 
             async with mic_listener:
                 async with ScribePipeline(mic_listener, config) as pipeline:
-                    pipeline.add_api_listener(draft_recorder)
+                    await pipeline.add_api_listener(draft_recorder)
                     await pipeline.start_listener()
 
                     # Monitor mock and stop listener when done feeding data

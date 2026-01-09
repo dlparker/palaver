@@ -53,12 +53,13 @@ class NormalListener(ScribeAPIListener):
         self.ui_router = ui_router
         self.play_signals = play_signals
         self._current_draft = None
+        self.pipeline = None
 
     async def on_pipeline_ready(self, pipeline):
-        pass
+        self.pipeline = pipeline
 
     async def on_pipeline_shutdown(self):
-        pass
+        self.pipeline = None
 
     async def on_audio_event(self, event: AudioEvent):
         await self.event_router.send_event(event)
@@ -69,14 +70,14 @@ class NormalListener(ScribeAPIListener):
         if isinstance(event, DraftStartEvent):
             logger.info("New draft")
             self.current_draft = event.draft
-            await self.play_draft_signal("new draft")
+            await self.pipeline.play_signal_sound("new_draft")
         if isinstance(event, DraftEndEvent):
             logger.info("Finished draft")
             self.current_draft = None
             logger.info('-'*100)
             logger.info(event.draft.full_text)
             logger.info('-'*100)
-            await self.play_draft_signal("end draft")
+            await self.pipeline.play_signal_sound("end_draft")
         await self.event_router.send_event(event)
         if self.ui_router:
             await self.ui_router.broadcast_event(event)
@@ -86,38 +87,6 @@ class NormalListener(ScribeAPIListener):
         await self.event_router.send_event(event)
         if self.ui_router:
             await self.ui_router.broadcast_event(event)
-
-    async def play_draft_signal(self, kind: str):
-        if not self.play_signals:
-            return
-        if kind == "new draft":
-            file_path = Path(__file__).parent.parent.parent.parent / "signal_sounds" / "tos-computer-06.mp3"
-        else:
-            file_path = Path(__file__).parent.parent.parent.parent / "signal_sounds" / "tos-computer-03.mp3"
-        await self.play_signal_sound(file_path)
-            
-    async def play_signal_sound(self, file_path):
-        sound_file = sf.SoundFile(file_path)
-        sr = sound_file.samplerate
-        channels = sound_file.channels
-        chunk_duration  = 0.03
-        frames_per_chunk = max(1, int(round(chunk_duration * sr)))
-        out_stream = sd.OutputStream(
-            samplerate=sr,
-            channels=channels,
-            blocksize=frames_per_chunk,
-            dtype="float32",
-        )
-        out_stream.start()
-
-        while True:
-            data = sound_file.read(frames=frames_per_chunk, dtype="float32", always_2d=True)
-            if data.shape[0] == 0:
-                break
-            out_stream.write(data)
-        out_stream.close()
-        sound_file.close()
-
 
 class ServerMode(str, Enum):
     """
@@ -229,8 +198,8 @@ class EventNetServer:
                         await self.draft_router.register_rescanner()
                     else:
                         # to_VAD=True for 16kHz downsampled audio
-                        pipeline.add_api_listener(api_listener,  to_VAD=True)
-                        pipeline.add_api_listener(self.draft_recorder)
+                        await pipeline.add_api_listener(api_listener,  to_VAD=True)
+                        await pipeline.add_api_listener(self.draft_recorder)
 
                     # Start listening
                     await pipeline.start_listener()

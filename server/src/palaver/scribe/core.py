@@ -11,12 +11,14 @@ from palaver.scribe.audio_listeners import AudioListener
 from palaver.scribe.audio.downsampler import DownSampler
 from palaver.scribe.audio.vad_filter import VADFilter
 from palaver.scribe.audio.audio_merge import AudioMerge
+from palaver.scribe.audio.speaker_streamer import SpeakerStreamer
 from palaver_shared.audio_events import AudioEvent, AudioStopEvent, AudioSpeechStartEvent, AudioSpeechStopEvent 
 from palaver_shared.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent
 from palaver.scribe.scriven.whisper import WhisperWrapper
 from palaver.scribe.scriven.drafts import DraftMaker
 from palaver_shared.text_events import TextEventListener, TextEvent
 from palaver.scribe.api import ScribeAPIListener
+from palaver.scribe.signal_sounds import signal_sound_files
 
 logger = logging.getLogger("ScribeCore")
 
@@ -41,6 +43,8 @@ class PipelineConfig:
     whisper_fast_mode: Optional[bool] = True
     seconds_per_scan: Optional[float] = None  # Alternative to buffer_samples
 
+    use_speaker_streamer: Optional[bool] = True
+    
     def __post_init__(self):
         """Validate configuration."""
         if self.whisper_buffer_samples is not None and self.seconds_per_scan is not None:
@@ -75,6 +79,7 @@ class ScribePipeline:
         self.text_logger = None
         self._pipeline_setup_complete = False
         self._api_listeners = []
+        self._speaker_streamer: Optional[SpeakerStreamer] = None
 
     def get_pipeline_parts(self):
         return dict(audio_source=self.audio,
@@ -83,7 +88,7 @@ class ScribePipeline:
                     transcription=self.whisper_tool,
                     audio_merge=self.audio_merge)
     
-    def add_api_listener(self, api_listener:ScribeAPIListener,
+    async def add_api_listener(self, api_listener:ScribeAPIListener,
                                to_source: bool=False, to_VAD: bool=False, to_merge: bool=False):
         # If no attachment point specified, default to merge
         if not (to_source or to_VAD or to_merge):
@@ -105,6 +110,9 @@ class ScribePipeline:
         self.whisper_tool.add_text_event_listener(api_listener)
         self.draft_maker.add_draft_event_listener(api_listener)
         self._api_listeners.append(api_listener)
+        if self._pipeline_setup_complete:
+            await api_listener.on_pipeline_ready(self)
+
         
     async def setup_pipeline(self):
         """
@@ -154,11 +162,13 @@ class ScribePipeline:
             await self.whisper_tool.set_buffer_samples(samples)
 
         self._stream_monitor = StreamMonitor(self)
-        self.add_api_listener(self._stream_monitor, to_merge=True)
+        await self.add_api_listener(self._stream_monitor, to_merge=True)
         if self.config.api_listener:
-            self.add_api_listener(self.config.api_listener, to_merge=True)
+            await self.add_api_listener(self.config.api_listener, to_merge=True)
 
 
+        if self.config.use_speaker_streamer:
+            self._speaker_streamer = SpeakerStreamer(self.audio)
         self._pipeline_setup_complete = True
         logger.info("Pipeline setup complete")
         try:
@@ -209,7 +219,18 @@ class ScribePipeline:
         
     def set_background_error(self, error_dict):
         self.background_error = error_dict
-        
+
+    async def stream_file_to_speaker(self, file_path):
+        if self._speaker_streamer:
+            await self._speaker_streamer.stream_file(file_path)
+            
+    async def play_signal_sound(self, signal_name):
+        if not self._speaker_streamer:
+            return
+        file_path = signal_sound_files.get(signal_name, None)
+        if file_path:
+            await self._speaker_streamer.stream_file(file_path)
+            
     async def start_listener(self):
         """Start the listener streaming audo."""
         await self.whisper_tool.start()
