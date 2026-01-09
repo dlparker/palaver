@@ -71,6 +71,7 @@ class NormalListener(ScribeAPIListener):
             logger.info("New draft")
             self.current_draft = event.draft
             await self.pipeline.play_signal_sound("new_draft")
+            await self.pipeline.tts_text_to_speaker(f"Draft start")
         if isinstance(event, DraftEndEvent):
             logger.info("Finished draft")
             self.current_draft = None
@@ -78,6 +79,7 @@ class NormalListener(ScribeAPIListener):
             logger.info(event.draft.full_text)
             logger.info('-'*100)
             await self.pipeline.play_signal_sound("end_draft")
+            await self.pipeline.tts_text_to_speaker(f"Draft complete on {event.draft.end_text}")
         await self.event_router.send_event(event)
         if self.ui_router:
             await self.ui_router.broadcast_event(event)

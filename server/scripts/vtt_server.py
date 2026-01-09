@@ -31,6 +31,14 @@ async def main():
         help=f'Path to Whisper model file (default: {default_model})'
     )
 
+    tts_model = Path("models/en_US-lessac-medium.onnx")
+    parser.add_argument(
+        '--tts-model',
+        type=Path,
+        default=tts_model,
+        help=f'Path to tts model file (default: {tts_model})'
+    )
+
     parser.add_argument(
         '--log-level',
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
@@ -104,6 +112,8 @@ async def main():
         target_samplerate=16000,
         target_channels=1,
         use_multiprocessing=True,
+        use_speaker_streamer=True,
+        tts_model_path=args.tts_model,
     )
     if args.rescan:
         pipeline_config.vad_silence_ms = 3000

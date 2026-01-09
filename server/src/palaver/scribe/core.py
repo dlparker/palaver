@@ -2,6 +2,7 @@ import asyncio
 import logging
 import uuid
 import time
+import os
 from dataclasses import dataclass, field
 from typing import Optional, Callable
 from pathlib import Path
@@ -44,6 +45,7 @@ class PipelineConfig:
     seconds_per_scan: Optional[float] = None  # Alternative to buffer_samples
 
     use_speaker_streamer: Optional[bool] = True
+    tts_model_path: Optional[os.PathLike] = None
     
     def __post_init__(self):
         """Validate configuration."""
@@ -80,6 +82,7 @@ class ScribePipeline:
         self._pipeline_setup_complete = False
         self._api_listeners = []
         self._speaker_streamer: Optional[SpeakerStreamer] = None
+        self._tts_model_path:Optional[os.PathLike] = None
 
     def get_pipeline_parts(self):
         return dict(audio_source=self.audio,
@@ -167,8 +170,11 @@ class ScribePipeline:
             await self.add_api_listener(self.config.api_listener, to_merge=True)
 
 
+        if self.config.tts_model_path:
+            self._tts_model_path = self.config.tts_model_path
         if self.config.use_speaker_streamer:
-            self._speaker_streamer = SpeakerStreamer(self.audio)
+            self._speaker_streamer = SpeakerStreamer(self.audio, self._tts_model_path)
+            
         self._pipeline_setup_complete = True
         logger.info("Pipeline setup complete")
         try:
@@ -230,6 +236,10 @@ class ScribePipeline:
         file_path = signal_sound_files.get(signal_name, None)
         if file_path:
             await self._speaker_streamer.stream_file(file_path)
+            
+    async def tts_text_to_speaker(self, text):
+        if self._speaker_streamer and self._tts_model_path:
+            await self._speaker_streamer.stream_tts(text)
             
     async def start_listener(self):
         """Start the listener streaming audo."""
