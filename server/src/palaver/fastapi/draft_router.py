@@ -7,7 +7,7 @@ import time
 
 import websockets
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Path, HTTPException
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Path, HTTPException, Body
 
 from palaver_shared.draft_events import DraftEvent, DraftStartEvent, DraftEndEvent
 from palaver_shared.serializers import draft_from_dict, serialize_value, draft_record_to_dict
@@ -154,6 +154,61 @@ class DraftRouter:
             except Exception as e:
                 logger.error(f"Error getting draft {draft_id}: {e}", exc_info=True)
                 raise HTTPException(status_code=500, detail="Database query failed")
+
+        @router.post("/tts")
+        async def text_to_speech(
+            text: str = Body(..., embed=True, description="Text to convert to speech")
+        ):
+            """Convert text to speech and play through speaker.
+
+            Request body:
+            - text: The text to synthesize and play
+
+            Returns:
+            - success: Confirmation that TTS was initiated
+            """
+            try:
+                if not self.server.pipeline:
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Pipeline not available"
+                    )
+
+                await self.server.pipeline.tts_text_to_speaker(text)
+
+                return {"success": True, "message": "TTS initiated"}
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error in TTS: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail="TTS failed")
+
+
+        @router.post("/play_signal_sound")
+        async def text_to_speech(name: str = Body(..., embed=True, description="Name of signal sound")):
+            """
+            Request body:
+            - name: The text to synthesize and play
+
+            Returns:
+            - success: Confirmation that TTS was initiated
+            """
+            try:
+                if not self.server.pipeline:
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Pipeline not available"
+                    )
+
+                await self.server.pipeline.play_signal_sound(name)
+                return {"success": True, "message": "Signal sound"}
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error in play signal sound: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail="Signal sound playing failed")
 
         return router            
 

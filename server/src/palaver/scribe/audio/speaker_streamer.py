@@ -20,6 +20,7 @@ class SpeakerStreamer:
     def __init__(self, audio_listener: AudioListener, tts_model_path:Optional[os.PathLike] = None):
         self.audio_listener = audio_listener
         self.tts_model_path = tts_model_path
+        self.in_progress = False
 
     async def stream_file(self, file_path:os.PathLike):
         sound_file = sf.SoundFile(file_path)
@@ -45,12 +46,16 @@ class SpeakerStreamer:
                 # This blocks
                 out_stream.stop()
 
+        while self.in_progress:
+            await asyncio.sleep(0.1)
+        self.in_progress = True
         await self.audio_listener.pause_streaming()
         await asyncio.sleep(0.01) # give background task a chance to notice
         try:
             await asyncio.to_thread(player)
         finally:
             await self.audio_listener.resume_streaming()
+            self.in_progress = False
 
     async def stream_tts(self, text):
         def output_tts():
@@ -63,12 +68,16 @@ class SpeakerStreamer:
                     stream.write(int_data)
                 stream.stop()
 
+        while self.in_progress:
+            await asyncio.sleep(0.1)
+        self.in_progress = True
         await self.audio_listener.pause_streaming()
         await asyncio.sleep(0.01) # give background task a chance to notice
         try:
             await asyncio.to_thread(output_tts)
         finally:
-            await asyncio.sleep(0.75) # give audio hardware time to catch up
+            await asyncio.sleep(0.75) # give audio hardware/software time to catch up
             await self.audio_listener.resume_streaming()
+            self.in_progress = False
 
 

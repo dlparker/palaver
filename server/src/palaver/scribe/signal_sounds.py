@@ -5,4 +5,5 @@ sound_root = palaver_root / "sound_files"
 signal_sound_files = {
     'new_draft': sound_root / "signal_sounds" / "tos-computer-06.mp3",
     'end_draft': sound_root / "signal_sounds" / "tos-computer-03.mp3",
+    'working': sound_root / "signal_sounds" / "tos-computer-working.mp3",
 }
