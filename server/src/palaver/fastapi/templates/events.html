@@ -11,9 +11,9 @@
       }
 </style>
 <script>
-    // Track last seen event sequence
-    let lastEventSeq = 0;
-
+  // Track last seen event sequence
+  let lastEventSeq = 0;
+  document.addEventListener("DOMContentLoaded", function () {
     // Update sequence from response headers
     document.body.addEventListener('htmx:afterRequest', function(evt) {
         if (evt.detail.pathInfo.requestPath === '/ui/events-poll') {
@@ -23,6 +23,7 @@
             }
         }
     });
+  });
 </script>
 {% endblock %}
 
