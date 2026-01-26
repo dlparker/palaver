@@ -86,8 +86,8 @@ async def main():
     # Set logging level
     setup_logging(
         default_level=args.log_level,
-        info_loggers=['MicListener',],
-        debug_loggers=['VTTServer', 'EventRouter', 'Rescanner', 'DraftRouter', 'DraftMaker','UIRouter'],
+        info_loggers=['MicListener','DraftRouter', 'DraftMaker',],
+        debug_loggers=['VTTServer', 'EventRouter', 'Rescanner', 'UIRouter'],
     )
 
     draft_recorder = SQLDraftRecorder(args.output_dir)
